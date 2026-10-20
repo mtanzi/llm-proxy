@@ -1,0 +1,240 @@
+# Upstream connection
+
+Part of the [architecture set](README.md). This document covers how the proxy reaches provider APIs, how clients are pointed at the proxy, and what Anthropic documents about routing a Claude subscription through a gateway. The proxy internals it refers to (route resolver, `Rewrite`, journal redaction) are in [backend.md](backend.md).
+
+Sources were fetched on 2026-10-20 and are listed at the [end](#sources). Statements about Anthropic's behavior and terms quote or paraphrase those pages; nothing here describes an auth flow those pages do not document.
+
+## Protocol families and endpoints
+
+**Pending decision D3** ([README](README.md#open-decisions)): v1 is a same-family passthrough. An Anthropic-format request goes to an Anthropic-format upstream, an OpenAI-format request goes to an OpenAI-compatible upstream, and the proxy never translates between them.
+
+| Family | Client-facing endpoints on the data plane | Upstream kinds |
+|---|---|---|
+| Anthropic Messages | `POST /v1/messages`, `POST /v1/messages/count_tokens`, `GET /v1/models`, `HEAD /api/hello` | `anthropic` (the Claude API at `api.anthropic.com`) |
+| OpenAI-compatible | `POST /v1/chat/completions`, `POST /v1/responses`, `GET /v1/models` | `openai_compatible` (OpenAI, and local backends such as vLLM or Ollama that expose the same API) |
+
+Notes from Anthropic's gateway compatibility guide:
+
+- Claude Code posts inference to `/v1/messages?beta=true`, so the proxy matches on the path, not the full URL.
+- `count_tokens` is optional. Without it, Claude Code falls back to a character-based estimate.
+- `HEAD /api/hello` is a connection-warming probe that a gateway may reject without breaking anything. The proxy answers it locally with `200` and does not log it as a call.
+- `GET /v1/models` is used for model discovery only when the client sets `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`. The proxy answers it from its alias list, filtered by the key's allowed aliases. It must answer directly at the base URL, without redirects, within 3 seconds.
+
+Out of scope for v1: cloud-provider formats (Amazon Bedrock InvokeModel, Google Cloud's Agent Platform rawPredict, Microsoft Foundry, Claude Platform on AWS). They need request signing or a different wire format, which falls under the translation decision (gap review B8, B2).
+
+## Provider configuration
+
+Providers are declared in the config file (**pending decision D7**). Credentials are referenced, never inlined:
+
+```yaml
+providers:
+  - name: anthropic
+    kind: anthropic
+    base_url: https://api.anthropic.com
+    auth_mode: proxy_key              # proxy_key | client_passthrough | both
+    credential:
+      file: /run/secrets/anthropic_api_key
+    timeouts: { connect: 5s, response_header: 60s, idle_between_chunks: 120s }
+
+  - name: openai
+    kind: openai_compatible
+    base_url: https://api.openai.com
+    auth_mode: proxy_key
+    credential:
+      env: OPENAI_API_KEY
+    headers_to_add: {}                # for example OpenAI-Project, if needed
+
+  - name: local-vllm
+    kind: openai_compatible
+    base_url: http://vllm.internal:8000
+    auth_mode: proxy_key
+    credential: none
+```
+
+- `credential` resolves to an env var, a file, or `none`. It is read at start and on `SIGHUP`. No API returns it, and it is redacted from every log and journal record.
+- One provider may later hold a pool of keys to spread upstream rate limits (gap review B8). v1 has one key per provider.
+- Local backends often omit cache-token usage fields. Cost and cache diagnosis degrade on them, and the UI shows those values as unknown, not zero (gap review N5).
+
+## Credential modes
+
+The proxy has two ways to authenticate upstream. A provider enables one or both with `auth_mode`.
+
+```mermaid
+flowchart LR
+    subgraph pk[proxy_key mode: default]
+        c1[Client] -->|Authorization: Bearer lp_virtual_key| p1[llm-proxy]
+        p1 -->|x-api-key: provider key from secret| u1[Provider API]
+    end
+    subgraph cp[client_passthrough mode: opt-in]
+        c2[Client] -->|Authorization: client credential, unchanged<br/>x-llm-proxy-key: lp_virtual_key| p2[llm-proxy]
+        p2 -->|Authorization: unchanged<br/>x-llm-proxy-key removed| u2[Provider API]
+    end
+```
+
+| | `proxy_key` (default) | `client_passthrough` (opt-in) |
+|---|---|---|
+| Client credential | A virtual key, in `Authorization: Bearer` or `x-api-key` | The client's own provider credential, untouched |
+| How the proxy identifies the client | The virtual key | A virtual key in the `x-llm-proxy-key` header, required |
+| Upstream credential | The provider key held by the proxy | The client's credential, forwarded unchanged |
+| Who is billed | The owner of the proxy's provider key | The owner of the client's credential |
+| Aliases, fallback, cross-provider routing | Yes, within the protocol family | No: the credential is only valid at its own provider |
+| Budgets | Enforced in dollars from computed cost | Informational only; the provider's own limits apply |
+| Main use | API-key access for every harness | A person routing their own Claude subscription through their own proxy |
+
+In both modes the proxy requires a virtual key. Without one, the proxy would be an open relay for anyone's credentials, and calls could not be attributed.
+
+## Header handling
+
+For the Anthropic family. "Forward" means unchanged, byte for byte.
+
+| Header | Request handling |
+|---|---|
+| `Authorization`, `x-api-key` | `proxy_key`: consumed as the virtual key, removed, and replaced by `x-api-key: <provider key>`. `client_passthrough`: forwarded, never logged, never written to the journal |
+| `x-llm-proxy-key` | Consumed as the virtual key, never forwarded |
+| `anthropic-version`, `anthropic-beta`, every other `anthropic-*` | Forwarded. Treated as open lists, never allowlisted, as Anthropic's guide requires |
+| `x-claude-code-*` | Read for correlation ([backend.md](backend.md#correlation)) and forwarded |
+| `traceparent` | Recorded and forwarded |
+| Hop-by-hop headers | Removed by `ReverseProxy`, as HTTP requires |
+
+| Header | Response handling |
+|---|---|
+| `content-type` | Forwarded; `text/event-stream` on streams |
+| `retry-after` | Forwarded from the upstream; integer seconds when the proxy generates the error |
+| `x-should-retry` | Forwarded |
+| `anthropic-ratelimit-unified-*` | Forwarded on every response. Claude Code reads them to show plan usage to subscription users and to tell a plan limit from a temporary throttle |
+| `request-id` | Forwarded and stored as `upstream_request_id` |
+| `x-request-id` | Added: the proxy's call id |
+
+Body handling follows Anthropic's "inspect without modifying" rule. The proxy forwards the `system` array, `tools`, earlier `messages`, `cache_control` markers and error bodies unchanged. Rewriting any of them breaks the system-prompt attribution strip, prompt caching, or the preserved-thinking check, which then fails with `bound to a different conversation`. The only body edit is the `model` splice when an alias resolves to a different model, done on bytes ([backend.md](backend.md#route-resolver)).
+
+For the OpenAI family the rules are the same, with `Authorization: Bearer` as the upstream credential header, and with the `include_usage` injection described in [backend.md](backend.md#proxy-passthrough-and-streaming).
+
+## Claude Code with a proxy-held API key
+
+This is the default, documented gateway setup. Anthropic's "Other LLM gateways" page lists what it gives: provider keys stay server-side, usage is attributed per developer, budgets and audit logs live in one place.
+
+Client configuration, in the shell or in the `env` block of `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://llm-proxy.internal:8080",
+    "ANTHROPIC_AUTH_TOKEN": "lp_…",
+    "CLAUDE_CODE_GATEWAY_HINT_HEADERS": "1"
+  }
+}
+```
+
+- `ANTHROPIC_AUTH_TOKEN` sends the virtual key as `Authorization: Bearer`. `ANTHROPIC_API_KEY` would send it as `x-api-key`, and an `apiKeyHelper` sends it in both. The proxy accepts all three.
+- `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1` turns on the hint headers that the session tree and tool durations use. They are off by default behind a custom base URL. **Pending decision D5.**
+- The documentation warns against putting the credential in a project's committed `.claude/settings.json`.
+- Billing: "While a gateway credential variable or `apiKeyHelper` is active, requests carry that credential in place of a developer's claude.ai subscription login, and the subscription's usage limits don't apply to them." The traffic is billed per token to the owner of the key the proxy forwards, for example an Anthropic Console account.
+- A saved claude.ai login stays on the machine but is not sent while the gateway credential is set. `/status` in Claude Code shows which credential is active.
+- For firstmate, each crewmate gets its own virtual key labelled `fm:<task-id>` (design doc 8.3 a, gap review N7).
+
+Optional client settings that help behind a proxy:
+
+| Variable | Effect |
+|---|---|
+| `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` | Claude Code adds the proxy's `/v1/models` list to its `/model` picker |
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | Stops version checks, telemetry and similar traffic that goes outside the proxy. It also disables auto-updates |
+| `ANTHROPIC_CUSTOM_HEADERS` | Adds headers, one `Name: Value` pair per line; used for `x-llm-proxy-key` in passthrough mode |
+
+Known traffic that never passes through the proxy, per Anthropic's docs: the fast-mode availability check and the WebFetch domain safety check call `api.anthropic.com` directly, and telemetry goes to Anthropic without the gateway credential. The proxy cannot log these.
+
+## Claude Code with a Claude subscription
+
+**Pending decision D6** ([README](README.md#open-decisions)): support this as an opt-in `client_passthrough` mode for a person's own subscription traffic. The alternative is API keys only.
+
+### What Anthropic documents
+
+The "Other LLM gateways" page describes this case directly:
+
+> "`ANTHROPIC_BASE_URL` is the variable that points Claude Code at the gateway. Setting only that variable, without a gateway credential, doesn't replace the subscription. Requests still route through the gateway, but a saved claude.ai login remains the active credential, so its usage limits and billing apply. Gateways that pass this traffic on to Anthropic must forward the OAuth capability in `anthropic-beta`."
+
+The gateway compatibility guide adds, for the `anthropic-beta` header:
+
+> "When the developer authenticates with a claude.ai login, which is possible when `ANTHROPIC_BASE_URL` is set without a gateway credential variable, this header also carries an OAuth capability that the upstream requires, and stripping it fails those requests with `401`."
+
+So a documented, working setup exists: Claude Code signed in with a Pro or Max account through Anthropic's own login flow, `ANTHROPIC_BASE_URL` pointed at the proxy, no gateway credential variable, and the proxy forwarding `Authorization` and `anthropic-beta` unchanged to `api.anthropic.com`.
+
+### Client configuration
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://llm-proxy.internal:8080",
+    "ANTHROPIC_CUSTOM_HEADERS": "x-llm-proxy-key: lp_…",
+    "CLAUDE_CODE_GATEWAY_HINT_HEADERS": "1"
+  }
+}
+```
+
+- Do not set `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or `apiKeyHelper`. Any of them takes precedence over the saved login.
+- Sign in with `/login` in Claude Code, as usual. The sign-in completes through Anthropic's flow. The proxy takes no part in it.
+- The virtual key travels in `x-llm-proxy-key` through `ANTHROPIC_CUSTOM_HEADERS`, which Claude Code adds to its requests. Anthropic's docs list custom routing headers among the values that can need approval, with extra rules when they come from a project settings file, so set them in `~/.claude/settings.json` or the shell.
+
+### Terms that apply
+
+From Anthropic's Claude Code "Legal and compliance" page:
+
+- Free, Pro and Max use is governed by the Consumer Terms of Service; Team, Enterprise and Claude API use by the Commercial Terms of Service.
+- "OAuth authentication is intended exclusively for purchasers of Claude Free, Pro, Max, Team, and Enterprise subscription plans and is designed to support ordinary use of Claude Code and other native Anthropic applications."
+- "Anthropic does not permit third-party developers to offer Claude.ai login into their own applications, or to route requests through Free, Pro, or Max plan credentials on behalf of their users. Moreover, developers may not collect, store, or intermediate Claude.ai credentials or session tokens — sign-in to a Claude account must complete through Anthropic's own flow."
+- The same page does not prevent "an end user from signing in to the unmodified Claude Code binary with their own Claude subscription".
+- "Advertised usage limits for Pro and Max plans assume ordinary, individual usage of Claude Code and the Agent SDK."
+- "Anthropic reserves the right to take measures to enforce these restrictions and may do so without prior notice."
+
+### What the proxy must and must not do in passthrough mode
+
+Read together, the documented gateway behavior and the terms give these rules. They are the design constraints for `client_passthrough`, not legal advice. Where the terms are not explicit about a self-hosted logging proxy, the design takes the conservative reading.
+
+The proxy **must**:
+
+- forward the client's `Authorization` header and the full `anthropic-beta` header unchanged, or requests fail with `401`;
+- send passthrough traffic only to `api.anthropic.com`, the provider the credential belongs to;
+- forward `anthropic-ratelimit-unified-*` response headers, so Claude Code can show plan usage and limits;
+- carry only the traffic of the person whose login it is: one subscription login per virtual key, issued to that person.
+
+The proxy **must not**:
+
+- store the OAuth token anywhere: not in the journal, not in Postgres, not in logs, not as a hash. The journal records `auth = oauth_passthrough` and nothing else ([backend.md](backend.md#capture-journal));
+- hold a subscription token of its own, or inject one into requests;
+- offer a sign-in flow, or capture a token from one;
+- share one person's subscription among several people or agents of other people, or present it as a team service;
+- rewrite the model to another provider or fall back to a proxy-held key. Anthropic also states that it "doesn't support routing Claude Code to non-Claude models through any gateway".
+
+### Technical limits in this mode
+
+- **Usage limits.** The subscription's limits apply. A fleet of parallel Claude Code sessions on one Max login consumes them fast, and the terms assume ordinary, individual use.
+- **No cost enforcement.** Calls are billed by plan, not per token. The proxy still computes an API-equivalent cost for analysis and labels it `billing_mode = subscription`. Budgets in dollars are not enforced; request-per-minute and concurrency limits still are.
+- **No fallback or aliasing** across providers or keys, as above.
+- **Features tied to the claude.ai identity:** Remote Control is disabled while `ANTHROPIC_BASE_URL` points at a non-Anthropic host, even with a claude.ai login.
+- **Compliance:** sessions that go through a gateway are not eligible for Anthropic's HIPAA configuration.
+- **Team or multi-user deployments** should use `proxy_key` mode with an organization API key under the Commercial Terms. Anthropic's rollout guidance issues each developer a gateway credential and gives the gateway the provider credential. Passthrough in a shared deployment is acceptable only when every request carries the requester's own login, which the proxy cannot verify. The default configuration therefore disables passthrough.
+
+### Alternative from Anthropic
+
+Anthropic also ships the [Claude apps gateway](https://code.claude.com/docs/en/claude-apps-gateway), a self-hosted gateway with SSO sign-in and OTLP telemetry. It is not adopted here because it is a separate product with its own protocol (`GET /protocol`), and the goal of this project is its own complete call and tool-call log.
+
+## Codex CLI and other OpenAI-compatible clients
+
+Clients of the OpenAI family use `proxy_key` mode in v1.
+
+- **Codex CLI.** OpenAI's Codex configuration docs describe two ways to use a proxy: set `openai_base_url` in `~/.codex/config.toml` for the built-in OpenAI provider, or define a custom provider under `[model_providers.<id>]` with `base_url` and `env_key` (the environment variable holding the key), then select it with `model_provider = "<id>"`. Project-local `.codex/config.toml` ignores these keys. The virtual key goes in the variable `env_key` names.
+- **Session headers.** Codex and OpenCode session header names are known only from Bifrost's source. Each harness needs a capture test before the session view relies on them. **Pending decision D4.**
+- **ChatGPT sign-in.** OpenAI's docs mention a separate guide for signing in with ChatGPT through a gateway. These documents did not verify it, so ChatGPT-plan passthrough is out of scope for v1.
+- **OpenAI SDK applications** point their client's base URL at the proxy and use a virtual key as the API key.
+- **Local backends** are upstreams, not clients: an `openai_compatible` provider with `credential: none`.
+
+## Sources
+
+Fetched 2026-10-20:
+
+- Anthropic, Claude Code docs, "Other LLM gateways" (subscriptions and gateways): https://code.claude.com/docs/en/llm-gateway
+- Anthropic, Claude Code docs, "Claude Code gateway compatibility guide" (endpoints, request and response headers, hint headers, feature pass-through, model discovery): https://code.claude.com/docs/en/llm-gateway-protocol
+- Anthropic, Claude Code docs, "Connect Claude Code to an LLM gateway" (credential variables, precedence over a saved login, nonessential traffic, Remote Control): https://code.claude.com/docs/en/llm-gateway-connect
+- Anthropic, Claude Code docs, "Legal and compliance" (terms by plan, authentication and credential use, usage limits): https://code.claude.com/docs/en/legal-and-compliance
+- Anthropic, Consumer Terms of Service: https://www.anthropic.com/legal/consumer-terms
+- Anthropic, Commercial Terms of Service: https://www.anthropic.com/legal/commercial-terms
+- OpenAI, Codex advanced configuration (`openai_base_url`, `model_providers`): https://learn.chatgpt.com/docs/config-file/config-advanced

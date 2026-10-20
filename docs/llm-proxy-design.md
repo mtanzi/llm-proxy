@@ -2,6 +2,7 @@
 
 Status: draft
 Based on: "If you don't run your own LLM proxy, how the fuck do you even know whats going on?" (jrdsgl.com, 18 Oct 2026), plus an integration analysis for [firstmate](https://github.com/kunchenguid/firstmate).
+Architecture: the backend, front end, upstream connection and deployment are detailed in [architecture/](architecture/README.md).
 
 > The article is an opinion piece with few specifics. Sections 1 and 2 separate what the article asks for from what this design adds. Everything beyond the article's list is extrapolation.
 
