@@ -2,7 +2,7 @@
 
 Status: draft
 Based on: "If you don't run your own LLM proxy, how the fuck do you even know whats going on?" (jrdsgl.com, 18 Oct 2026), plus an integration analysis for [firstmate](https://github.com/kunchenguid/firstmate).
-Architecture: the backend, front end, upstream connection and deployment are detailed in [architecture/](architecture/README.md).
+Architecture: the backend, front end, upstream connection and deployment are detailed in [architecture/](architecture/README.md). Where they differ from this document, they are newer. In particular, request and response bodies are never stored (architecture decisions D1 and D2), so this document's body-related parts are removed.
 
 > The article is an opinion piece with few specifics. Sections 1 and 2 separate what the article asks for from what this design adds. Everything beyond the article's list is extrapolation.
 
@@ -29,7 +29,7 @@ Architecture: the backend, front end, upstream connection and deployment are det
 - Budgets and rate limits per virtual key
 - Fallback, retry and circuit-breaker routing
 - OTel export as one output among several
-- Retention controls for sensitive payloads
+- No payload storage: prompts, responses, tool arguments and tool results are never stored. Retention controls apply to metadata only
 
 ### 1.3 Non-goals
 
@@ -104,7 +104,7 @@ Clients (TUI, IDE agents, scripts, apps)
 ### 3.5 Telemetry tap
 
 - Wraps the response stream and captures TTFT, total latency, usage from the final chunk and the status.
-- Emits an event to an async queue. If the queue is unavailable, spill to a local append-only file and replay later.
+- Reads the stream in memory, extracts facts and discards the bytes. Emits one call record to a bounded in-memory queue. If the queue is full, drop the record and count it; there is no spill file.
 - Logging must never add latency to, or fail, a request.
 
 ### 3.6 MCP gateway (R8)
@@ -123,8 +123,7 @@ Principle: **append-only facts, mutable config, derived rollups.** Config tables
 ```
 virtual_keys ──< requests >── request_attempts
       │              │
-      │              ├──< request_segments   (cache diagnosis)
-      │              └──1 request_bodies     (optional, short retention)
+      │              └──< request_segments   (cache diagnosis)
       │
 sessions ────────────┘
 aliases ──< alias_routes        pricing (versioned)      usage_rollups (derived)
@@ -143,7 +142,6 @@ CREATE TABLE virtual_keys (
   rpm_limit       int,
   budget_usd      numeric(12,4),              -- per budget_period
   budget_period   text,                       -- 'day' | 'month'
-  log_bodies      boolean NOT NULL DEFAULT false,
   expires_at      timestamptz,
   revoked_at      timestamptz,
   created_at      timestamptz NOT NULL DEFAULT now()
@@ -198,6 +196,8 @@ CREATE TABLE requests (
   -- outcome
   status_code      smallint,
   error_class      text,
+  error_type       text,                       -- provider error type only, never the message
+  stop_reason      text,
   streamed         boolean NOT NULL,
   ttft_ms          int,
   latency_ms       int,
@@ -268,19 +268,7 @@ CREATE TABLE request_segments (
 );
 ```
 
-`request_bodies`: optional, off by default, separate retention.
-
-```sql
-CREATE TABLE request_bodies (
-  request_id    uuid PRIMARY KEY,
-  ts            timestamptz NOT NULL,
-  request_json  jsonb,     -- redacted
-  response_json jsonb,
-  expires_at    timestamptz NOT NULL
-);
-```
-
-Keeping bodies in their own table means the sensitive data can be dropped without touching analytics.
+There is no table for request or response bodies. Bodies are never stored, so nothing sensitive needs separate retention. Tool calls are kept as metadata records (name, call id, sizes, duration, outcome); see [architecture/backend.md](architecture/backend.md#data-model-changes).
 
 ### 4.4 Derived rollups
 
@@ -312,7 +300,7 @@ A background job fills this incrementally. On TimescaleDB, continuous aggregates
 - **Cost is snapshotted, not recomputed.** `cost_usd` plus `pricing_version` keeps historical numbers stable when prices change.
 - **Usage is normalized at write time**, so queries never branch on provider.
 - **The hot path is write-only.** Nothing in the request path reads these tables, except the budget counter.
-- **`error_class` is a small controlled vocabulary.** Free-text errors go in attempt rows or logs.
+- **`error_class` is a small controlled vocabulary.** Provider error message text is not stored.
 
 ### 4.6 Scale
 
@@ -398,13 +386,13 @@ Emit spans and metrics so the data also lands in existing observability stacks. 
 ### 7.1 Deployment
 
 - Home or small team: one container plus Postgres.
-- Team or production: stateless proxy replicas behind a load balancer, shared Postgres and a shared event queue.
+- Team or production: stateless proxy replicas behind a load balancer and a shared Postgres. Each replica has its own in-memory call queue.
 - Keep it on a private network or behind a tunnel (WireGuard, Tailscale). Put TLS and rate limiting on anything public.
 - Back up `virtual_keys`, `aliases`, `alias_routes` and `pricing`. The event log is expendable by comparison.
 
 ### 7.2 Security
 
-- Prompts and outputs are sensitive. Default to metadata-only logging, make body capture opt-in per key, and enforce retention.
+- Prompts and outputs are sensitive. The proxy never stores them: logging is metadata only, with no body capture option. Tool arguments, tool results and provider error messages are not stored either.
 - Encrypt provider secrets at rest. Redact auth headers from all logs.
 - Per-key spend caps bound the damage from a leaked virtual key.
 - Separate admin and data plane credentials.
@@ -489,7 +477,7 @@ Manifest sketch:
 1. Home lab or team use? This changes storage and high-availability choices.
 2. Which providers and harnesses are required on day one?
 3. Build or adopt? A comparison of candidate projects against R1 to R8 would settle this.
-4. Store prompt and response bodies, or metadata only?
+4. ~~Store prompt and response bodies, or metadata only?~~ Resolved: metadata only; bodies are never stored.
 5. Which firstmate harnesses can be routed through a custom base URL, and how does firstmate pass environment to crewmates?
 
 ---

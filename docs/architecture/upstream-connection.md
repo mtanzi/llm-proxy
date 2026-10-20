@@ -1,6 +1,6 @@
 # Upstream connection
 
-Part of the [architecture set](README.md). This document covers how the proxy reaches provider APIs, how clients are pointed at the proxy, and what Anthropic documents about routing a Claude subscription through a gateway. The proxy internals it refers to (route resolver, `Rewrite`, journal redaction) are in [backend.md](backend.md).
+Part of the [architecture set](README.md). This document covers how the proxy reaches provider APIs, how clients are pointed at the proxy, and what Anthropic documents about routing a Claude subscription through a gateway. The proxy internals it refers to (route resolver, `Rewrite`, the extractor) are in [backend.md](backend.md).
 
 Sources were fetched on 2026-10-20 and are listed at the [end](#sources). Statements about Anthropic's behavior and terms quote or paraphrase those pages; nothing here describes an auth flow those pages do not document.
 
@@ -51,7 +51,7 @@ providers:
     credential: none
 ```
 
-- `credential` resolves to an env var, a file, or `none`. It is read at start and on `SIGHUP`. No API returns it, and it is redacted from every log and journal record.
+- `credential` resolves to an env var, a file, or `none`. It is read at start and on `SIGHUP`. No API returns it, it is redacted from every log, and no call record holds it.
 - One provider may later hold a pool of keys to spread upstream rate limits (gap review B8). v1 has one key per provider.
 - Local backends often omit cache-token usage fields. Cost and cache diagnosis degrade on them, and the UI shows those values as unknown, not zero (gap review N5).
 
@@ -89,7 +89,7 @@ For the Anthropic family. "Forward" means unchanged, byte for byte.
 
 | Header | Request handling |
 |---|---|
-| `Authorization`, `x-api-key` | `proxy_key`: consumed as the virtual key, removed, and replaced by `x-api-key: <provider key>`. `client_passthrough`: forwarded, never logged, never written to the journal |
+| `Authorization`, `x-api-key` | `proxy_key`: consumed as the virtual key, removed, and replaced by `x-api-key: <provider key>`. `client_passthrough`: forwarded, never logged, never stored |
 | `x-llm-proxy-key` | Consumed as the virtual key, never forwarded |
 | `anthropic-version`, `anthropic-beta`, every other `anthropic-*` | Forwarded. Treated as open lists, never allowlisted, as Anthropic's guide requires |
 | `x-claude-code-*` | Read for correlation ([backend.md](backend.md#correlation)) and forwarded |
@@ -198,7 +198,7 @@ The proxy **must**:
 
 The proxy **must not**:
 
-- store the OAuth token anywhere: not in the journal, not in Postgres, not in logs, not as a hash. The journal records `auth = oauth_passthrough` and nothing else ([backend.md](backend.md#capture-journal));
+- store the OAuth token anywhere: not in Postgres, not in logs, not as a hash. The call record holds `auth = oauth_passthrough` and nothing else ([backend.md](backend.md#extractor));
 - hold a subscription token of its own, or inject one into requests;
 - offer a sign-in flow, or capture a token from one;
 - share one person's subscription among several people or agents of other people, or present it as a team service;
