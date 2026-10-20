@@ -8,11 +8,13 @@ The design doc (7.1) names two tiers: one container plus Postgres for a home lab
 
 | Piece | Form | State |
 |---|---|---|
-| `llm-proxy serve` | One static Go binary in a distroless container | None on disk; the call queue and caches are in memory, everything else is in Postgres |
+| `llm-proxy serve` | One static Go binary in a distroless container | None on disk; the call queue and caches are in memory, everything else is in the store (the `store/postgres` adapter) |
 | `llm-proxy migrate up` | Same image, one-shot command | None |
 | Postgres 16 or later | Separate container or managed service | Config tables, fact tables, rollups |
 | Optional: reverse proxy (Caddy, a cloud load balancer) or Tailscale | In front of the listeners | TLS certificates |
 | Optional: Grafana, OTLP collector | Existing observability stack | Their own |
+
+The binary reaches storage through the store ports ([backend.md](backend.md#storage-ports-and-adapters)). v1 ships one production adapter, `store/postgres`, so Postgres is the only supported store and both tiers need it. A single-machine SQLite adapter is a possible later addition, not v1.
 
 There is no message broker and no Redis in either tier by default. Bodies are never stored, so there is no journal and no body volume. The only buffer is the in-memory call queue, which drops and counts records when full (gap review B5; [README](README.md#resolved-decisions), D2).
 
@@ -82,8 +84,8 @@ flowchart TB
 | Budget counters | In-process atomic counter per key | `budget_counters` row per key and period in Postgres, incremented asynchronously by each replica's extractor; each replica caches the value for a few seconds. Overshoot is bounded by in-flight calls times replicas (gap review B7) |
 | Requests-per-minute and concurrency limits | In-process token bucket | Per-replica share of the key's limit (limit divided by replica count). Redis is the upgrade if exact limits are needed |
 | Circuit breakers | In process | Per replica, accepted |
-| Live tail | In-process broadcaster | Batch writer `NOTIFY`, relayed by every replica (**pending decision D8**) |
-| Background jobs (partitions, rollups, alerts) | In process | Any replica, guarded by a Postgres advisory lock per job |
+| Live tail | In-process broadcaster | `LiveFeed` port: `store/postgres` sends `NOTIFY` after each commit, relayed by every replica (**pending decision D8**) |
+| Background jobs (partitions, rollups, alerts) | In process | Any replica; the adapter guards its jobs with a Postgres advisory lock per job |
 | Tool-call join | One writer, ordered | Request N and N+1 can land on different replicas; the joiner runs in each replica's batch writer against Postgres and accepts either order ([backend.md](backend.md#tool-call-joiner)) |
 | Derived sessions | Batch writer | Per replica; split sessions are possible when a client sends no session header. Harness headers avoid this |
 
@@ -151,7 +153,7 @@ log:
   format: json
 ```
 
-- Virtual keys, admin tokens, aliases, routes and pricing are not in this file. They live in Postgres and are managed through the admin API or `llm-proxy keys`.
+- Virtual keys, admin tokens, aliases, routes and pricing are not in this file. They live in the store (Postgres, via `ConfigStore`) and are managed through the admin API or `llm-proxy keys`.
 - `SIGHUP` reloads the file and the referenced secrets. Listener addresses need a restart.
 
 ## Secrets
@@ -168,18 +170,18 @@ log:
 
 ## Migrations
 
-- SQL migrations live in `migrations/`, are embedded in the binary, and are applied with goose by `llm-proxy migrate up`.
+- Migrations belong to the store adapter. The `store/postgres` SQL migrations live in `internal/store/postgres/migrations/`, are embedded in the binary, and are applied with goose by `llm-proxy migrate up`.
 - The migration run creates the initial daily partitions.
 - `serve` checks the schema version at start and refuses to run against a database that is older than it expects. It never migrates on its own.
 - Every migration is **expand then contract**: a release adds columns, tables or indexes in a backward-compatible way; a later release removes what is no longer used. This keeps rolling upgrades and one-version rollbacks safe.
 - Indexes on large partitioned tables are created per partition with `CREATE INDEX CONCURRENTLY`, then attached.
-- Daily partition creation and dropping is done by the partition job at runtime, not by migrations.
+- Daily partition creation and dropping is done by the adapter's partition job at runtime, not by migrations.
 
 ## Storage, retention and sizing
 
-**Decisions D1 and D2 are resolved** ([README](README.md#resolved-decisions)): bodies are never stored and call records go straight to Postgres. Postgres is the only store. There is no journal volume, no volume permissions to manage, no encryption-at-rest requirement for bodies and no segment retention.
+**Decisions D1 and D2 are resolved** ([README](README.md#resolved-decisions)): bodies are never stored and call records go straight to the store. In v1 the store is the `store/postgres` adapter, and Postgres is the only store. There is no journal volume, no volume permissions to manage, no encryption-at-rest requirement for bodies and no segment retention.
 
-- Retention is by `DROP PARTITION` on the partitioned tables, run hourly by the partition job: `requests` and `request_attempts` 400 days, `request_segments` 14 days, `tool_calls` 400 days.
+- Retention is by `DROP PARTITION` on the partitioned tables, run hourly by the `store/postgres` partition job: `requests` and `request_attempts` 400 days, `request_segments` 14 days, `tool_calls` 400 days.
 - Encryption of the Postgres volume follows the operator's normal policy for a database that holds usage metadata. It no longer needs to protect prompts or outputs, because none are stored.
 - A normalization fix applies to new calls only. Rows already written are not recomputed, because there are no raw bytes to recompute from.
 - Queue capacity bounds the data lost to a crash or a long Postgres outage (default 10,000 records, a few MB of memory). Dropped records are counted in `llm_proxy_calls_dropped_total` and raise an alert.
@@ -235,7 +237,7 @@ Prometheus metrics at `/metrics` on the admin listener:
 | `llm_proxy_inflight_streams` | Load; drain progress |
 | `llm_proxy_upstream_attempts_total{provider,outcome}`, `llm_proxy_circuit_state{provider}` | Fallbacks and breaker trips |
 | `llm_proxy_call_queue_depth`, `llm_proxy_calls_dropped_total{reason}` | Lost log records (should be zero) |
-| `llm_proxy_writer_errors_total`, `llm_proxy_writer_lag_seconds` | Postgres writes failing or falling behind |
+| `llm_proxy_writer_errors_total`, `llm_proxy_writer_lag_seconds` | Store writes (Postgres in v1) failing or falling behind |
 | `llm_proxy_live_events_dropped_total` | Slow UI subscribers |
 
 - Logs: `log/slog` JSON to stdout, one line per request with the call id. Logs never contain bodies or credentials.

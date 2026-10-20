@@ -2,7 +2,7 @@
 
 Status: draft
 Based on: "If you don't run your own LLM proxy, how the fuck do you even know whats going on?" (jrdsgl.com, 18 Oct 2026), plus an integration analysis for [firstmate](https://github.com/kunchenguid/firstmate).
-Architecture: the backend, front end, upstream connection and deployment are detailed in [architecture/](architecture/README.md). Where they differ from this document, they are newer. In particular, request and response bodies are never stored (architecture decisions D1 and D2), so this document's body-related parts are removed.
+Architecture: the backend, front end, upstream connection and deployment are detailed in [architecture/](architecture/README.md). Where they differ from this document, they are newer. In particular, request and response bodies are never stored (architecture decisions D1 and D2), so this document's body-related parts are removed. Storage sits behind ports with a Postgres adapter in v1 (decision D14); where this document says Postgres it means that adapter.
 
 > The article is an opinion piece with few specifics. Sections 1 and 2 separate what the article asks for from what this design adds. Everything beyond the article's list is extrapolation.
 
@@ -53,7 +53,7 @@ Clients (TUI, IDE agents, scripts, apps)
 │ 5. Telemetry tap: wraps the stream, emits events        │
 └───────┬───────────────────────────────┬─────────────────┘
         ▼                               ▼
-  Providers (Anthropic, OpenAI,    Event queue → writer → Postgres
+  Providers (Anthropic, OpenAI,    Event queue → writer → store
   local vLLM/Ollama, ...)                │
                                   Admin API · dashboard · OTel export
         Optional: MCP gateway (custom tool endpoints, same auth + logging)
@@ -304,7 +304,7 @@ A background job fills this incrementally. On TimescaleDB, continuous aggregates
 
 ### 4.6 Scale
 
-Plain Postgres with partitioning comfortably handles a home lab or small team (millions of rows per month). Beyond hundreds of millions of events, move `requests`, `request_attempts` and `request_segments` to ClickHouse and keep config tables in Postgres. The schema transfers because it is already append-only.
+Plain Postgres (the `store/postgres` adapter) with partitioning comfortably handles a home lab or small team (millions of rows per month). Beyond hundreds of millions of events, move `requests`, `request_attempts` and `request_segments` to ClickHouse and keep config tables in Postgres. The schema transfers because it is already append-only.
 
 ---
 

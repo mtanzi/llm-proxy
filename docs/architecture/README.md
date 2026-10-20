@@ -9,10 +9,10 @@ The goal: a self-hosted Go proxy that logs every LLM call and every tool call as
 
 | Document | What it covers |
 |---|---|
-| [backend.md](backend.md) | Go components, the proxy hot path, tap and extractor, batch writer, tool-call joiner, correlation, admin and query API, live tail, OTel export, alerts, data model changes, package layout |
+| [backend.md](backend.md) | Go components, the proxy hot path, tap and extractor, batch writer, tool-call joiner, correlation, admin and query API, live tail, OTel export, alerts, storage ports and adapters, data model changes, package layout |
 | [frontend.md](frontend.md) | The React UI embedded in the Go binary: views, routing, data fetching, virtualization, live tail, admin auth, what the UI can show without bodies, build and embedding |
 | [upstream-connection.md](upstream-connection.md) | How the proxy reaches provider APIs with API keys, how Claude Code with a Claude subscription (Pro or Max login) can route through it, and the documented limits on that |
-| [deployment.md](deployment.md) | Single-container and multi-replica topologies, configuration, secrets, migrations, Postgres storage and retention, sizing, backups, TLS, observability, upgrades, a docker-compose sketch |
+| [deployment.md](deployment.md) | Single-container and multi-replica topologies, configuration, secrets, migrations, `store/postgres` storage and retention, sizing, backups, TLS, observability, upgrades, a docker-compose sketch |
 
 Read [backend.md](backend.md) first. The other three documents assume its vocabulary.
 
@@ -32,22 +32,25 @@ flowchart LR
         adm[Admin plane<br/>/admin/* API, /ui/* React SPA]
     end
     up[Provider APIs<br/>Anthropic, OpenAI-compatible]
-    pg[(Postgres)]
+    ports{{Store ports}}
+    pg[(Postgres via<br/>store/postgres adapter)]
 
     cc -->|ANTHROPIC_BASE_URL| dp
     oa -->|base URL| dp
     dp <-->|bytes unchanged| up
     dp --- tap
-    tap -->|bounded queue| bw --> pg
+    tap -->|bounded queue| bw --> ports
     br --> adm
-    adm --> pg
+    adm --> ports
+    ports --> pg
     tap -.->|live events| adm
 ```
 
 1. Clients change only a base URL. The data plane forwards each request to a provider of the same protocol family and streams the response back without buffering.
 2. A tap reads the request and response bytes in memory as they pass, extracts facts and discards the bytes. After the exchange ends, it hands one small call record to a bounded queue without blocking. A full queue drops the record and counts it.
-3. A batch writer inserts call records into Postgres in batches, with idempotent inserts. It also joins each `tool_use` with its later `tool_result` into one tool-call record, using ids and sizes only.
-4. The admin plane serves a JSON API and the React UI. Everything it shows comes from Postgres rows: numbers, names and hashes, never content.
+3. A batch writer hands call records in batches to the `CallWriter` store port. The `store/postgres` adapter inserts them idempotently, and also joins each `tool_use` with its later `tool_result` into one tool-call record, using ids and sizes only.
+4. The admin plane serves a JSON API and the React UI. Everything it shows comes through the store ports from stored rows: numbers, names and hashes, never content.
+5. Storage is behind ports defined by use case. Only the wiring in `cmd` knows the Postgres adapter; see [backend.md](backend.md#storage-ports-and-adapters).
 
 ## Decisions this architecture builds on
 
@@ -71,12 +74,13 @@ The documents cite them as "gap review", "approaches report" and "UI report", wi
 
 ## Resolved decisions
 
-These two were open in earlier drafts. The captain decided that bodies are never stored. See [backend.md, Shape](backend.md#shape).
+D1 and D2 were open in earlier drafts. The captain decided that bodies are never stored. See [backend.md, Shape](backend.md#shape). D14 records the storage boundary.
 
 | # | Decision | Resolution |
 |---|---|---|
 | D1 | **Body-capture default** (approaches report Q1, UI report Q3, gap G12) | **Resolved: no bodies.** Request and response bodies are never stored, by default or by option. The tap extracts facts in memory and discards the bytes. Per call the store keeps who (key, client, session, agent, sub-agent, prompt), model, provider and route, tokens (including cache read, cache write and reasoning) and cost, timings (TTFT, duration), status, error type and stop reason, and the hash-only cache diagnosis. Tool calls are kept as records: tool name, call id, requesting call, duration, success or error, argument size. No argument text, results or prompts |
-| D2 | **Journal-first storage** (approaches report Q2) | **Resolved: direct Postgres rows.** Call records go through a bounded in-memory queue and a batch writer straight into Postgres. There is no journal, no projector and no reprojection. A full queue drops the record and counts it; the call is never affected |
+| D2 | **Journal-first storage** (approaches report Q2) | **Resolved: direct database rows.** Call records go through a bounded in-memory queue and a batch writer straight into the store (the `store/postgres` adapter in v1). There is no journal, no projector and no reprojection. A full queue drops the record and counts it; the call is never affected |
+| D14 | **Storage boundary** (firstmate proposal, then captain's request) | **Resolved: storage behind ports; Postgres adapter for v1; SQLite adapter deferred.** Ports are defined by use case (`CallWriter`, `CallQuery`, `StatsReader`, `ConfigStore`, `LiveFeed`, plus `AlertLog`), not generic CRUD. Each adapter owns its SQL and migrations; no shared SQL, no ORM. v1 ships `store/postgres` and an in-memory adapter for tests, and one contract suite runs against every adapter. Only `cmd` wiring imports `store/postgres`. A `store/sqlite` adapter for single-machine use is possible later and is not v1 scope. See [backend.md](backend.md#storage-ports-and-adapters) |
 
 The search choice taken earlier (Postgres `tsvector` and `pg_trgm`, option 2a) is **withdrawn**: there is no stored text to search.
 
@@ -86,6 +90,8 @@ Consequences accepted with this change:
 - Call detail shows numbers and tool names, not content.
 - A wrong parsing or normalization rule cannot be recomputed for past rows. A fix applies to new calls.
 - A process crash loses the call records still in the queue; there is no durable buffer.
+
+Consequences of D14: there is one more layer between consumers and SQL, and the contract suite becomes the definition of correct storage behaviour. In return, `writer`, `query`, `adminapi`, `live` and `alerts` are testable without a database, and a second adapter needs no consumer changes.
 
 ## Open decisions
 
@@ -97,8 +103,8 @@ Every section that depends on one of these follows the recommended option and sa
 | D4 | **Day-one harnesses** (approaches report Q4) | Claude Code (verified against Anthropic's gateway docs). Codex CLI and OpenCode after a capture test each | Add Pi or others on day one | [backend](backend.md#correlation), [upstream](upstream-connection.md#codex-cli-and-other-openai-compatible-clients) |
 | D5 | **Claude Code hint headers for firstmate crewmates** (approaches report Q5) | Set `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`, so the proxy receives request class, agent type, prompt id and tool run times | Leave them off and derive less | [backend](backend.md#correlation), [upstream](upstream-connection.md#claude-code-with-a-proxy-held-api-key) |
 | D6 | **Claude subscription passthrough** (new in these docs) | Supported as an opt-in, per-provider `client_passthrough` mode, for a person's own subscription traffic only. Off by default; API-key mode is the default | Do not support subscription traffic at all; API keys only | [upstream](upstream-connection.md#claude-code-with-a-claude-subscription) |
-| D7 | **Provider and credential config location** (gap B8) | Providers and credential references in the config file; virtual keys, aliases and pricing in Postgres, edited through the admin API | Everything in Postgres, with an encrypted credential column | [backend](backend.md#configuration-and-key-cache), [deployment](deployment.md#configuration) |
-| D8 | **Multi-replica live tail** (UI report 8.4) | The batch writer sends `NOTIFY` after each commit; every replica's admin plane relays it. In-flight calls show only on the replica that serves them | The UI subscribes to every replica's stream | [backend](backend.md#live-tail), [deployment](deployment.md#topology-b-multi-replica-team-or-production) |
+| D7 | **Provider and credential config location** (gap B8) | Providers and credential references in the config file; virtual keys, aliases and pricing in the store (`ConfigStore`, Postgres in v1), edited through the admin API | Everything in the store, with an encrypted credential column | [backend](backend.md#configuration-and-key-cache), [deployment](deployment.md#configuration) |
+| D8 | **Multi-replica live tail** (UI report 8.4) | The `LiveFeed` port delivers committed calls (`store/postgres`: `NOTIFY` after each commit); every replica's admin plane relays it. In-flight calls show only on the replica that serves them | The UI subscribes to every replica's stream | [backend](backend.md#live-tail), [deployment](deployment.md#topology-b-multi-replica-team-or-production) |
 | D9 | **Other blocking gaps** (gap review B1, B3 to B8, B10) | The gap review's suggestions, as listed in [backend.md, "Defaults taken for open gaps"](backend.md#defaults-taken-for-open-gaps) | Each gap's own alternatives in the gap review | backend, upstream, deployment |
 | D10 | **Rework and risk gaps** (gap review R1 to R17) | The gap review's suggestions where these docs touch them: key format (R1), admin auth (R8), retention (R10), team tier scope (R14), targets (R15), self-observability (R16) | Each gap's own alternatives | backend, frontend, deployment |
 | D11 | **Short tool snippets** (follow-up to D1) | Keep nothing: no tool argument text, no tool result text, no error snippet. Tool calls carry name, ids, sizes, duration and success or error only (strict default) | Keep a short snippet, for example the first 200 bytes of tool arguments and of error output, so the tool explorer can show what ran | [backend](backend.md#extractor), [frontend](frontend.md#v4-tool-call-explorer) |

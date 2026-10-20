@@ -23,7 +23,7 @@ flowchart LR
         api["/admin/* JSON API"]
         stream["/admin/stream SSE"]
     end
-    pg[(Postgres)]
+    pg[(Postgres via<br/>store/postgres)]
 
     router --> views
     views --> qc
@@ -124,7 +124,7 @@ Every payload is a small JSON object of numbers, names, ids and hashes, so there
 - The client keeps at most 500 live rows and drops the oldest. Older rows remain reachable through the paginated list.
 - On reconnect the browser sends `Last-Event-ID`, and the server replays the finished calls missed in between ([backend.md](backend.md#live-tail)).
 - The stream is one-way, so SSE is enough; no WebSocket.
-- **Multi-replica (pending decision D8):** finished calls from every replica arrive through the batch writer's `NOTIFY`; in-flight rows show only for the replica that served the page. The UI labels in-flight rows as "this replica".
+- **Multi-replica (pending decision D8):** finished calls from every replica arrive through the `LiveFeed` store port (`store/postgres`: the batch writer's `NOTIFY`); in-flight rows show only for the replica that served the page. The UI labels in-flight rows as "this replica".
 
 ## Authentication to the admin API
 

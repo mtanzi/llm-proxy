@@ -198,7 +198,7 @@ The proxy **must**:
 
 The proxy **must not**:
 
-- store the OAuth token anywhere: not in Postgres, not in logs, not as a hash. The call record holds `auth = oauth_passthrough` and nothing else ([backend.md](backend.md#extractor));
+- store the OAuth token anywhere: not in the store, not in logs, not as a hash. The call record holds `auth = oauth_passthrough` and nothing else ([backend.md](backend.md#extractor));
 - hold a subscription token of its own, or inject one into requests;
 - offer a sign-in flow, or capture a token from one;
 - share one person's subscription among several people or agents of other people, or present it as a team service;
