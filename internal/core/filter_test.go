@@ -32,6 +32,16 @@ func baseCall() CallRecord {
 	}
 }
 
+// baseTools are the read-time pairs of baseCall: its Bash use failed, its Read
+// use has no result yet, and the failed result it carries answers an earlier call.
+func baseTools(c CallRecord) []ToolCall {
+	return []ToolCall{
+		{ToolCallID: "toolu_0", Name: "Grep", Status: ToolCallPaired, UseCallID: NewIDAt(t0.Add(-time.Minute)), ResultCallID: c.ID, IsError: ptr(true)},
+		{ToolCallID: "toolu_1", Name: "Bash", Status: ToolCallPaired, UseCallID: c.ID, IsError: ptr(true)},
+		{ToolCallID: "toolu_2", Name: "Read", Status: ToolCallPending, UseCallID: c.ID},
+	}
+}
+
 func TestCallFilterMatchSingleField(t *testing.T) {
 	tests := []struct {
 		name string
@@ -51,24 +61,25 @@ func TestCallFilterMatchSingleField(t *testing.T) {
 		{"agent types", CallFilter{AgentTypes: []string{"subagent"}}, CallFilter{AgentTypes: []string{"main"}}},
 		{"prompt id", CallFilter{PromptID: "p1"}, CallFilter{PromptID: "p2"}},
 		{"request classes", CallFilter{RequestClasses: []string{"main"}}, CallFilter{RequestClasses: []string{"compaction"}}},
-		{"tools", CallFilter{Tools: []string{"Read"}}, CallFilter{Tools: []string{"Edit"}}},
+		{"tools", CallFilter{Tools: []string{"Read"}}, CallFilter{Tools: []string{"Grep"}}},
 		{"tool error true", CallFilter{ToolError: ptr(true)}, CallFilter{ToolError: ptr(false)}},
 		{"min latency", CallFilter{MinLatency: 90 * time.Second}, CallFilter{MinLatency: 91 * time.Second}},
 		{"min cost", CallFilter{MinCost: 2_000_000}, CallFilter{MinCost: 2_000_001}},
 	}
 	c := baseCall()
+	tools := baseTools(c)
 	for _, tt := range tests {
-		if !tt.hit.Match(c) {
+		if !tt.hit.Match(c, tools) {
 			t.Errorf("%s: filter should match", tt.name)
 		}
-		if tt.miss.Match(c) {
+		if tt.miss.Match(c, tools) {
 			t.Errorf("%s: filter should not match", tt.name)
 		}
 	}
 }
 
 func TestCallFilterMatchEmptyMatchesAll(t *testing.T) {
-	if !(CallFilter{}).Match(CallRecord{}) || !(CallFilter{}).Match(baseCall()) {
+	if !(CallFilter{}).Match(CallRecord{}, nil) || !(CallFilter{}).Match(baseCall(), nil) {
 		t.Error("zero filter should match every call")
 	}
 }
@@ -84,33 +95,100 @@ func TestCallFilterMatchTimeRangeHalfOpen(t *testing.T) {
 		{t0.Add(time.Hour - time.Nanosecond), true},
 		{t0.Add(time.Hour), false},
 	} {
-		if got := f.Match(CallRecord{TS: tt.ts}); got != tt.want {
+		if got := f.Match(CallRecord{TS: tt.ts}, nil); got != tt.want {
 			t.Errorf("Match at %v = %v, want %v", tt.ts, got, tt.want)
 		}
 	}
 }
 
 func TestCallFilterMatchToolError(t *testing.T) {
-	ok := CallRecord{ToolResults: []ToolResult{{IsError: false}}}
-	none := CallRecord{ToolUses: []ToolUse{{Name: "Bash"}}}
-	if (CallFilter{ToolError: ptr(true)}).Match(ok) {
-		t.Error("ToolError=true matched a call whose results all succeeded")
+	c := CallRecord{
+		ID:          NewIDAt(t0),
+		ToolUses:    []ToolUse{{ToolCallID: "toolu_1", Name: "Bash"}, {ToolCallID: "toolu_2", Name: "Read"}},
+		ToolResults: []ToolResult{{ToolCallID: "toolu_0", IsError: true}},
 	}
-	if !(CallFilter{ToolError: ptr(false)}).Match(ok) {
-		t.Error("ToolError=false missed a call with a successful result")
+	earlier := NewIDAt(t0.Add(-time.Minute))
+	failedRead := ToolCall{ToolCallID: "toolu_0", Name: "Read", UseCallID: earlier, ResultCallID: c.ID, IsError: ptr(true)}
+	bash := func(isErr *bool) ToolCall {
+		return ToolCall{ToolCallID: "toolu_1", Name: "Bash", UseCallID: c.ID, IsError: isErr}
 	}
-	if (CallFilter{ToolError: ptr(false)}).Match(none) || (CallFilter{ToolError: ptr(true)}).Match(none) {
-		t.Error("ToolError matched a call with no tool results")
+	read := func(isErr *bool) ToolCall {
+		return ToolCall{ToolCallID: "toolu_2", Name: "Read", UseCallID: c.ID, IsError: isErr}
+	}
+	bashErr := CallFilter{Tools: []string{"Bash"}, ToolError: ptr(true)}
+	tests := []struct {
+		name  string
+		f     CallFilter
+		tools []ToolCall
+		want  bool
+	}{
+		{"bash use carrying a failed read result", bashErr, []ToolCall{failedRead, bash(nil)}, false},
+		{"bash use that later fails", bashErr, []ToolCall{failedRead, bash(ptr(true))}, true},
+		{"bash succeeded while read failed", bashErr, []ToolCall{bash(ptr(false)), read(ptr(true))}, false},
+		{"carried failed result alone", CallFilter{ToolError: ptr(true)}, []ToolCall{failedRead, bash(nil)}, false},
+		{"error on any own use", CallFilter{ToolError: ptr(true)}, []ToolCall{bash(ptr(false)), read(ptr(true))}, true},
+		{"success on own use", CallFilter{ToolError: ptr(false)}, []ToolCall{bash(ptr(false))}, true},
+		{"pending use has no error state", CallFilter{ToolError: ptr(false)}, []ToolCall{bash(nil)}, false},
+		{"no tool calls", CallFilter{ToolError: ptr(true)}, nil, false},
+		{"tool used by an earlier call", CallFilter{Tools: []string{"Read"}}, []ToolCall{failedRead}, false},
+	}
+	for _, tt := range tests {
+		if got := tt.f.Match(c, tt.tools); got != tt.want {
+			t.Errorf("%s: Match = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestToolCallFilterMatch(t *testing.T) {
+	use := t0
+	tc := ToolCall{
+		Name: "Bash", Source: ToolSourceClient, Status: ToolCallPaired, SessionKey: "s1", AgentID: "a1",
+		UseTS: use, ResultTS: use.Add(time.Minute), Duration: time.Minute, IsError: ptr(true),
+	}
+	tests := []struct {
+		name string
+		hit  ToolCallFilter
+		miss ToolCallFilter
+	}{
+		{"from", ToolCallFilter{From: use}, ToolCallFilter{From: use.Add(time.Nanosecond)}},
+		{"to", ToolCallFilter{To: use.Add(time.Nanosecond)}, ToolCallFilter{To: use}},
+		{"session key", ToolCallFilter{SessionKey: "s1"}, ToolCallFilter{SessionKey: "s2"}},
+		{"agent id", ToolCallFilter{AgentID: "a1"}, ToolCallFilter{AgentID: "a2"}},
+		{"tools", ToolCallFilter{Tools: []string{"Read", "Bash"}}, ToolCallFilter{Tools: []string{"Read"}}},
+		{"sources", ToolCallFilter{Sources: []ToolSource{ToolSourceClient}}, ToolCallFilter{Sources: []ToolSource{ToolSourceServer}}},
+		{"statuses", ToolCallFilter{Statuses: []ToolCallStatus{ToolCallPaired}}, ToolCallFilter{Statuses: []ToolCallStatus{ToolCallPending}}},
+		{"is error", ToolCallFilter{IsError: ptr(true)}, ToolCallFilter{IsError: ptr(false)}},
+		{"min duration", ToolCallFilter{MinDuration: time.Minute}, ToolCallFilter{MinDuration: time.Minute + 1}},
+	}
+	for _, tt := range tests {
+		if !tt.hit.Match(tc) {
+			t.Errorf("%s: filter should match", tt.name)
+		}
+		if tt.miss.Match(tc) {
+			t.Errorf("%s: filter should not match", tt.name)
+		}
+	}
+
+	pending := ToolCall{Name: "Bash", Status: ToolCallPending, UseTS: use}
+	if (ToolCallFilter{IsError: ptr(false)}).Match(pending) {
+		t.Error("IsError matched a tool call without a result")
+	}
+	resultOnly := ToolCall{Status: ToolCallResultOnly, ResultTS: use.Add(time.Hour)}
+	if (ToolCallFilter{From: use, To: use.Add(time.Minute)}).Match(resultOnly) {
+		t.Error("result_only tool call matched on its zero use time")
+	}
+	if !(ToolCallFilter{From: use.Add(time.Hour), To: use.Add(2 * time.Hour)}).Match(resultOnly) {
+		t.Error("result_only tool call missed on its result time")
 	}
 }
 
 func TestCallFilterMatchUnknownCost(t *testing.T) {
 	c := baseCall()
 	c.Cost = nil
-	if (CallFilter{MinCost: 1}).Match(c) {
+	if (CallFilter{MinCost: 1}).Match(c, nil) {
 		t.Error("MinCost matched a call with unknown cost")
 	}
-	if !(CallFilter{}).Match(c) {
+	if !(CallFilter{}).Match(c, nil) {
 		t.Error("unfiltered cost should match unknown cost")
 	}
 }
@@ -125,7 +203,8 @@ func TestCallFilterMatchCombined(t *testing.T) {
 		MinLatency: time.Minute, MinCost: 1_000_000,
 	}
 	c := baseCall()
-	if !full.Match(c) {
+	tools := baseTools(c)
+	if !full.Match(c, tools) {
 		t.Fatal("all fields set should match the base call")
 	}
 	// Breaking any one field of the combined filter must reject the call.
@@ -146,7 +225,7 @@ func TestCallFilterMatchCombined(t *testing.T) {
 	for name, brk := range breakers {
 		f := full
 		brk(&f)
-		if f.Match(c) {
+		if f.Match(c, tools) {
 			t.Errorf("combined filter with broken %s still matched", name)
 		}
 	}

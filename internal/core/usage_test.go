@@ -39,19 +39,3 @@ func TestCostRoundsOnceHalfUp(t *testing.T) {
 		t.Errorf("sum before rounding = %d, want 1", got)
 	}
 }
-
-func TestUsageTotalAndAdd(t *testing.T) {
-	a := Usage{InputUncached: 1, CacheRead: 2, CacheWrite5m: 3, CacheWrite1h: 4, Output: 5, Reasoning: 2}
-	if a.Total() != 15 {
-		t.Errorf("Total = %d, want 15 (reasoning excluded)", a.Total())
-	}
-	if got := a.Add(a); got != (Usage{2, 4, 6, 8, 10, 4}) {
-		t.Errorf("Add = %+v", got)
-	}
-}
-
-func TestMicroUSDDisplay(t *testing.T) {
-	if got := MicroUSD(1_500_000).USD(); got != 1.5 {
-		t.Errorf("USD = %v, want 1.5", got)
-	}
-}

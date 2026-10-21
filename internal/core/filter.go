@@ -26,8 +26,8 @@ type CallFilter struct {
 	AgentTypes     []string
 	PromptID       string
 	RequestClasses []string
-	Tools          []string // calls that contain a tool use with this name
-	ToolError      *bool    // calls that contain a tool result whose is_error equals this
+	Tools          []string // calls that made a tool call with one of these names
+	ToolError      *bool    // calls that made a tool call whose paired result has this is_error
 	MinLatency     time.Duration
 	MinCost        MicroUSD // calls with a known cost at or above this
 }
@@ -38,9 +38,12 @@ func (f CallFilter) Validate() error { return validateRange(f.From, f.To) }
 // Match reports whether one call satisfies the filter. The live tail uses it, and
 // the contract suite uses it as the reference for adapter filters.
 //
-// Tool pairing happens at read time, so Tools and ToolError are matched on the
-// halves the call itself carries: Tools against its uses, ToolError against its results.
-func (f CallFilter) Match(c CallRecord) bool {
+// Tools and ToolError are matched on the tool calls the call made: tools holds
+// the read-time pairs, and only those whose UseCallID is c.ID count. Both must
+// hold on the same tool call, so Tools=[Bash] with ToolError=true means a Bash
+// use of this call whose result is an error. The results c carries answer an
+// earlier call and never count.
+func (f CallFilter) Match(c CallRecord, tools []ToolCall) bool {
 	if !f.From.IsZero() && c.TS.Before(f.From) {
 		return false
 	}
@@ -62,15 +65,11 @@ func (f CallFilter) Match(c CallRecord) bool {
 		f.PromptID != "" && f.PromptID != c.PromptID:
 		return false
 	}
-	if len(f.Tools) > 0 && !slices.ContainsFunc(c.ToolUses, func(u ToolUse) bool {
-		return slices.Contains(f.Tools, u.Name)
-	}) {
-		return false
-	}
-	if f.ToolError != nil && !slices.ContainsFunc(c.ToolResults, func(r ToolResult) bool {
-		return r.IsError == *f.ToolError
-	}) {
-		return false
+	if len(f.Tools) > 0 || f.ToolError != nil {
+		tf := ToolCallFilter{Tools: f.Tools, IsError: f.ToolError}
+		if !slices.ContainsFunc(tools, func(t ToolCall) bool { return t.UseCallID == c.ID && tf.Match(t) }) {
+			return false
+		}
 	}
 	if f.MinLatency > 0 && c.Duration < f.MinLatency {
 		return false
@@ -121,6 +120,36 @@ type ToolCallFilter struct {
 
 // Validate reports whether the time range is explicit and non-empty.
 func (f ToolCallFilter) Validate() error { return validateRange(f.From, f.To) }
+
+// Match reports whether one tool call satisfies the filter. It is the reference
+// for adapter tool-call filters. IsError never matches a tool call without a
+// result. Match skips a zero time bound, as CallFilter.Match does.
+func (f ToolCallFilter) Match(t ToolCall) bool {
+	ts := t.UseTS
+	if t.Status == ToolCallResultOnly {
+		ts = t.ResultTS
+	}
+	if !f.From.IsZero() && ts.Before(f.From) {
+		return false
+	}
+	if !f.To.IsZero() && !ts.Before(f.To) {
+		return false
+	}
+	switch {
+	case !in(f.Tools, t.Name),
+		!in(f.Sources, t.Source),
+		!in(f.Statuses, t.Status):
+		return false
+	case f.SessionKey != "" && f.SessionKey != t.SessionKey,
+		f.AgentID != "" && f.AgentID != t.AgentID:
+		return false
+	case f.IsError != nil && (t.IsError == nil || *t.IsError != *f.IsError):
+		return false
+	case f.MinDuration > 0 && t.Duration < f.MinDuration:
+		return false
+	}
+	return true
+}
 
 // UsageGroup is the dimension a usage query groups by.
 type UsageGroup string

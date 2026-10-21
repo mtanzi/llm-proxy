@@ -11,7 +11,6 @@ type ToolSource string
 const (
 	ToolSourceClient ToolSource = "client"
 	ToolSourceServer ToolSource = "server"
-	ToolSourceMCP    ToolSource = "mcp" // arrives with the MCP gateway; not produced in v1
 )
 
 // ToolUse is the "use" half of a tool call: the model asked for a tool in the
