@@ -52,7 +52,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | # | Title | Status | Depends on |
 |---|---|---|---|
 | [0001](0001-go-module-and-repository-skeleton.md) | Go module and repository skeleton | Completed | - |
-| [0002](0002-v1-scope-and-metadata-only-storage-model.md) | v1 scope and the metadata-only storage model | Accepted | 0001 |
+| [0002](0002-v1-scope-and-metadata-only-storage-model.md) | v1 scope and the metadata-only storage model | Completed | 0001 |
 | [0003](0003-core-domain-and-storage-ports.md) | Core domain types and storage ports | Accepted | 0001, 0002 |
 | [0004](0004-configuration-file-and-secret-references.md) | Configuration file and secret references | Accepted | 0001, 0003 |
 | [0005](0005-config-snapshot-and-sighup-reload.md) | Config snapshot and `SIGHUP` reload | Accepted | 0004 |
