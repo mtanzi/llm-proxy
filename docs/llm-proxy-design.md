@@ -2,7 +2,8 @@
 
 Status: draft
 Based on: "If you don't run your own LLM proxy, how the fuck do you even know whats going on?" (jrdsgl.com, 18 Oct 2026), plus an integration analysis for [firstmate](https://github.com/kunchenguid/firstmate).
-Architecture: the backend, front end, upstream connection and deployment are detailed in [architecture/](architecture/README.md). Where they differ from this document, they are newer. In particular, request and response bodies are never stored (architecture decisions D1 and D2), so this document's body-related parts are removed. Storage sits behind ports with a Postgres adapter in v1 (decision D14); where this document says Postgres it means that adapter.
+Architecture: the backend, front end, upstream connection and deployment are detailed in [architecture/](architecture/README.md). Where they differ from this document, they are newer. In particular, request and response bodies are never stored (architecture decisions D1 and D2), so this document's body-related parts are removed. Storage sits behind three ports with a Postgres adapter in v1 (decision D14); where this document says Postgres it means that adapter.
+Scope: v1 is an observe-only logging proxy for the Anthropic family (architecture decisions C1 to C4). Where this document describes fallback, budgets, rate limits, alerts, OTel export, rollups, partitioning or the OpenAI family, those parts are later versions; see [architecture/backend.md, Later versions](architecture/backend.md#later-versions). The data model in section 4 is the v1 model.
 
 > The article is an opinion piece with few specifics. Sections 1 and 2 separate what the article asks for from what this design adds. Everything beyond the article's list is extrapolation.
 
@@ -25,11 +26,18 @@ Architecture: the backend, front end, upstream connection and deployment are det
 
 ### 1.2 Added by this design
 
-- Cost computation with versioned pricing
+In v1:
+
+- Cost computation with versioned pricing (in the config file)
+- No payload storage: prompts, responses, tool arguments and tool results are never stored. Retention controls apply to metadata only
+
+Later versions, each with a trigger in [architecture/backend.md](architecture/backend.md#later-versions):
+
 - Budgets and rate limits per virtual key
 - Fallback, retry and circuit-breaker routing
+- Alerts
 - OTel export as one output among several
-- No payload storage: prompts, responses, tool arguments and tool results are never stored. Retention controls apply to metadata only
+- The OpenAI family (v2)
 
 ### 1.3 Non-goals
 
@@ -42,31 +50,31 @@ Architecture: the backend, front end, upstream connection and deployment are det
 ## 2. Architecture
 
 ```
-Clients (TUI, IDE agents, scripts, apps)
-        │  virtual key + OpenAI- or Anthropic-compatible request
+Clients (Claude Code, scripts, apps)
+        │  virtual key + Anthropic-compatible request
         ▼
 ┌───────────────────────── Proxy ─────────────────────────┐
-│ 1. Edge: TLS, protocol adapters (OpenAI / Anthropic)    │
-│ 2. Auth: virtual key → identity, limits, allowed aliases│
-│ 3. Router: alias → provider/model, fallback, retries    │
-│ 4. Provider adapters: translate, stream, normalize usage│
-│ 5. Telemetry tap: wraps the stream, emits events        │
+│ 1. Edge: TLS in front, Anthropic Messages endpoints     │
+│ 2. Auth: virtual key → identity (in-memory key map)     │
+│ 3. Router: alias → provider/model (static config)       │
+│ 4. ReverseProxy: stream bytes through unchanged         │
+│ 5. Telemetry tap: wraps the stream, extracts facts      │
 └───────┬───────────────────────────────┬─────────────────┘
         ▼                               ▼
-  Providers (Anthropic, OpenAI,    Event queue → writer → store
-  local vLLM/Ollama, ...)                │
-                                  Admin API · dashboard · OTel export
-        Optional: MCP gateway (custom tool endpoints, same auth + logging)
+  Provider API (Anthropic)       Recorder → queue → writer → store
+                                         │
+                                  Admin API · dashboard
+        Later: MCP gateway (custom tool endpoints, same auth + logging)
 ```
 
 ### 2.1 Request lifecycle
 
 1. Client sends a request with `Authorization: Bearer <virtual key>` to the proxy.
-2. Auth resolves the key hash to a `virtual_keys` row and checks expiry, revocation, rate limit, budget and allowed aliases.
-3. The router resolves the requested alias to an ordered route list.
-4. The provider adapter translates the request, attaches the real provider credential and sends it upstream.
+2. Auth resolves the key hash to a `virtual_keys` row held in memory and checks that the key exists and is not revoked.
+3. The router resolves the requested model name through the alias table in the config file. A name that is not an alias passes through unchanged.
+4. The proxy attaches the real provider credential and sends the request upstream. It splices the `model` value only when an alias changes it.
 5. The response is streamed back without buffering. The telemetry tap observes chunks and captures time-to-first-token, final usage and status.
-6. On a retryable failure (5xx, 429, timeout), the router moves to the next route and records an attempt row.
+6. An upstream error (4xx, 5xx) reaches the client unchanged, and the client applies its own retry rules. Retry and fallback routing are a later version.
 7. On completion, one event is pushed to the queue. The writer batches inserts. The request path never waits on storage.
 
 ---
@@ -75,29 +83,29 @@ Clients (TUI, IDE agents, scripts, apps)
 
 ### 3.1 Edge and protocol adapters
 
-- Accept both the OpenAI (chat completions / responses) and Anthropic (messages) formats, so clients change only a base URL.
+- Accept the Anthropic (messages) format, so clients change only a base URL. The OpenAI formats (chat completions, responses) are v2.
 - Support SSE streaming end to end. Do not buffer streams.
-- Return an `x-request-id` header on every response, matching `requests.id`.
+- Return an `x-request-id` header on every response, matching `calls.id`.
 - Identify the client from `User-Agent` or an optional `x-client` header.
 
 ### 3.2 Auth and virtual keys
 
-- Store only a hash of each key plus a short display prefix. The plaintext is shown once at creation.
-- Each key carries: owner, purpose label (for example `claude-code-laptop`, `ci-agent`, or a task id), allowed alias list, requests-per-minute limit, spend budget and period, expiry and revocation time.
-- Real provider keys live in a secrets manager or an encrypted table that no API ever returns.
+- Store only a SHA-256 hash of each key plus a short display prefix. Keys are 256-bit random values, so no pepper is needed. The plaintext is shown once at creation.
+- Each key carries: a purpose label (for example `claude-code-laptop`, `ci-agent`, or a task id) and a revocation time. Allowed aliases, request-rate limits, spend budgets and expiry are later versions.
+- Real provider keys live in a secrets manager or secret files that no API ever returns.
 - Issue one key per harness, agent or task so logs answer "who called what".
-- Budget enforcement reads a fast counter (Redis, or an in-process cache backed by the rollup table), never raw rows.
 
 ### 3.3 Router
 
-- Clients request a stable alias such as `coding-main`. An `alias_routes` table maps each alias to an ordered list of `(provider, model, params)`.
-- Pivoting providers is a config change with no client changes (R5).
-- Policies: ordered fallback on 5xx, 429 and timeouts; bounded retries with jitter; per-provider circuit breakers; optional weighted or cost-based selection.
-- Routing is deterministic and logged. Each request records the alias requested, the target that served it and the reason for any fallback.
+- Clients request a stable alias such as `coding-main`, or a vendor model name. The alias table lives in the config file and maps each alias to one `(provider, model, params)`; a name that is not an alias passes through to the default provider of the family.
+- Pivoting providers or models is a config change and a `SIGHUP`, with no client changes (R5).
+- Routing is deterministic and logged. Each request records the alias requested and the target that served it.
+- Later versions add ordered fallback on 5xx, 429 and timeouts, bounded retries with jitter, per-provider circuit breakers and weighted or cost-based selection. Their design and trigger are in [architecture/backend.md](architecture/backend.md#gateway-features-decision-c1).
 
 ### 3.4 Provider adapters
 
-- Translate request and response formats per vendor.
+v1 has one pure per-family package, `family/anthropic`, that reads request and response formats and does not translate between them. A second family is a v2 package.
+
 - Normalize usage into one schema: `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`. The cache fields matter most for R7.
 - Map vendor errors into a small controlled `error_class` vocabulary: `rate_limited`, `upstream_5xx`, `timeout`, `auth`, `client_abort`, `invalid_request`, `internal`.
 
@@ -116,195 +124,39 @@ Clients (TUI, IDE agents, scripts, apps)
 
 ## 4. Data model
 
-Principle: **append-only facts, mutable config, derived rollups.** Config tables change. The request log never does. Dashboards read rollups.
+Principle: **write facts, derive views.** Every table is written by insert only. Tool-call pairing, sessions, agent trees and statistics are computed when read. This section is the v1 model; the full column list and the notes are in [architecture/backend.md, Data model](architecture/backend.md#data-model).
 
 ### 4.1 Entity overview
 
 ```
-virtual_keys ──< requests >── request_attempts
-      │              │
-      │              └──< request_segments   (cache diagnosis)
-      │
-sessions ────────────┘
-aliases ──< alias_routes        pricing (versioned)      usage_rollups (derived)
+virtual_keys ──< calls ──< tool_events      (tool use and result halves, paired at read)
+                   └─────< call_segments    (cache diagnosis, one row per call)
 ```
 
-### 4.2 Config tables (mutable)
+Aliases, providers and pricing are not tables. They live in the config file and are reloaded on `SIGHUP`.
 
-```sql
-CREATE TABLE virtual_keys (
-  id              uuid PRIMARY KEY,
-  key_hash        bytea NOT NULL UNIQUE,      -- hash only; plaintext shown once
-  key_prefix      text NOT NULL,              -- first ~8 chars, for UI identification
-  label           text NOT NULL,              -- 'claude-code-laptop', 'ci-agent'
-  owner           text,
-  allowed_aliases text[],                     -- null = all
-  rpm_limit       int,
-  budget_usd      numeric(12,4),              -- per budget_period
-  budget_period   text,                       -- 'day' | 'month'
-  expires_at      timestamptz,
-  revoked_at      timestamptz,
-  created_at      timestamptz NOT NULL DEFAULT now()
-);
+### 4.2 Tables
 
-CREATE TABLE aliases (
-  id    uuid PRIMARY KEY,
-  name  text NOT NULL UNIQUE                  -- 'coding-main'
-);
+Four plain tables, not partitioned:
 
-CREATE TABLE alias_routes (
-  alias_id  uuid REFERENCES aliases(id),
-  position  int NOT NULL,                     -- 0 = primary, 1+ = fallbacks
-  provider  text NOT NULL,
-  model     text NOT NULL,
-  params    jsonb NOT NULL DEFAULT '{}',
-  enabled   boolean NOT NULL DEFAULT true,
-  PRIMARY KEY (alias_id, position)
-);
+- `virtual_keys`: `id`, `key_hash` (SHA-256, unique), `key_prefix`, `label`, `created_at`, `revoked_at`. Mutable only by create and revoke.
+- `calls`: one row per client request, append-only, `PRIMARY KEY (id)` with `id` a UUIDv7 that is also returned as `x-request-id`. It holds who called (key, client, session, agent, prompt), what ran (alias, provider, model, `upstream_request_id`), the outcome (status, `error_class`, provider `error_type`, stop reason, `streamed`, TTFT, duration), disjoint usage columns (`input_uncached`, `cache_read`, `cache_write_5m`, `cache_write_1h`, `output`, `reasoning`) plus `usage_raw jsonb`, and `cost_usd` with `pricing_version`. Indexes: `(ts DESC, id DESC)`, `(session_key, ts)`, `(key_id, ts DESC)`, and a partial index on `error_class`.
+- `tool_events`: one row per tool-call half (`kind = use` or `result`), with the provider tool-call id, tool name, byte size and `is_error`. The text is never kept.
+- `call_segments`: one row per call holding the ordered segment hashes (tools, system, each message boundary) as one `bytea`, plus token estimates. Short retention.
 
-CREATE TABLE pricing (
-  provider              text NOT NULL,
-  model                 text NOT NULL,
-  effective_from        date NOT NULL,
-  input_per_mtok        numeric(12,6),
-  output_per_mtok       numeric(12,6),
-  cache_read_per_mtok   numeric(12,6),
-  cache_write_per_mtok  numeric(12,6),
-  PRIMARY KEY (provider, model, effective_from)
-);
-```
+### 4.3 Design decisions
 
-### 4.3 Fact tables (append-only)
-
-`requests`: one row per client request. The table most queries hit.
-
-```sql
-CREATE TABLE requests (
-  id               uuid PRIMARY KEY,           -- also returned as x-request-id
-  ts               timestamptz NOT NULL,       -- partition key
-  virtual_key_id   uuid NOT NULL,
-  session_id       uuid,
-  client           text,
-  endpoint         text NOT NULL,              -- 'messages','chat.completions','mcp'
-
-  -- routing: requested vs actual
-  alias            text NOT NULL,
-  final_provider   text,
-  final_model      text,
-  attempts         smallint NOT NULL DEFAULT 1,
-
-  -- outcome
-  status_code      smallint,
-  error_class      text,
-  error_type       text,                       -- provider error type only, never the message
-  stop_reason      text,
-  streamed         boolean NOT NULL,
-  ttft_ms          int,
-  latency_ms       int,
-
-  -- normalized usage
-  input_tokens         int,
-  output_tokens        int,
-  cache_read_tokens    int,
-  cache_write_tokens   int,
-  reasoning_tokens     int,
-  cost_usd             numeric(12,6),
-  pricing_version      date,                   -- which pricing row was used
-
-  -- cache diagnosis summary
-  prompt_bytes         int,
-  segment_count        smallint,
-  cache_hit_ratio      real                    -- cache_read / (input + cache_read)
-) PARTITION BY RANGE (ts);
-
-CREATE INDEX ON requests (virtual_key_id, ts DESC);
-CREATE INDEX ON requests (session_id, ts);
-CREATE INDEX ON requests (final_model, ts DESC);
-```
-
-Partition by day or week so retention is a cheap `DROP PARTITION`.
-
-`request_attempts`: one row per upstream try. Makes fallback behavior auditable.
-
-```sql
-CREATE TABLE request_attempts (
-  request_id      uuid NOT NULL,
-  attempt_no      smallint NOT NULL,
-  provider        text NOT NULL,
-  model           text NOT NULL,
-  status_code     smallint,
-  error_class     text,
-  latency_ms      int,
-  fallback_reason text,        -- 'circuit_open','429','timeout'; null on first try
-  PRIMARY KEY (request_id, attempt_no)
-);
-```
-
-`sessions`: groups consecutive requests from one conversation or coding session. Cache analysis compares request N to N-1 within a session. Clients rarely send a session id, so derive one: use an explicit header if present, otherwise a hash of (key, client, first-segment hash) with an idle timeout.
-
-```sql
-CREATE TABLE sessions (
-  id              uuid PRIMARY KEY,
-  virtual_key_id  uuid NOT NULL,
-  client          text,
-  started_at      timestamptz NOT NULL,
-  last_seen_at    timestamptz NOT NULL,
-  request_count   int NOT NULL DEFAULT 0
-);
-```
-
-`request_segments`: the heart of cache-miss diagnosis. Stores hashes of cumulative prompt boundaries, never content.
-
-```sql
-CREATE TABLE request_segments (
-  request_id     uuid NOT NULL,
-  seg_idx        smallint NOT NULL,   -- 0 = tools, 1 = system, 2+ = messages in order
-  kind           text NOT NULL,       -- 'tools' | 'system' | 'message'
-  role           text,
-  segment_hash   bytea NOT NULL,      -- hash of this segment alone
-  prefix_hash    bytea NOT NULL,      -- hash of everything up to and including it
-  token_estimate int,
-  PRIMARY KEY (request_id, seg_idx)
-);
-```
-
-There is no table for request or response bodies. Bodies are never stored, so nothing sensitive needs separate retention. Tool calls are kept as metadata records (name, call id, sizes, duration, outcome); see [architecture/backend.md](architecture/backend.md#data-model-changes).
-
-### 4.4 Derived rollups
-
-```sql
-CREATE TABLE usage_rollups (
-  bucket             timestamptz NOT NULL,   -- hour or day
-  grain              text NOT NULL,          -- 'hour' | 'day'
-  virtual_key_id     uuid NOT NULL,
-  client             text,
-  final_model        text,
-  requests           int,
-  errors             int,
-  input_tokens       bigint,
-  output_tokens      bigint,
-  cache_read_tokens  bigint,
-  cache_write_tokens bigint,
-  cost_usd           numeric(14,6),
-  p50_latency_ms     int,
-  p95_latency_ms     int,
-  PRIMARY KEY (bucket, grain, virtual_key_id, client, final_model)
-);
-```
-
-A background job fills this incrementally. On TimescaleDB, continuous aggregates do the same natively.
-
-### 4.5 Design decisions
-
-- **Requested vs actual routing are stored separately.** `alias` is what the client asked for. `final_provider/model` is what served it. The attempts table explains the gap.
+- **Requested vs actual routing are stored separately.** `alias` is what the client asked for. `provider` and `model` are what served it. There is one attempt per call in v1, so `request_attempts` is a later version with fallback.
 - **Cost is snapshotted, not recomputed.** `cost_usd` plus `pricing_version` keeps historical numbers stable when prices change.
-- **Usage is normalized at write time**, so queries never branch on provider.
-- **The hot path is write-only.** Nothing in the request path reads these tables, except the budget counter.
+- **Usage is normalized at write time**, so queries never branch on provider. `usage_raw` keeps the original so a normalization fix can be applied to old rows.
+- **The hot path is write-only.** Nothing in the request path reads these tables. Auth and routing read memory.
 - **`error_class` is a small controlled vocabulary.** Provider error message text is not stored.
+- **Sessions, agents and tool calls are derived.** A session is a group of `calls` by `session_key`. A tool call is a `use` row joined to a `result` row on `tool_call_id`.
+- There is no table for request or response bodies. Bodies are never stored, so nothing sensitive needs separate retention.
 
-### 4.6 Scale
+### 4.4 Scale
 
-Plain Postgres (the `store/postgres` adapter) with partitioning comfortably handles a home lab or small team (millions of rows per month). Beyond hundreds of millions of events, move `requests`, `request_attempts` and `request_segments` to ClickHouse and keep config tables in Postgres. The schema transfers because it is already append-only.
+At the expected volume of 12,000 to 50,000 calls per day (about 20 million rows over 400 days at the upper end), plain Postgres (the `store/postgres` adapter) with a `(ts DESC, id DESC)` index is enough. Retention is a daily batched `DELETE`. Rollup tables, daily partitioning and a ClickHouse move are later versions with triggers in [architecture/backend.md](architecture/backend.md#storage-and-scale): add rollups when usage p95 passes 1 s or rows pass about 20 million, and partitioning past about 100 million rows.
 
 ---
 
@@ -314,12 +166,12 @@ Prompt caches are prefix-based, so a miss means the prefix changed or expired.
 
 ### 5.1 Capture
 
-- For each request, hash cumulative prompt segments in order: tools, system prompt, then each message boundary. Store the hash list in `request_segments`, never the content.
-- Record the time gap since the previous request in the same session.
+- For each request, hash cumulative prompt segments in order: tools, system prompt, then each message boundary. Store the hash list in `call_segments`, one row per call, never the content. The first index where the cumulative hashes differ is the first index where the segment hashes differ, so one hash per segment is enough.
+- The time gap since the previous request is computed at read time from the call timestamps.
 
 ### 5.2 Analysis
 
-Join each request to the previous one in its session and find the first `seg_idx` where `prefix_hash` differs. `kind` tells you what changed.
+Join each request to the previous one **of the same agent** (same `session_key`, `agent_id` and `request_class`) and find the first segment index where the hashes differ. The segment kind tells you what changed. Pairing by session alone is wrong: Claude Code runs sub-agents inside one session, in parallel, with their own system prompts and histories, and compaction and auxiliary requests have their own prefixes, so consecutive calls of a session alternate between different prefixes. The comparison is a pure function in the domain, unit-tested without a database.
 
 | Observation | Likely cause |
 |---|---|
@@ -327,30 +179,30 @@ Join each request to the previous one in its session and find the first `seg_idx
 | First difference at `system` | System prompt changed (often a timestamp or dynamic field) |
 | First difference at a `message` | History was edited, truncated or compacted |
 | No difference, large time gap | Cache TTL expired |
-| No difference, different `final_model` | Model switched or fallback fired |
+| No difference, different `model` | Model switched (or, in a later version, a fallback fired) |
 | No difference, short gap, same model | Provider-side eviction or a cache boundary placement issue |
 
 ### 5.3 API
 
 ```
-GET /sessions/{id}/cache-analysis
+GET /admin/sessions/{key}/cache-analysis
 → {
     "miss": true,
     "cause": "system_prompt_changed",
     "first_diff_segment": 1,
     "gap_seconds": 42,
-    "request_id": "…",
-    "previous_request_id": "…"
+    "call_id": "…",
+    "previous_call_id": "…"
   }
 ```
 
 ### 5.4 Alerting
 
-Track a rolling cache hit ratio per key and per session, and alert when it drops below a threshold, since each miss costs money. This is also the natural source for the firstmate alert adapter in section 8.
+A later version tracks a rolling cache hit ratio per key and per session and alerts when it drops below a threshold, since each miss costs money. This is the natural source for the firstmate alert adapter in section 8. v1 shows the hit ratio and the misses with their cause in the UI, without alerts.
 
 ### 5.5 Retention
 
-Retain `request_segments` for recent days only. Keep the summary columns (`cache_hit_ratio`, `segment_count`) on `requests` indefinitely.
+Retain `call_segments` for recent days only (default 14). The token columns on `calls` stay for the full retention period, so the cache hit ratio can always be computed from them.
 
 ---
 
@@ -362,22 +214,22 @@ Retain `request_segments` for recent days only. Keep the summary columns (`cache
 |---|---|
 | `POST /admin/keys` | Create a virtual key (returns plaintext once) |
 | `DELETE /admin/keys/{id}` | Revoke |
-| `POST /admin/keys/{id}/rotate` | Rotate |
-| `GET/PUT /admin/aliases/{name}` | Read or edit alias routes |
-| `GET /admin/usage?group_by=key,model,client&from=&to=&grain=` | Time-series usage |
-| `GET /admin/requests/{id}` | Single request trace including attempts |
-| `GET /sessions/{id}/cache-analysis` | Section 5.3 |
-| `GET /admin/alerts?since=` | Alert feed (used by the firstmate adapter) |
+| `GET /admin/config` | Read-only view of providers, aliases and pricing from the config file |
+| `GET /admin/usage?group_by=key,model,client&from=&to=&grain=` | Time-series usage, computed from raw rows |
+| `GET /admin/requests/{id}` | Single call trace |
+| `GET /admin/sessions/{key}/cache-analysis` | Section 5.3 |
+
+The full v1 endpoint list is in [architecture/backend.md](architecture/backend.md#admin-and-query-api). Key rotation is create, switch, revoke. `GET /admin/alerts` and editing of aliases and pricing through the API are later versions.
 
 The admin plane uses separate auth from the data plane.
 
 ### 6.2 Dashboard
 
-Token time series, cost, latency percentiles, error rates, cache-hit ratio, top consumers, fallback frequency.
+Token time series, cost, latency percentiles, error rates, cache-hit ratio, top consumers. Fallback frequency arrives with fallback.
 
 ### 6.3 OTel export
 
-Emit spans and metrics so the data also lands in existing observability stacks. This is one output, not the primary interface.
+A later version emits spans and metrics so the data also lands in existing observability stacks. This is one output, not the primary interface, and a second subscriber of the recorder. v1 exposes only the proxy's own Prometheus metrics.
 
 ---
 
@@ -386,15 +238,15 @@ Emit spans and metrics so the data also lands in existing observability stacks. 
 ### 7.1 Deployment
 
 - Home or small team: one container plus Postgres.
-- Team or production: stateless proxy replicas behind a load balancer and a shared Postgres. Each replica has its own in-memory call queue.
+- Team or production (later): stateless proxy replicas behind a load balancer and a shared Postgres. Each replica has its own in-memory call queue. v1 builds one replica; the replica tier is described in [architecture/deployment.md](architecture/deployment.md#later-multi-replica-tier).
 - Keep it on a private network or behind a tunnel (WireGuard, Tailscale). Put TLS and rate limiting on anything public.
-- Back up `virtual_keys`, `aliases`, `alias_routes` and `pricing`. The event log is expendable by comparison.
+- Back up `virtual_keys` and the config file. The event log is expendable by comparison.
 
 ### 7.2 Security
 
 - Prompts and outputs are sensitive. The proxy never stores them: logging is metadata only, with no body capture option. Tool arguments, tool results and provider error messages are not stored either.
-- Encrypt provider secrets at rest. Redact auth headers from all logs.
-- Per-key spend caps bound the damage from a leaked virtual key.
+- Keep provider secrets in secret files or a secrets manager. Redact auth headers from all logs.
+- A leaked virtual key can spend without limit until it is revoked in v1. Mitigate with the provider console's own spend limit; per-key spend caps are a later version.
 - Separate admin and data plane credentials.
 
 ### 7.3 Build or adopt
@@ -420,9 +272,10 @@ Firstmate runs many agents in parallel, possibly on different models and harness
 **(a) Per-task virtual keys.** Issue one key per crewmate, labeled with the firstmate task id, so proxy logs answer which task spent what on which model.
 - Open question: how firstmate injects environment into crewmates. Worker-launch grants are out of scope for the extension system, so check its dispatch-profile configuration or propose a core change.
 
-**(b) A process-event adapter for alerts.** This is the one thing the plugin boundary supports.
+**(b) A process-event adapter for alerts (later version; v1 has no alert feed).** This is the one thing the plugin boundary supports.
+- Depends on the alerts feature, which is deferred ([architecture/backend.md](architecture/backend.md#gateway-features-decision-c1)); the design below stays valid for when it is added.
 - Package: a small executable plus `firstmate-extension.json`, with capability `process-event-adapter` version 1 and required consent `network`.
-- `source.poll` calls `GET /admin/alerts?since=<cursor>` on the proxy and returns `{status: "result", output: "<alert text>"}` or `{status: "no-result", output: ""}` before the host timeout.
+- `source.poll` calls `GET /admin/alerts?since=<cursor>` on the proxy (once alerts exist) and returns `{status: "result", output: "<alert text>"}` or `{status: "no-result", output: ""}` before the host timeout.
 - Candidate alerts: budget cap hit on a key, cache hit ratio drop, repeated fallback, error-rate spike, spend anomaly.
 - Constraints from the extension protocol: JSON envelopes up to 64 KiB, raw result up to 32 KiB, stderr up to 8 KiB, one UTF-8 JSON document in and out per invocation, no shell, minimal environment. Responses are untrusted evidence and can never authorize a merge, decision or destination.
 - The adapter should be read-only against the proxy. A bound package is trusted same-user code, not sandboxed code.
@@ -459,23 +312,26 @@ Manifest sketch:
 
 ## 9. Implementation plan
 
+v1 phases (observe-only, Anthropic family). Items marked *later* are outside v1.
+
 | Phase | Deliverable | Depends on |
 |---|---|---|
-| 1 | Proxy core: edge, auth, router, one provider adapter, event writer, `requests` table | none |
-| 2 | Second provider, fallback and circuit breaker, `request_attempts`, pricing and cost | 1 |
-| 3 | Rollups, admin API, dashboard, OTel export | 2 |
-| 4 | Cache diagnosis: segments, sessions, analysis endpoint, hit-ratio alerts | 2 |
-| 5 | Route one firstmate harness through the proxy and write the ledger-join reporter | 3 |
-| 6 | Firstmate alert adapter package | 4 |
+| 1 | Proxy core: edge, auth from an in-memory key map, alias lookup, one provider, recorder and event writer, `calls` table | none |
+| 2 | Cost and pricing from the config file, tool events, usage columns | 1 |
+| 3 | Admin API, dashboard, usage from raw rows, `GET /admin/stream` live tail | 2 |
+| 4 | Cache diagnosis: segments, session-derived views, analysis endpoint (paired by agent) | 2 |
+| 5 | Route one firstmate harness (Claude Code) through the proxy and write the ledger-join reporter | 3 |
+| 6 | *Later:* alerts and the firstmate alert adapter package | 4 |
 | 7 | Per-task key injection (may require firstmate core changes) | 5 |
-| 8 | MCP gateway | 3 |
+| 8 | *Later:* MCP gateway | 3 |
+| Later | Fallback and circuit breaker with `request_attempts`; budgets, rate limits and key restrictions; OTel export; rollups, then partitioning; multi-replica tier; the OpenAI family (v2) | triggers in [architecture/backend.md](architecture/backend.md#later-versions) |
 
 ---
 
 ## 10. Open questions
 
 1. Home lab or team use? This changes storage and high-availability choices.
-2. Which providers and harnesses are required on day one?
+2. Which providers and harnesses are required on day one? Resolved for v1: the Anthropic family and Claude Code. Codex CLI and OpenCode follow in v2.
 3. Build or adopt? A comparison of candidate projects against R1 to R8 would settle this.
 4. ~~Store prompt and response bodies, or metadata only?~~ Resolved: metadata only; bodies are never stored.
 5. Which firstmate harnesses can be routed through a custom base URL, and how does firstmate pass environment to crewmates?

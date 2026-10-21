@@ -1,6 +1,6 @@
 # Front-end architecture (React UI)
 
-Part of the [architecture set](README.md). The JSON API this UI calls is specified in [backend.md](backend.md#admin-and-query-api). How the built UI ships inside the container is in [deployment.md](deployment.md).
+Part of the [architecture set](README.md). v1 is an observe-only logging proxy for the Anthropic family; the admin pages for aliases and pricing are read-only. The JSON API this UI calls is specified in [backend.md](backend.md#admin-and-query-api). How the built UI ships inside the container is in [deployment.md](deployment.md).
 
 ## Decision and shape
 
@@ -45,11 +45,11 @@ session → prompt (user turn) → agent (main or sub-agent) → LLM call → to
 |---|---|---|---|
 | V1 Call log (home) | `/ui/calls` | Paginated, filterable list of every LLM call, with a volume chart and a summary strip | `GET /admin/requests`, `GET /admin/usage`, `GET /admin/stream` |
 | V2 Session list | `/ui/sessions` | One row per session: start, duration, client, key, prompts, calls, tool calls, cost, cache hit, errors, labelled by key, client and start time (no prompt text is stored) | `GET /admin/sessions` |
-| V2 Session view | `/ui/sessions/:key` | Tree and waterfall of prompts, agents, calls and tool calls; cache strip | `GET /admin/sessions/{key}`, `…/tool-calls`, `…/cache-analysis` |
-| V3 Call detail | `/ui/calls/:id` | Who and route, timings, usage and cost, outcome, tools requested and resolved, attempts, cache segments. No content | `GET /admin/requests/{id}` |
+| V2 Session view | `/ui/sessions/:key` | Tree and waterfall of prompts, agents, calls and tool calls; cache strip | `GET /admin/sessions/{key}`, `GET /admin/tool-calls?session=`, `…/cache-analysis` |
+| V3 Call detail | `/ui/calls/:id` | Who and route, timings, usage and cost, outcome, tools requested and resolved, cache segments. No content | `GET /admin/requests/{id}` |
 | V4 Tool-call explorer | `/ui/tools` | Per-tool summary and a list of tool calls with filters on name, error, duration and sizes | `GET /admin/tool-calls/summary`, `GET /admin/tool-calls` |
-| V5 Cost and cache | `/ui/cost` | Cost by key, model, client and session; cache hit ratio over time; misses with cause | `GET /admin/usage`, `GET /admin/requests` |
-| Admin | `/ui/admin/keys`, `/ui/admin/aliases`, `/ui/admin/providers`, `/ui/admin/pricing` | Create, rotate and revoke virtual keys; edit aliases and pricing; view providers (read-only) | `/admin/keys…`, `/admin/aliases…`, `/admin/providers`, `/admin/pricing` |
+| V5 Cost and cache | `/ui/cost` | Cost by key, model, client and session; cache hit ratio over time; misses with cause | `GET /admin/usage`, `GET /admin/requests`, `…/cache-analysis` |
+| Admin | `/ui/admin/keys`, `/ui/admin/config` | Create and revoke virtual keys; view providers, aliases and pricing, read-only, because they live in the config file and change with `SIGHUP` | `/admin/keys…`, `GET /admin/config` |
 
 The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that show message text, tool arguments or tool results are dropped. Behavior that matters for the architecture:
 
@@ -57,28 +57,27 @@ The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that
 
 - Columns: time, session and prompt, agent, client, model, status, latency, tokens in and out, cost, number of tool calls requested.
 - A row click opens V3. A session cell opens V2.
-- The filter menu covers every logged criterion: time, session, prompt, agent, agent type, request class, client, key, alias, provider, model, endpoint, status, error class, fallback happened, streamed, latency, TTFT, tokens, cost, cache hit, tool name, tool error.
+- The filter menu covers every logged criterion: time, session, prompt, agent, agent type, request class, client, key, alias, provider, model, endpoint, status, error class, streamed, latency, TTFT, tokens, cost, cache hit, tool name, tool error.
 - "Group by session" folds consecutive calls of a session into one row with "N turns" (Bifrost pattern), kept in the URL.
-- Counts are approximate ("~1.2k matches"), never exact (UI report 6.3).
+- Counts are exact up to 10,000 and show "10,000+" above that (UI report 6.3). A 24-hour window holds at most about 50,000 rows.
 - A **Live** toggle prepends new calls from the SSE stream. See [Live tail](#live-tail).
 
 ### V2 Session view
 
-- **Tree mode** nests prompt, then agent, then call, then tool call. A sub-agent nests under the `Task` tool call that spawned it, using the inferred link written by the batch writer and its confidence flag (backend `agents` table).
+- **Tree mode** nests prompt, then agent, then call, then tool call. A sub-agent nests under its parent agent, taken from the parent-agent header. The agent tree is computed from the session's call rows when the page loads. Nesting under the exact `Task` tool call that spawned it is a later item ([backend.md](backend.md#storage-and-scale)).
 - **Time mode** is a waterfall sorted by start time, with one lane per agent, so parallel sub-agents and parallel tool calls show as concurrent bars.
 - **Idle-gap compression** in both modes: gaps wider than 5% of the session collapse to a fixed marker (Langfuse's port of Sentry's approach). Agent sessions are mostly idle time, so a linear axis would hide the work.
 - Each tree row shows duration, tokens, cost and an error badge.
 - Compaction points (from `x-claude-code-compaction`) are drawn as a marker where the cache prefix resets.
 - Collapsed by default past the latest prompts; virtualized beyond a few hundred rows.
-- A cache strip at the bottom has one cell per call, coloured by cache hit ratio; a click opens the cache-analysis pair.
+- A cache strip at the bottom has one cell per call, coloured by cache hit ratio; a click opens the cache-analysis pair. Each call is compared with the previous call of the same agent and request class, not the previous call of the session, because sub-agents run in parallel with their own prefixes.
 
 ### V3 Call detail
 
-Tabs: Overview, Tools, Usage and cost, Attempts, Cache. All of them show stored numbers, names and hashes. The page never shows what the prompt or the response said.
+Tabs: Overview, Tools, Usage and cost, Cache. All of them show stored numbers, names and hashes. The page never shows what the prompt or the response said.
 
-- **Overview** shows who made the call (key, client, session, agent, sub-agent, prompt id), model, provider and route, status, error type, stop reason, TTFT and duration. The provider's error message text is not shown, because it is not stored (**pending decision D12**).
+- **Overview** shows who made the call (key, client, session, agent, sub-agent, prompt id), model, provider and route, upstream request id, status, error type, stop reason, TTFT and duration. The provider's error message text is not shown, because it is not stored (**pending decision D12**).
 - **Tools** lists each tool requested in this call, beside the call that resolved it, with name, call id, argument size, result size, duration, and success or error. Each row links to the other call. There is no argument or result text.
-- **Attempts** lists each upstream try: provider, model, status, latency, fallback reason, upstream request id.
 - **Cache** lists the prompt segments with prefix hashes compared to the previous call, highlights the first difference, and names the cause from design doc 5.2.
 
 ### V4 Tool-call explorer
@@ -90,7 +89,7 @@ Tabs: Overview, Tools, Usage and cost, Attempts, Cache. All of them show stored 
 ### V5 Cost and cache
 
 - In-app: top sessions by cost, cost per prompt, cost per firstmate task (key label `fm:<task-id>`), the list of cache misses with cause, and the "money lost to misses" estimate.
-- Long time-series panels can also come from Grafana dashboard JSON over the rollup tables. Grafana panels link back into the UI with URLs such as `/ui/calls?model=…&from=…` (UI report 8.1).
+- Usage numbers are computed from raw call rows, so very long ranges (months) can take seconds. Rollup tables and Grafana dashboards over them are later items ([backend.md](backend.md#storage-and-scale)).
 
 ## Routing and URL state
 
@@ -103,7 +102,7 @@ Tabs: Overview, Tools, Usage and cost, Attempts, Cache. All of them show stored 
 
 - **Server state** lives in the TanStack Query cache, keyed by endpoint and parameters. There is no separate global store; the URL and the query cache are the state.
 - **Typed client:** TypeScript types are generated from the admin API's OpenAPI document (`api/openapi.yaml`, served at `/admin/openapi.json`) with `openapi-typescript`, and requests go through a thin typed `fetch` wrapper. A change to the API that breaks the UI fails the UI's type check in CI.
-- **Pagination:** lists use the keyset cursors the API returns. "Newer" and "older" replace page numbers. Infinite scroll in V1 and V4 uses `useInfiniteQuery` over `next_cursor`.
+- **Pagination:** lists use the forward keyset cursor the API returns. There are no page numbers and no "newer" button; the user reloads the first page to see newer calls. Infinite scroll in V1 and V4 uses `useInfiniteQuery` over `next_cursor`.
 - **Caching rules:** finished calls never change, so call detail is cached without expiry for the session. List queries refetch on focus and when the live toggle is off.
 - **Errors:** API errors carry a stable `type`; the UI maps them to inline messages. A `401` sends the user to the sign-in page.
 
@@ -122,17 +121,16 @@ Every payload is a small JSON object of numbers, names, ids and hashes, so there
 - The V1 **Live** toggle opens an `EventSource` on `/admin/stream` with the same filter parameters as the list.
 - `call.started` events insert an in-flight row (spinner, elapsed time); `call.finished` replaces it with the final values.
 - The client keeps at most 500 live rows and drops the oldest. Older rows remain reachable through the paginated list.
-- On reconnect the browser sends `Last-Event-ID`, and the server replays the finished calls missed in between ([backend.md](backend.md#live-tail)).
+- **On reconnect the UI refetches the first page of the list** (TanStack Query does this when the stream reopens) and de-duplicates live rows by call id. The server does not replay missed events, because the call id orders calls by start time, not finish time ([backend.md](backend.md#live-tail)).
 - The stream is one-way, so SSE is enough; no WebSocket.
-- **Multi-replica (pending decision D8):** finished calls from every replica arrive through the `LiveFeed` store port (`store/postgres`: the batch writer's `NOTIFY`); in-flight rows show only for the replica that served the page. The UI labels in-flight rows as "this replica".
+- v1 runs one replica, so the stream carries every call. The multi-replica live tail (pending decision D8) is a later item ([deployment.md](deployment.md#later-multi-replica-tier)).
 
 ## Authentication to the admin API
 
-- The admin plane uses admin tokens with scope `admin` (read and write) or `read` (gap review R8). They are separate from virtual keys, which only work on the data plane.
-- **Sign-in:** the user pastes an admin token into the sign-in page. `POST /admin/session` exchanges it for a session cookie: `HttpOnly`, `Secure` (when served over TLS), `SameSite=Strict`, path `/admin`, with an expiry (default 12 hours).
+- The admin plane uses one admin token, read from a secret file (gap review R8). It is separate from virtual keys, which only work on the data plane. Scopes and several admins are later items ([backend.md](backend.md#gateway-features-decision-c1)).
+- **Sign-in:** the user pastes the admin token into the sign-in page. `POST /admin/session` exchanges it for a session cookie: `HttpOnly`, `Secure` (when served over TLS), `SameSite=Strict`, path `/admin`, with an expiry (default 12 hours). Sessions are held in memory, so a restart signs everyone out.
 - A cookie is needed because `EventSource` cannot send an `Authorization` header. Scripts and the firstmate adapter still call the API with `Authorization: Bearer <admin token>`.
 - **CSRF:** `SameSite=Strict` plus a required `X-Requested-With: llm-proxy-ui` header on every state-changing request. The API rejects cross-origin requests; there is no CORS allowance.
-- **Roles in the UI:** a `read` session hides the admin pages and every write action. The server enforces scopes regardless of what the UI shows.
 - Single sign-on (OIDC) is deferred. A reverse proxy with its own authentication can sit in front of the admin listener in the meantime ([deployment.md](deployment.md#tls-and-network-exposure)).
 - **Content Security Policy** on `/ui/*`: `default-src 'self'`, no inline scripts, no third-party origins. Stored strings (tool names, model names, labels) are rendered as text, never as HTML, so a value that contains markup cannot run in the browser.
 
@@ -143,8 +141,8 @@ Every payload is a small JSON object of numbers, names, ids and hashes, so there
 | View | What it shows |
 |---|---|
 | V1 Call log | Every call with its metadata and filters. No text filter |
-| V2 Session view | Prompts (by id), agents, calls, tool calls, sub-agent to `Task` links, cache strip |
-| V3 Call detail | Overview, tools, usage and cost, attempts, cache segments. No conversation, no raw tab, no headers |
+| V2 Session view | Prompts (by id), agents, calls, tool calls, cache strip |
+| V3 Call detail | Overview, tools, usage and cost, cache segments. No conversation, no raw tab, no headers |
 | V4 Tool explorer | Names, counts, error rates, durations, sizes. No arguments or results |
 | V5 Cost and cache | Cost and cache views |
 
@@ -189,24 +187,24 @@ Dependency upkeep: npm dependencies are pinned with a committed lockfile and upd
 
 ## Schema and API gaps this UI depends on
 
-From UI report section 9. Each is resolved in [backend.md](backend.md#data-model-changes) or the API table there.
+From UI report section 9. Each is resolved in [backend.md](backend.md#data-model) or the API table there.
 
 | Gap | Needed by | Resolution |
 |---|---|---|
-| G1 correlation columns, text session key | V1 to V4 | `requests` gains agent, prompt, request class and compaction columns and `session_key text` |
-| G2 `agents` entity and spawn link | V2 tree | `agents` table with `spawned_by_tool_call_id` and `link_confidence` |
-| G3 session endpoints | V2 | `GET /admin/sessions`, `…/{key}`, `…/{key}/tool-calls`, cache analysis as a list |
+| G1 correlation columns, text session key | V1 to V4 | `calls` has agent, prompt, request class and compaction columns and `session_key text` |
+| G2 `agents` entity and spawn link | V2 tree | No table: the agent tree is computed from the session's call rows. The `Task` spawn link is deferred |
+| G3 session endpoints | V2 | `GET /admin/sessions`, `…/{key}`, `GET /admin/tool-calls?session=`, cache analysis as a list, all computed from call rows |
 | G4 body and conversation endpoints | V3 | Withdrawn: no bodies are stored |
 | G5 random access into the journal | V3 | Withdrawn: there is no journal |
-| G6 `tool_calls` display and filter columns | V4, V1 tool filter | `tool_calls` table with `args_bytes`, `result_bytes`, `is_error`, `duration_ms`, `duration_source`, `source`, `status` |
-| G7 rollup dimensions | V1 summary, V5 | Session, agent type, alias, provider and fallback dimensions |
-| G8 `(ts, id)` index | V1 keyset | `requests (ts DESC, id DESC)` |
-| G9 error partial index | V1 errors filter | `requests (ts DESC) WHERE error_class IS NOT NULL` |
+| G6 `tool_calls` display and filter columns | V4, V1 tool filter | `tool_events` rows (sizes, `is_error`, source) paired at read time; duration from the header or estimated |
+| G7 rollup dimensions | V1 summary, V5 | Deferred: `GET /admin/usage` aggregates raw rows |
+| G8 `(ts, id)` index | V1 keyset | `calls (ts DESC, id DESC)` |
+| G9 error partial index | V1 errors filter | `calls (ts DESC) WHERE error_class IS NOT NULL` |
 | G10 searchable text | V6 | Withdrawn: no text is stored |
-| G11 MCP calls | V4 | MCP gateway writes `tool_calls` with `source = 'mcp'` |
+| G11 MCP calls | V4 | Deferred with the MCP gateway (`source = 'mcp'`) |
 | G12 bodies off by default | V3, V4 | Resolved by D1: bodies are never stored |
-| G13 live event feed | V1 live tail | In-process broadcaster and `GET /admin/stream` |
+| G13 live event feed | V1 live tail | In-process fan-out in `recorder` and `GET /admin/stream` |
 
 ## Deferred
 
-Saved views, annotations and scores, roles beyond `admin` and `read`, OIDC sign-in, static HTML export of a session, and an OTel export to an external trace viewer such as Phoenix (UI report 8.5).
+Saved views, annotations and scores, editing aliases and pricing in the UI, admin roles, OIDC sign-in, static HTML export of a session, backward paging, and an OTel export to an external trace viewer such as Phoenix (UI report 8.5). Triggers for the backend items are in [backend.md](backend.md#later-versions).
