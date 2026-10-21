@@ -7,12 +7,13 @@ import (
 
 func TestParseDuration(t *testing.T) {
 	ok := map[string]time.Duration{
-		"10m":   10 * time.Minute,
-		"120s":  120 * time.Second,
-		"400d":  400 * 24 * time.Hour,
-		"2h":    2 * time.Hour,
-		"250ms": 250 * time.Millisecond,
-		"0s":    0,
+		"10m":     10 * time.Minute,
+		"120s":    120 * time.Second,
+		"400d":    400 * 24 * time.Hour,
+		"2h":      2 * time.Hour,
+		"250ms":   250 * time.Millisecond,
+		"0s":      0,
+		"106751d": 106751 * 24 * time.Hour,
 	}
 	for in, want := range ok {
 		got, err := ParseDuration(in)
@@ -20,7 +21,7 @@ func TestParseDuration(t *testing.T) {
 			t.Errorf("ParseDuration(%q) = %v, %v; want %v", in, got, err, want)
 		}
 	}
-	for _, in := range []string{"", "10", "m", "1.5h", "-5m", "10 m", "10M", "1h30m", "10w", "99999999999d"} {
+	for _, in := range []string{"", "10", "m", "1.5h", "-5m", "10 m", "10M", "1h30m", "10w", "99999999999d", "200000d", "300000d", "4294967295h"} {
 		if _, err := ParseDuration(in); err == nil {
 			t.Errorf("ParseDuration(%q) succeeded; want error", in)
 		}

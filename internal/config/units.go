@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -35,7 +36,7 @@ func ParseDuration(s string) (Duration, error) {
 		}
 		// "ms" also ends in "s": a leftover letter means a longer unit matched.
 		n, err := strconv.ParseUint(num, 10, 32)
-		if err != nil {
+		if err != nil || n > math.MaxInt64/uint64(u.unit) {
 			continue
 		}
 		return Duration(time.Duration(n) * u.unit), nil
