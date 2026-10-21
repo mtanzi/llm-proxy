@@ -117,7 +117,6 @@ pricing:                        # versioned by effective date; placeholder price
 
 retention:
   calls: 400d                   # calls and tool_events
-  segments: 14d                 # call_segments
 
 server:
   drain_timeout: 10m
@@ -209,7 +208,7 @@ Do not set `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or `apiKeyHelper`; sign i
 
 **Decisions D1 and D2 are resolved** ([README](README.md#resolved-decisions)): bodies are never stored and call records go straight to the store. In v1 the store is the `store/postgres` adapter, and Postgres is the only store. There is no journal volume, no volume permissions to manage, no encryption-at-rest requirement for bodies.
 
-- Retention is one daily job in `store/postgres`: `DELETE … WHERE ts < cutoff` in batches of 10,000 rows. `calls` and `tool_events` 400 days, `call_segments` 14 days.
+- Retention is one daily job in `store/postgres`: `DELETE … WHERE ts < cutoff` in batches of 10,000 rows. `calls` and `tool_events` 400 days.
 - Encryption of the Postgres volume follows the operator's normal policy for a database that holds usage metadata. It no longer needs to protect prompts or outputs, because none are stored.
 - A normalization fix applies to new calls only. Rows already written are not recomputed, because there are no raw bytes to recompute from. `usage_raw` is kept on each call row so the fix can be applied to old rows where the raw usage is enough.
 - Queue capacity bounds the data lost to a crash or a long Postgres outage (default 10,000 records, a few MB of memory). Dropped records are counted in `llm_proxy_calls_dropped_total`.
@@ -223,13 +222,13 @@ Estimates, not measurements: no live Claude Code traffic has been captured yet (
 | `calls` (~350 bytes/row measured in UI report 6.4, plus a few hundred bytes for the extra columns and indexes) | ~1.7 to 3 GB for 400 days | ~7 to 12 GB for 400 days |
 | CPU and memory for `serve` | 1 vCPU, 512 MB | 2 vCPU, 1 GB |
 
-At the upper end that is about 20 million `calls` rows over 400 days, 0.14 to 0.58 calls per second on average. Plain Postgres with a `(ts DESC, id DESC)` index serves a 24-hour list in milliseconds and a 30-day aggregate over about 1.5 million rows in well under a second. `call_segments` (14 days) and `tool_events` rows add to this; they are small, metadata-only rows and have not been estimated separately. Measure the real size in the phase-1 spike and update this table. Partitioning and rollups come back at the triggers in [backend.md](backend.md#storage-and-scale).
+At the upper end that is about 20 million `calls` rows over 400 days, 0.14 to 0.58 calls per second on average. Plain Postgres with a `(ts DESC, id DESC)` index serves a 24-hour list in milliseconds and a 30-day aggregate over about 1.5 million rows in well under a second. `tool_events` rows add to this; they are small, metadata-only rows and have not been estimated separately. Measure the real size in the phase-1 spike and update this table. Partitioning and rollups come back at the triggers in [backend.md](backend.md#storage-and-scale).
 
 ## Backups
 
 | Data | Importance | Backup |
 |---|---|---|
-| `calls`, `tool_events`, `call_segments` | Audit history (gap review N8) | Nightly full `pg_dump` |
+| `calls`, `tool_events` | Audit history (gap review N8) | Nightly full `pg_dump` |
 | Config file and secrets | Required to restore (providers, aliases, pricing, virtual-key hashes, credentials, admin token). Lose the hashes and every client needs a new key | The config file in version control; secrets in the secret store's own backup |
 
 Test a restore at least once per release cycle: restore Postgres, start `serve` against it, and open a recent call in the UI.

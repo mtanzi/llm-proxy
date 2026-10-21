@@ -21,7 +21,7 @@ Scope: v1 is an observe-only logging proxy for the Anthropic family (architectur
 | R4 | Infrastructure you control (self-hosted) |
 | R5 | Fast pivot of model or provider without reconfiguring every client |
 | R6 | Engineer-grade usage data: token time series, not a vendor "proof of work" panel |
-| R7 | Cache-miss diagnosis in seconds, with an API so it can be automated |
+| R7 | Cache-miss diagnosis in seconds, with an API so it can be automated (later version) |
 | R8 | Extensibility: custom MCP server endpoints and extra features |
 
 ### 1.2 Added by this design
@@ -33,6 +33,7 @@ In v1:
 
 Later versions, each with a trigger in [architecture/backend.md](architecture/backend.md#later-versions):
 
+- Cache-miss diagnosis (section 5)
 - Budgets and rate limits per virtual key
 - Fallback, retry and circuit-breaker routing
 - Alerts
@@ -130,18 +131,16 @@ Principle: **write facts, derive views.** Every table is written by insert only.
 
 ```
 calls ──< tool_events      (tool use and result halves, paired at read)
-  └─────< call_segments    (cache diagnosis, one row per call)
 ```
 
 Virtual keys, aliases, providers and pricing are not tables. They live in the config file and are reloaded on `SIGHUP`. `calls.key_name` holds the key's name from that file.
 
 ### 4.2 Tables
 
-Three plain tables, not partitioned:
+Two plain tables, not partitioned:
 
 - `calls`: one row per client request, append-only, `PRIMARY KEY (id)` with `id` a UUIDv7 that is also returned as `x-request-id`. It holds who called (key name, client, session, agent, prompt), what ran (alias, provider, model, `upstream_request_id`), the outcome (status, `error_class`, provider `error_type`, stop reason, `streamed`, TTFT, duration), disjoint usage columns (`input_uncached`, `cache_read`, `cache_write_5m`, `cache_write_1h`, `output`, `reasoning`) plus `usage_raw jsonb`, and `cost_usd` with `pricing_version`. Indexes: `(ts DESC, id DESC)`, `(session_key, ts)`, `(key_name, ts DESC)`, and a partial index on `error_class`.
 - `tool_events`: one row per tool-call half (`kind = use` or `result`), with the provider tool-call id, tool name, byte size and `is_error`. The text is never kept.
-- `call_segments`: one row per call holding the ordered segment hashes (tools, system, each message boundary) as one `bytea`, plus token estimates. Short retention.
 
 ### 4.3 Design decisions
 
@@ -159,49 +158,9 @@ At the expected volume of 12,000 to 50,000 calls per day (about 20 million rows 
 
 ---
 
-## 5. Cache-miss diagnosis (R7)
+## 5. Cache-miss diagnosis (R7): later version
 
-Prompt caches are prefix-based, so a miss means the prefix changed or expired.
-
-### 5.1 Capture
-
-- For each request, hash cumulative prompt segments in order: tools, system prompt, then each message boundary. Store the hash list in `call_segments`, one row per call, never the content. The first index where the cumulative hashes differ is the first index where the segment hashes differ, so one hash per segment is enough.
-- The time gap since the previous request is computed at read time from the call timestamps.
-
-### 5.2 Analysis
-
-Join each request to the previous one **of the same agent** (same `session_key`, `agent_id` and `request_class`) and find the first segment index where the hashes differ. The segment kind tells you what changed. Pairing by session alone is wrong: Claude Code runs sub-agents inside one session, in parallel, with their own system prompts and histories, and compaction and auxiliary requests have their own prefixes, so consecutive calls of a session alternate between different prefixes. The comparison is a pure function in the domain, unit-tested without a database.
-
-| Observation | Likely cause |
-|---|---|
-| First difference at `tools` | Tool definitions changed or were reordered |
-| First difference at `system` | System prompt changed (often a timestamp or dynamic field) |
-| First difference at a `message` | History was edited, truncated or compacted |
-| No difference, large time gap | Cache TTL expired |
-| No difference, different `model` | Model switched (or, in a later version, a fallback fired) |
-| No difference, short gap, same model | Provider-side eviction or a cache boundary placement issue |
-
-### 5.3 API
-
-```
-GET /admin/sessions/{key}/cache-analysis
-→ {
-    "miss": true,
-    "cause": "system_prompt_changed",
-    "first_diff_segment": 1,
-    "gap_seconds": 42,
-    "call_id": "…",
-    "previous_call_id": "…"
-  }
-```
-
-### 5.4 Alerting
-
-A later version tracks a rolling cache hit ratio per key and per session and alerts when it drops below a threshold, since each miss costs money. This is the natural source for the firstmate alert adapter in section 8. v1 shows the hit ratio and the misses with their cause in the UI, without alerts.
-
-### 5.5 Retention
-
-Retain `call_segments` for recent days only (default 14). The token columns on `calls` stay for the full retention period, so the cache hit ratio can always be computed from them.
+Not in v1. Each call keeps its cache read and write token counts, so the cache hit ratio is always computable, but v1 does not record why a miss happened. The design (segment hashing, one row per call, pairing by session, agent and request class) and the trigger for adding it back are in [architecture/backend.md, Cache-miss diagnosis](architecture/backend.md#cache-miss-diagnosis).
 
 ---
 
@@ -214,7 +173,6 @@ Retain `call_segments` for recent days only (default 14). The token columns on `
 | `GET /admin/config` | Read-only view of providers, aliases, pricing and key names from the config file |
 | `GET /admin/usage?group_by=key,model,client&from=&to=&grain=` | Time-series usage, computed from raw rows |
 | `GET /admin/requests/{id}` | Single call trace |
-| `GET /admin/sessions/{key}/cache-analysis` | Section 5.3 |
 
 The full v1 endpoint list is in [architecture/backend.md](architecture/backend.md#admin-and-query-api). Key rotation is a config edit: add the new key, switch the client, disable the old key, `SIGHUP`. `GET /admin/alerts` and editing of aliases and pricing through the API are later versions.
 
@@ -316,7 +274,7 @@ v1 phases (observe-only, Anthropic family). Items marked *later* are outside v1.
 | 1 | Proxy core: edge, auth from an in-memory key map, alias lookup, one provider, recorder and event writer, `calls` table | none |
 | 2 | Cost and pricing from the config file, tool events, usage columns | 1 |
 | 3 | Admin API, dashboard, usage from raw rows, `GET /admin/stream` live tail | 2 |
-| 4 | Cache diagnosis: segments, session-derived views, analysis endpoint (paired by agent) | 2 |
+| 4 | *Later:* cache diagnosis: segment hashes, `call_segments`, analysis endpoint (paired by agent) | 2 |
 | 5 | Route one firstmate harness (Claude Code) through the proxy and write the ledger-join reporter | 3 |
 | 6 | *Later:* alerts and the firstmate alert adapter package | 4 |
 | 7 | Per-task key injection (may require firstmate core changes) | 5 |

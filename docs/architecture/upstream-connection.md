@@ -234,7 +234,7 @@ providers:
     credential: none
 ```
 
-- Local backends are upstreams, not clients: an `openai_compatible` provider with `credential: none`. They often omit cache-token usage fields. Cost and cache diagnosis degrade on them, and the UI shows those values as unknown, not zero (gap review N5).
+- Local backends are upstreams, not clients: an `openai_compatible` provider with `credential: none`. They often omit cache-token usage fields. Cost and the cache hit ratio degrade on them, and the UI shows those values as unknown, not zero (gap review N5).
 - Header handling is the same as for the Anthropic family, with `Authorization: Bearer` as the upstream credential header.
 
 **`include_usage`.** Chat-completions streaming clients that do not ask for usage get none in the stream. The proxy can inject `stream_options.include_usage=true` and strip the extra usage chunk from the client stream. Codex uses the Responses API, which reports usage in its final event, so plain passthrough already logs it. Without injection, a chat-completions client is logged without tokens or cost, flagged `usage_estimated`.

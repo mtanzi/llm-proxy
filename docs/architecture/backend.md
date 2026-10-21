@@ -12,7 +12,7 @@ One Go module, one static binary, `llm-proxy`, with two subcommands:
 | `keygen --name <name>` | Generates a virtual key, prints the plaintext once and the config entry with its SHA-256. Touches no config file and no database; see [Auth](#auth-virtual-keys) |
 | `version` | Prints the build version |
 
-**Storage model.** The proxy never stores request or response bodies. The tap reads each exchange in memory, the extractor keeps a small set of facts (who, route, tokens, cost, timings, outcome, cache hashes, tool-call metadata), and the recorder inserts them as append-only rows through the `CallWriter` store port, implemented in v1 by the `store/postgres` adapter. There is no capture journal and no body table. Consequences: no search over prompt or response text, call detail shows numbers and tool names but not content, and a wrong parsing rule cannot be recomputed for past rows; a fix applies to new calls only. This resolves decisions D1 and D2 ([README](README.md#resolved-decisions)).
+**Storage model.** The proxy never stores request or response bodies. The tap reads each exchange in memory, the extractor keeps a small set of facts (who, route, tokens, cost, timings, outcome, tool-call metadata), and the recorder inserts them as append-only rows through the `CallWriter` store port, implemented in v1 by the `store/postgres` adapter. There is no capture journal and no body table. Consequences: no search over prompt or response text, call detail shows numbers and tool names but not content, and a wrong parsing rule cannot be recomputed for past rows; a fix applies to new calls only. This resolves decisions D1 and D2 ([README](README.md#resolved-decisions)).
 
 **Write facts, derive views.** The database receives only inserts. Tool-call pairing, sessions, agent trees and statistics are computed by `CallReader` when asked, not maintained when written. This is what keeps the write path and the schema small.
 
@@ -97,7 +97,7 @@ Clean architecture with small rings. `core` at the centre holds entities, pure r
 
 **Upstream port.** The standard library already has one: `http.RoundTripper`. `proxy` takes a `RoundTripper` per provider; tests pass a fake or an `httptest.Server`. A custom `Upstream` interface would wrap `RoundTripper` in a narrower shape and lose `ReverseProxy`'s streaming, flushing and cancellation behaviour (see [Proxy passthrough and streaming](#proxy-passthrough-and-streaming)). There is no custom upstream port.
 
-**Read side.** There is no query service layer. The read side has no business logic beyond mapping parameters, so `api` handlers map HTTP parameters to `core` filter types and call `CallReader` directly. The one piece of read-side logic, cache-miss classification, is a pure function in `core` that `api` calls on what `CallReader` returns.
+**Read side.** There is no query service layer. The read side has no business logic beyond mapping parameters, so `api` handlers map HTTP parameters to `core` filter types and call `CallReader` directly.
 
 ## Components
 
@@ -143,7 +143,7 @@ The correlation step reads harness headers into the call record. It never parses
 
 - The Claude Code header names and semantics come from Anthropic's [gateway compatibility guide](https://code.claude.com/docs/en/llm-gateway-protocol). The session and agent IDs are always sent. The rows marked "hint header" arrive behind a custom base URL only when the client sets `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`. **Pending decision D5** in the [README](README.md#open-decisions): set it for firstmate crewmates (recommended).
 - Correlation headers are forwarded upstream unchanged, so the proxy stays transparent.
-- **Session derivation** is a fallback for a request without a session header. It is a pure function in `core`: a hash of (key, client, tools and system segment hash, hash of the first user message). It keeps no idle state and has no timeout, so it needs no per-key memory and gives the same key on every replica. Only hashes are used; no message text is kept. Header-less clients with identical openings merge into one session; that is the accepted cost.
+- **Session derivation** is a fallback for a request without a session header. It is a pure function in `core`: a hash of (key, client, hash of tools and system prompt, hash of the first user message). It keeps no idle state and has no timeout, so it needs no per-key memory and gives the same key on every replica. Only hashes are used; no message text is kept. Header-less clients with identical openings merge into one session; that is the accepted cost.
 - Session headers of other harnesses (Codex, OpenCode) are a v2 item ([Later versions](#later-versions)).
 
 #### Route resolver
@@ -171,7 +171,7 @@ Built on `net/http/httputil.ReverseProxy`. The approaches report verified the re
 The tap reads the stream in memory, extracts facts and discards the bytes. No body is written to disk or to the store.
 
 - `ModifyResponse` wraps the upstream response body in a tap. `Read` passes each chunk to an incremental scanner and forwards it unchanged, then resets the idle watchdog. For SSE it splits events on blank lines and keeps only the facts below. For a non-streaming JSON response it buffers up to the size bound, then parses once.
-- The request side needs no tap: the body is already in memory from the single read above. The extractor hashes prompt segments from that slice, and the slice is released as soon as extraction ends.
+- The request side needs no tap: the body is already in memory from the single read above. The extractor reads the request facts from that slice, and the slice is released as soon as extraction ends.
 - Response buffers are bounded (1 MiB for one SSE event, a fixed bound for a non-streaming body). Past a bound the tap stops reading that part, keeps forwarding, and sets `extraction_partial = true` on the record. Fields it could not read stay null.
 - `Close` is the "exchange finished" hook. `ReverseProxy` closes the upstream body on success, on upstream error and on client abort, so the hook is reliable.
 - The tap measured 54 µs in total for a whole 5-event stream in the approaches report's experiment. That figure covered copying only; the cost of incremental scanning is a phase-1 measurement.
@@ -187,7 +187,6 @@ A call record holds:
 - **Usage and cost:** tokens normalized into disjoint columns (input, cache read, cache write, output, reasoning), the raw provider usage JSON (gap review B6), and cost from the versioned pricing in the config snapshot, with the pricing version. `usage_raw` is the only thing that lets a normalization fix be applied to old rows.
 - **Timings:** time to first byte, TTFT, total duration, and the end timestamp.
 - **Outcome:** HTTP status, `error_class`, the provider's error `type` (for example `overloaded_error`), stop reason, `streamed`, `usage_estimated`, `extraction_partial`. The provider's error message text is not kept.
-- **Cache diagnosis:** hashes of cumulative prompt segments (design doc 5.1; canonical form per gap review R6), computed over the request in memory. Only segment hashes and token estimates leave the extractor. The segment hashing scheme lives in `core`.
 - **Tool halves:** for each `tool_use` block in the response: the provider call id, tool name and argument size in bytes. For each `tool_result` block in the request: the call id it answers, `is_error` and the result size in bytes. Argument text and result text are read to measure them and are not kept. No snippet, no prompt text and no header value other than the correlation fields above is stored; credentials are never read into the record. In `client_passthrough` mode the client's OAuth token is never written anywhere; see [upstream-connection.md](upstream-connection.md#what-the-proxy-must-and-must-not-do-in-passthrough-mode).
 
 **Pending decisions D11 to D13** ([README](README.md#open-decisions)) would relax the strict reading: short tool argument and error snippets (D11), provider error message text (D12), and an opt-in per-key body capture switch (D13). The default is the strict option for all three: none of that is kept.
@@ -205,7 +204,7 @@ The one "finished call" use case. It receives `Started` and `Finished` events fr
 Writer details:
 
 - **Batching:** a batch closes at 500 records or 500 ms, whichever comes first. These are constants in code. Only `queue_capacity` (default 10,000) is configurable until measurement says otherwise.
-- **Write path in `store/postgres`:** one transaction, a multi-row `INSERT … ON CONFLICT DO NOTHING` into `calls`, `tool_events` and `call_segments`. At 0.14 to 0.58 calls per second on average this is ample. The call id is a UUIDv7 assigned at request start, so a retried batch inserts nothing twice (gap review B5). The port contract is "idempotent on call id and atomic per batch"; the SQL is the adapter's choice.
+- **Write path in `store/postgres`:** one transaction, a multi-row `INSERT … ON CONFLICT DO NOTHING` into `calls` and `tool_events`. At 0.14 to 0.58 calls per second on average this is ample. The call id is a UUIDv7 assigned at request start, so a retried batch inserts nothing twice (gap review B5). The port contract is "idempotent on call id and atomic per batch"; the SQL is the adapter's choice.
 - **Failure:** a failed `WriteBatch` is retried with backoff and counted (`llm_proxy_writer_errors_total`). While the store is down the queue fills; the recorder then drops and counts new records. The data plane never notices. A crash loses the queue contents, at most `queue_capacity` records; this is the accepted cost of having no durable buffer.
 - **Shutdown:** on SIGTERM, after in-flight streams finish or the drain deadline passes, the queue is closed and the writer flushes what remains within 30 seconds, then exits. See [Listener and router](#listener-and-router).
 - **Appends only.** The writer does no joins, no read-modify-write and no session or agent updates. It also does not publish to the live tail after commit: the fan-out happens at `Finished`, before the commit, as an in-process event.
@@ -230,10 +229,9 @@ Served on the admin listener under `/admin/`, implemented by the `api` package. 
 | Method and path | Purpose | Gap |
 |---|---|---|
 | `GET /admin/requests` | Call log: filters, keyset cursor, `limit` | G1, G8, G9 |
-| `GET /admin/requests/{id}` | One call's metadata, cache segments and tool calls. Numbers and names only, no content | G4 |
+| `GET /admin/requests/{id}` | One call's metadata and tool calls. Numbers and names only, no content | G4 |
 | `GET /admin/sessions` | Session list with the same filters and cursor, computed from call rows | G3 |
 | `GET /admin/sessions/{key}` | Summary, prompts, agents and calls (metadata only) | G2, G3 |
-| `GET /admin/sessions/{key}/cache-analysis` | Cache diagnosis as a list of request pairs, paired by agent | R5, R8 |
 | `GET /admin/tool-calls` | Tool-call explorer list; `?session=` filters to one session | G6 |
 | `GET /admin/tool-calls/summary` | Per-tool count, error rate, p50 and p95 duration | G6 |
 | `GET /admin/usage` | Time series computed from raw rows, `group_by` and `grain` | G7 |
@@ -264,7 +262,7 @@ The proxy's own health is exposed as Prometheus metrics at `/metrics` on the adm
 
 ### Background job
 
-One job, owned by the adapter and started by `cmd`: **retention**, daily, `DELETE … WHERE ts < cutoff` in batches of 10,000 rows for `calls` and `tool_events` (default 400 days) and `call_segments` (default 14 days). It is a method on the concrete adapter (`DeleteBefore`), not a port. There is no job interface, no advisory lock and no partition job.
+One job, owned by the adapter and started by `cmd`: **retention**, daily, `DELETE … WHERE ts < cutoff` in batches of 10,000 rows for `calls` and `tool_events` (default 400 days). It is a method on the concrete adapter (`DeleteBefore`), not a port. There is no job interface, no advisory lock and no partition job.
 
 ### Configuration
 
@@ -288,15 +286,15 @@ Two interfaces. Signatures are a sketch of shape and responsibility; the Go sour
 
 | Port | Responsibility | Used by |
 |---|---|---|
-| `CallWriter` | Insert a batch of call records with their tool halves and segment hashes, atomically and idempotently | `recorder` |
-| `CallReader` | Every admin view: lists, detail, sessions, tool calls, usage, cache-analysis input. All relational views are derived here | `api` |
+| `CallWriter` | Insert a batch of call records with their tool halves, atomically and idempotently | `recorder` |
+| `CallReader` | Every admin view: lists, detail, sessions, tool calls, usage. All relational views are derived here | `api` |
 
 ```go
 package core
 
 // CallWriter receives finished calls from the recorder. It inserts only.
 type CallWriter interface {
-	// WriteBatch inserts the calls with their tool halves and segment hashes.
+	// WriteBatch inserts the calls with their tool halves.
 	// Idempotent on CallRecord.ID, atomic per batch. Returns after commit.
 	WriteBatch(ctx context.Context, calls []CallRecord) error
 }
@@ -305,13 +303,12 @@ type CallWriter interface {
 type CallReader interface {
 	ListCalls(ctx context.Context, f CallFilter, p Page) ([]CallSummary, *Cursor, error)
 	CountCalls(ctx context.Context, f CallFilter, max int) (n int, capped bool, err error)
-	GetCall(ctx context.Context, id uuid.UUID) (CallDetail, error) // with its tool halves and segments
+	GetCall(ctx context.Context, id uuid.UUID) (CallDetail, error) // with its tool halves
 	ListSessions(ctx context.Context, f SessionFilter, p Page) ([]SessionSummary, *Cursor, error)
 	GetSession(ctx context.Context, key string) (SessionDetail, error) // agents, prompts, calls
 	ListToolCalls(ctx context.Context, f ToolCallFilter, p Page) ([]ToolCall, *Cursor, error)
 	ToolSummary(ctx context.Context, f ToolCallFilter) ([]ToolStat, error)
 	Usage(ctx context.Context, q UsageQuery) ([]UsageBucket, error) // tokens, cost, latency percentiles
-	SessionSegments(ctx context.Context, key string) ([]CallSegments, error) // input to CacheDiff
 }
 
 // CallFilter mirrors the call-log query parameters. Zero values mean "no constraint".
@@ -356,7 +353,7 @@ Lifecycle is on the concrete adapter, not an interface: `postgres.Open(cfg)`, `(
 
 Notes on the shapes:
 
-- `WriteBatch` takes whole call records, including the tool halves and segment hashes. The caller does not know which tables exist.
+- `WriteBatch` takes whole call records, including the tool halves. The caller does not know which tables exist.
 - Filter and page types are explicit structs. The `api` package maps query parameters onto them; the adapter maps them onto SQL with one filter builder (the call filter has many optional fields, which needs a dynamic `WHERE`). A new filter adds a field and a contract test case.
 - The live tail is not a storage port: `recorder` fans out in process.
 - Retention settings are passed to the adapter's constructor from the config file. They are not a port method.
@@ -394,7 +391,7 @@ The suite covers:
 - **Sessions and agents.** `ListSessions` and `GetSession` group by session key; the agent tree is the same parent and child structure from the call rows.
 - **Pagination.** Ordering by `(ts, id)` is total, including calls with equal `ts`; cursors return no duplicates and no gaps while rows are inserted; the time bound is honoured; counts cap at the stated maximum.
 - **Filters.** Each `CallFilter` field, alone and combined.
-- **Detail.** `GetCall` returns segments and tool halves.
+- **Detail.** `GetCall` returns the tool halves.
 - **Usage.** `Usage` sums disjoint token columns and cost correctly for each `GroupBy` and `Grain`. Percentiles agree with the exact value.
 - **Retention.** `DeleteBefore` removes rows past the cutoff and nothing else, in batches, and running it twice is safe.
 - **No bodies.** The suite writes records, then scans every stored value it can reach (via a store-specific hook) and fails if any text from the test's fake prompt, response or tool arguments is present. This holds the no-bodies model at the storage layer.
@@ -430,7 +427,7 @@ sequenceDiagram
     end
     P->>P: body Close: exchange finished
     P->>F: Extract(request bytes, scanned facts, timings, meta)
-    F-->>P: CallRecord (usage, tool halves, segment hashes)
+    F-->>P: CallRecord (usage, tool halves)
     P->>P: cost from pricing snapshot, then drop request bytes
     P->>R: Finished(record) (non-blocking)
 ```
@@ -454,7 +451,7 @@ sequenceDiagram
     R->>Q: non-blocking send (full: drop, count)
     loop every 500 ms or 500 records
         Q->>W: batch
-        W->>DB: WriteBatch: one transaction, INSERT ... ON CONFLICT DO NOTHING<br/>into calls, tool_events, call_segments
+        W->>DB: WriteBatch: one transaction, INSERT ... ON CONFLICT DO NOTHING<br/>into calls and tool_events
         DB-->>W: ok, or error: retry with backoff while the queue absorbs new records
     end
     Note over W,DB: SIGTERM: drain streams, close queue, flush within 30 s, count the rest as dropped
@@ -520,15 +517,7 @@ CREATE INDEX ON tool_events (tool_call_id);
 CREATE INDEX ON tool_events (ts DESC);
 CREATE INDEX ON tool_events (tool_name, ts DESC) WHERE kind = 'use';
 
--- Cache-diagnosis hashes, one row per call, short retention.
-CREATE TABLE call_segments (
-  call_id        uuid PRIMARY KEY,
-  ts             timestamptz NOT NULL,
-  kinds          smallint[] NOT NULL,          -- tools, system, message
-  hashes         bytea NOT NULL,               -- 8-byte segment hashes, concatenated
-  token_estimate int[]
 );
-CREATE INDEX ON call_segments (ts);
 ```
 
 Notes:
@@ -536,11 +525,9 @@ Notes:
 - **The primary key of `calls` is `id` alone.** Partitioning is deferred, and `(id, ts)` was only needed because of it.
 - **Usage columns are disjoint:** `input_uncached`, `cache_read`, `cache_write_5m`, `cache_write_1h`, `output` (including reasoning), `reasoning` (informational), plus `usage_raw`. One meaning per column; cost is the sum of column times price; raw is kept for recomputation (gap review B6).
 - **Tool calls at read time.** A tool call is a `use` row joined to the `result` row with the same `tool_call_id`, as described in [Tool calls, sessions and agents at read time](#tool-calls-sessions-and-agents-at-read-time).
-- **Segments.** One row per call instead of one row per segment cuts the row count by the number of segments (often 100 or more on Claude Code requests). Only per-segment hashes are kept: the first index where the prefix hashes differ is the first index where the segment hashes differ, so a stored `prefix_hash` would be redundant (the reader recomputes the prefix chain).
-- **Cache analysis pairs by agent.** `CacheDiff` is a pure function in `core`. `api` calls `SessionSegments`, then pairs each call with the previous call of the same `(session_key, agent_id)` and the same `request_class`. Claude Code runs sub-agents inside one session, in parallel, with their own system prompts and histories, and compaction and auxiliary requests have their own prefixes. Pairing by session alone would report a "system prompt changed" miss on nearly every interleaved call.
 - **Keys are not in the database.** `calls.key_name` holds the name from the config file at the time of the call. There is no key table and no foreign key, so removing a key from the config leaves its history readable under the old name. Per-key usage is `GROUP BY key_name` over `calls` (`GET /admin/usage?group_by=key`).
-- **Retention defaults:** `calls` and `tool_events` 400 days, `call_segments` 14 days. Deployment sizing is in [deployment.md](deployment.md#storage-retention-and-sizing).
-- **Removed against the design doc:** `request_attempts`, per-segment `request_segments`, `tool_calls` as a table, `sessions`, `agents`, `usage_rollups`, `alerts`, `admin_tokens`, `virtual_keys`, `aliases`, `alias_routes`, `pricing`, `budget_counters`, the `providers` view and all partitioning.
+- **Retention defaults:** `calls` and `tool_events` 400 days. Deployment sizing is in [deployment.md](deployment.md#storage-retention-and-sizing).
+- **Removed against the design doc:** `request_attempts`, `tool_calls` as a table, `sessions`, `agents`, `usage_rollups`, `alerts`, `admin_tokens`, `virtual_keys`, `aliases`, `alias_routes`, `pricing`, `budget_counters`, the `providers` view and all partitioning.
 
 ## Package layout
 
@@ -550,11 +537,11 @@ llm-proxy/
 │   └── llm-proxy/          main: flags, config load, migrations at start, wiring, serve, version
 ├── internal/
 │   ├── core/               entities (CallRecord, ToolUse, ToolResult, Usage, Key), pure rules
-│   │                       (Cost, SessionKey, CacheDiff, Filter.Match), port interfaces
+│   │                       (Cost, SessionKey, Filter.Match), port interfaces
 │   │                       (CallWriter, CallReader), filter, cursor and page types.
 │   │                       Standard library only.
 │   ├── family/
-│   │   └── anthropic/      request facts (segments, tool_results), SSE scanner, usage,
+│   │   └── anthropic/      request facts (tool_results), SSE scanner, usage,
 │   │                       protocol-correct error bodies. Pure, golden-tested.
 │   ├── proxy/              data-plane handler: request id, auth, correlation, alias lookup,
 │   │                       body read and model splice, ReverseProxy, tap, idle watchdog,
@@ -579,7 +566,7 @@ llm-proxy/
 └── docs/
 ```
 
-That is 10 packages under `internal/` (`ui` is the embed) plus `cmd/llm-proxy`, against 27 in the first draft, and one more package (`family/openai`) in v2. Merges: `server`, `auth`, `correlate`, `route`, `proxy` and `tap` became `proxy`; `extract/*` became `family/anthropic` with the segment scheme in `core`; `writer` and `live` became `recorder`; `adminapi` and `query` became `api`; `configcache` became `keyring`; `domain` and the `store` ports became `core`; `metrics` collectors moved into the packages that update them. `budget`, `alerts` and `otelexport` are deferred.
+That is 10 packages under `internal/` (`ui` is the embed) plus `cmd/llm-proxy`, against 27 in the first draft, and one more package (`family/openai`) in v2. Merges: `server`, `auth`, `correlate`, `route`, `proxy` and `tap` became `proxy`; `extract/*` became `family/anthropic`; `writer` and `live` became `recorder`; `adminapi` and `query` became `api`; `configcache` became `keyring`; `domain` and the `store` ports became `core`; `metrics` collectors moved into the packages that update them. `budget`, `alerts` and `otelexport` are deferred.
 
 Dependency rules:
 
@@ -636,6 +623,19 @@ Everything below is out of v1. Each item has a trigger for adding it back. The v
 | Backward paging, exact counts above 10,000 | No "newer page" button; counts above 10,000 show as "10,000+" | The UI needs backward paging deep in history |
 | Sub-agent link to the spawning `Task` call | A sub-agent nests under its parent agent, not under the exact `Task` call | The UI needs Task-level nesting |
 | `store/sqlite`, MCP gateway (`source = mcp`), OIDC | Not available | After the items above, in that order |
+
+### Cache-miss diagnosis
+
+v1 records the cache read and write token counts on every call (`cache_read`, `cache_write_5m`, `cache_write_1h`), so the cache hit ratio and the cost of cache writes stay visible. It does not explain why a miss happened. The design below is deferred.
+
+- **Capture.** The extractor hashes cumulative prompt segments in order: tools, system prompt, then each message boundary. Only the hashes leave the extractor, never content. One 8-byte hash per segment is enough, because the first index where the cumulative hashes differ is the first index where the segment hashes differ.
+- **Storage.** One `call_segments` row per call: `call_id`, `ts`, the segment kinds, the concatenated hashes as one `bytea`, and token estimates. Index on `ts`. Short retention (14 days); the token columns on `calls` keep the hit ratio for the full period. It would add a `SessionSegments` method to `CallReader`.
+- **Analysis.** A pure function in `core` (`CacheDiff`) pairs each call with the previous call of the same `session_key`, `agent_id` and `request_class`, and finds the first segment that differs. Pairing by session alone is wrong: Claude Code runs sub-agents in parallel inside one session, with their own prefixes, and compaction and auxiliary requests have their own prefixes too. The segment kind, the time gap and the model give the cause (tools changed, system prompt changed, history edited, TTL expired, model switched, provider-side eviction).
+- **Surface.** `GET /admin/sessions/{key}/cache-analysis`, a cache strip in the session view, a Cache tab in call detail, and a list of misses with cause and a "money lost to misses" estimate in the cost view.
+
+| Feature | v1 consequence | Add back when |
+|---|---|---|
+| Cache-miss diagnosis | Hit ratios are visible; the reason for a miss is not | Repeated unexplained cache misses, or cache-write cost rising without an obvious cause |
 
 ### OpenAI family (v2, decisions C4 and D3)
 
