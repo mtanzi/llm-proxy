@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -75,8 +76,8 @@ func TestHolderLoadAndCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := h.Current()
-	if s.Generation() != 1 || len(s.Config().Keys) != 2 {
-		t.Errorf("snapshot = generation %d, %d keys", s.Generation(), len(s.Config().Keys))
+	if len(s.Config().Keys) != 2 {
+		t.Errorf("snapshot has %d keys", len(s.Config().Keys))
 	}
 	if err := h.Load(); err == nil {
 		t.Error("second Load succeeded")
@@ -105,13 +106,13 @@ func TestOldSnapshotUnaffectedBySwap(t *testing.T) {
 	}
 
 	cur := h.Current()
-	if cur == old || cur.Generation() != 2 {
-		t.Fatalf("snapshot not swapped: generation %d", cur.Generation())
+	if cur == old {
+		t.Fatal("snapshot not swapped")
 	}
 	if !cur.Config().Keys[1].Disabled || len(cur.Config().Pricing) != 2 {
 		t.Error("new snapshot lacks the edit")
 	}
-	if old.Config().Keys[1].Disabled || len(old.Config().Pricing) != 1 || old.Generation() != 1 {
+	if old.Config().Keys[1].Disabled || len(old.Config().Pricing) != 1 {
 		t.Error("old snapshot changed after the swap")
 	}
 }
@@ -179,7 +180,7 @@ func TestBadFileKeepsOldSnapshot(t *testing.T) {
 	if err := h.Reload(); err != nil {
 		t.Fatal(err)
 	}
-	if h.Reloads(ResultSuccess) != 1 || h.Current().Generation() != 2 {
+	if h.Reloads(ResultSuccess) != 1 || h.Current() == old {
 		t.Error("holder did not recover after a good file")
 	}
 }
@@ -237,6 +238,7 @@ database: { url: { env: DB } }
 
 func TestConcurrentReadersDuringSwap(t *testing.T) {
 	h, m, _ := newHolder(t, base)
+	old := h.Current()
 	variants := []string{
 		base,
 		strings.Replace(base, "sha256: "+hashB, "sha256: "+hashB+", disabled: true", 1),
@@ -248,19 +250,12 @@ func TestConcurrentReadersDuringSwap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			last := uint64(0)
 			for !stop.Load() {
-				s := h.Current()
-				cfg := s.Config()
+				cfg := h.Current().Config()
 				if len(cfg.Keys) != 2 || len(cfg.Providers) != 1 || cfg.Providers[0].Credential.Ref.Secret().Reveal() != "k" {
 					t.Error("reader saw a torn snapshot")
 					return
 				}
-				if s.Generation() < last {
-					t.Error("generation went backwards")
-					return
-				}
-				last = s.Generation()
 			}
 		}()
 	}
@@ -273,8 +268,8 @@ func TestConcurrentReadersDuringSwap(t *testing.T) {
 	}
 	stop.Store(true)
 	wg.Wait()
-	if h.Reloads(ResultSuccess) != 200 || h.Current().Generation() != 201 {
-		t.Errorf("success = %d, generation = %d", h.Reloads(ResultSuccess), h.Current().Generation())
+	if h.Reloads(ResultSuccess) != 200 || h.Current() == old {
+		t.Errorf("success = %d, snapshot swapped = %t", h.Reloads(ResultSuccess), h.Current() != old)
 	}
 }
 
@@ -302,22 +297,24 @@ func TestWatchReload(t *testing.T) {
 
 func TestReloadOnSIGHUP(t *testing.T) {
 	h, m, _ := newHolder(t, base)
+	guard := make(chan os.Signal, 1)
+	signal.Notify(guard, syscall.SIGHUP)
+	defer signal.Stop(guard)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { h.ReloadOnSIGHUP(ctx); close(done) }()
-	time.Sleep(50 * time.Millisecond) // let Notify register before signalling
 
 	m.set(cfgPath, base+"\n")
-	if err := syscall.Kill(syscall.Getpid(), syscall.SIGHUP); err != nil {
-		t.Fatal(err)
-	}
 	deadline := time.Now().Add(2 * time.Second)
 	for h.Reloads(ResultSuccess) == 0 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+		if err := syscall.Kill(syscall.Getpid(), syscall.SIGHUP); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	cancel()
 	<-done
-	if h.Reloads(ResultSuccess) != 1 {
+	if h.Reloads(ResultSuccess) == 0 {
 		t.Error("SIGHUP did not trigger a reload")
 	}
 }

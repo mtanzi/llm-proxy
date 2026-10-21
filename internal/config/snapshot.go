@@ -23,16 +23,11 @@ const (
 // snapshot once at its start and keeps it for its whole life, so a reload never
 // changes a request in flight. Nothing may modify the Config a snapshot returns.
 type Snapshot struct {
-	cfg        *Config
-	generation uint64
+	cfg *Config
 }
 
 // Config returns the validated configuration. Treat it as read-only.
 func (s *Snapshot) Config() *Config { return s.cfg }
-
-// Generation counts the snapshots built by the holder: 1 for the first load,
-// then one more for each successful reload.
-func (s *Snapshot) Generation() uint64 { return s.generation }
 
 // Holder owns the current Snapshot behind an atomic pointer. Current is safe
 // for any number of concurrent readers while Reload swaps the snapshot.
@@ -69,7 +64,7 @@ func (h *Holder) Load() error {
 	if err != nil {
 		return err
 	}
-	h.cur.Store(&Snapshot{cfg: cfg, generation: 1})
+	h.cur.Store(&Snapshot{cfg: cfg})
 	return nil
 }
 
@@ -92,17 +87,16 @@ func (h *Holder) Reload() error {
 	if err != nil {
 		h.failed.Add(1)
 		h.log.Error("config reload rejected; keeping the previous config",
-			"path", h.path, "generation", prev.generation, "error", err)
+			"path", h.path, "error", err)
 		return err
 	}
 	if changed := keepRestartOnly(cfg, prev.cfg); len(changed) > 0 {
 		h.log.Warn("config reload changes settings that need a restart; the running values stay",
 			"settings", changed)
 	}
-	next := &Snapshot{cfg: cfg, generation: prev.generation + 1}
-	h.cur.Store(next)
+	h.cur.Store(&Snapshot{cfg: cfg})
 	h.succeeded.Add(1)
-	h.log.Info("config reloaded", "path", h.path, "generation", next.generation,
+	h.log.Info("config reloaded", "path", h.path,
 		"providers", len(cfg.Providers), "keys", len(cfg.Keys), "pricing", len(cfg.Pricing))
 	return nil
 }
