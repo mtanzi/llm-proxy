@@ -209,18 +209,23 @@ func TestCallFilterMatchCombined(t *testing.T) {
 	}
 	// Breaking any one field of the combined filter must reject the call.
 	breakers := map[string]func(*CallFilter){
-		"keys":     func(f *CallFilter) { f.Keys = []string{"x"} },
-		"clients":  func(f *CallFilter) { f.Clients = []string{"x"} },
-		"models":   func(f *CallFilter) { f.Models = []string{"x"} },
-		"statuses": func(f *CallFilter) { f.Statuses = []int{200} },
-		"session":  func(f *CallFilter) { f.SessionKey = "x" },
-		"agent":    func(f *CallFilter) { f.AgentID = "x" },
-		"prompt":   func(f *CallFilter) { f.PromptID = "x" },
-		"tools":    func(f *CallFilter) { f.Tools = []string{"x"} },
-		"toolerr":  func(f *CallFilter) { f.ToolError = ptr(false) },
-		"latency":  func(f *CallFilter) { f.MinLatency = time.Hour },
-		"cost":     func(f *CallFilter) { f.MinCost = 1 << 40 },
-		"range":    func(f *CallFilter) { f.From = t0.Add(time.Minute) },
+		"keys":      func(f *CallFilter) { f.Keys = []string{"x"} },
+		"clients":   func(f *CallFilter) { f.Clients = []string{"x"} },
+		"providers": func(f *CallFilter) { f.Providers = []string{"x"} },
+		"models":    func(f *CallFilter) { f.Models = []string{"x"} },
+		"errclass":  func(f *CallFilter) { f.ErrorClasses = []string{"x"} },
+		"agenttype": func(f *CallFilter) { f.AgentTypes = []string{"x"} },
+		"reqclass":  func(f *CallFilter) { f.RequestClasses = []string{"x"} },
+		"statuses":  func(f *CallFilter) { f.Statuses = []int{200} },
+		"session":   func(f *CallFilter) { f.SessionKey = "x" },
+		"agent":     func(f *CallFilter) { f.AgentID = "x" },
+		"prompt":    func(f *CallFilter) { f.PromptID = "x" },
+		"tools":     func(f *CallFilter) { f.Tools = []string{"x"} },
+		"toolerr":   func(f *CallFilter) { f.ToolError = ptr(false) },
+		"latency":   func(f *CallFilter) { f.MinLatency = time.Hour },
+		"cost":      func(f *CallFilter) { f.MinCost = 1 << 40 },
+		"from":      func(f *CallFilter) { f.From = t0.Add(time.Minute) },
+		"to":        func(f *CallFilter) { f.To = t0 },
 	}
 	for name, brk := range breakers {
 		f := full
