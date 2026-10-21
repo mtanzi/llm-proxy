@@ -1,0 +1,76 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - depguard
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    depguard:
+      rules:
+        store:
+          files:
+            - $all
+            - "!**/cmd/llm-proxy/**"
+            - "!**/internal/store/postgres/**"
+          deny:
+            - pkg: github.com/mtanzi/llm-proxy/internal/store/postgres
+              desc: only cmd/llm-proxy may import store/postgres
+            - pkg: database/sql
+              desc: no database access outside store/postgres
+            - pkg: github.com/jackc
+              desc: no database driver outside store/postgres
+            - pkg: github.com/pressly/goose
+              desc: no migrations outside store/postgres
+        core:
+          list-mode: strict
+          files:
+            - "**/internal/core/**"
+          allow:
+            - $gostd
+        family:
+          list-mode: strict
+          files:
+            - "**/internal/family/**"
+          allow:
+            - $gostd
+            - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/tidwall/gjson
+        core-only:
+          list-mode: strict
+          files:
+            - "**/internal/recorder/**"
+            - "**/internal/keyring/**"
+            - "**/internal/config/**"
+            - "**/internal/store/storetest/**"
+          allow:
+            - $gostd
+            - github.com/mtanzi/llm-proxy/internal/core
+        ui:
+          list-mode: strict
+          files:
+            - "**/internal/ui/**"
+          allow:
+            - $gostd
+            - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/llm-proxy/internal/recorder
+            - github.com/mtanzi/llm-proxy/internal/keyring
+        postgres:
+          list-mode: strict
+          files:
+            - "**/internal/store/postgres/**"
+          allow:
+            - $gostd
+            - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/jackc/pgx
+            - github.com/pressly/goose
+        proxy:
+          files:
+            - "**/internal/proxy/**"
+          deny:
+            - pkg: github.com/mtanzi/llm-proxy/internal/store
+              desc: proxy imports no store package
