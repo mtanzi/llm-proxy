@@ -125,7 +125,7 @@ log:
 - Providers, pricing and virtual keys are in this file and nowhere else (resolved decisions D7 and D15). The database holds call records only. A key entry has a unique `name`, the lowercase hex `sha256` of the key, and an optional `disabled: true`. A reload that finds a duplicate name, a duplicate hash or a malformed hash is rejected whole, and the proxy keeps the previous snapshot and logs the error.
 - The file holds hashes, not secrets, so it can sit in version control. Anyone who can edit it can add a key and so gain access to the proxy: restrict write access as for any deploy configuration.
 - Batch size and interval, the SSE event bound and the shutdown flush timeout are constants in code until measurement says otherwise. `queue_capacity` is the one writer setting.
-- `SIGHUP` re-reads the file and the referenced secrets, rebuilds the key map and swaps the snapshot atomically. Requests in flight keep the snapshot they started with. This matters because a restart drains streams for up to 10 minutes. Listener addresses need a restart.
+- `SIGHUP` re-reads the file and the referenced secrets, rebuilds the key map and swaps the snapshot atomically. Requests in flight keep the snapshot they started with. This matters because a restart drains streams for up to 10 minutes. Listener addresses, TLS files, the database URL and `queue_capacity` are read at start and need a restart: a reload that changes them logs a warning and keeps the running values.
 
 ## Secrets
 
@@ -144,7 +144,7 @@ log:
 
   Put the hash in the config as `sha256`, hand the key to the client, and do not keep the plaintext anywhere else. The proxy cannot show a key again.
 - No secret is ever returned by the API or logged. No header value is stored in Postgres; log redaction happens in one place ([backend.md](backend.md#listener-and-router)).
-- Rotation: provider keys and the database password rotate by updating the secret and sending `SIGHUP`. Virtual keys rotate by config edit: generate a new key, add its entry, send `SIGHUP`, switch the client, then set `disabled: true` on the old entry (or delete it) and send `SIGHUP` again (gap review R8). A revoked key is rejected from the next request after the reload; a stream already in flight finishes.
+- Rotation: provider keys rotate by updating the secret and sending `SIGHUP`. The database URL and password are read at start, so rotating them needs a restart. Virtual keys rotate by config edit: generate a new key, add its entry, send `SIGHUP`, switch the client, then set `disabled: true` on the old entry (or delete it) and send `SIGHUP` again (gap review R8). A revoked key is rejected from the next request after the reload; a stream already in flight finishes.
 
 ### Personal local setup (subscription passthrough)
 
