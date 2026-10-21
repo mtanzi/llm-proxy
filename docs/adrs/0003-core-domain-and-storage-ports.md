@@ -1,6 +1,6 @@
 # ADR 0003: Core domain types and storage ports
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
@@ -28,11 +28,11 @@ Rules: ports follow use cases, not tables; row structs never leave the adapter; 
 
 ## Work required
 
-- Define the entity and result types, with `uuid.UUID` ids (UUIDv7) and `decimal.Decimal` for cost.
+- Define the entity and result types, with a core-defined `ID` (16 bytes, UUIDv7, generated with `crypto/rand` and `time`) and `MicroUSD` (exact `int64` millionths of a dollar) for cost. Why: `uuid.UUID` and `decimal.Decimal` are third-party types, which the standard-library-only rule for `core` forbids; `MicroUSD` matches the six decimals of `cost_usd`.
 - Define the two port interfaces and the filter, page and cursor types as sketched in backend.md.
 - Implement `CallFilter.Match` with table tests covering every field alone and combined; the live tail (ADR 0025) and the contract suite (ADR 0018) reuse it.
 - Implement the pure `SessionKey` derivation and `Cost` computation here or with the ADRs that name them (0009, 0015), keeping them in `core`.
-- Write the small fakes used by consumer tests: a `CallWriter` that appends to a slice and a `CallReader` that returns canned values (in a `coretest` helper or per consumer).
+- Write the small fakes used by consumer tests: a `CallWriter` that appends to a slice and a `CallReader` that returns canned values (in `internal/core/coretest`, which depguard lets import `core` and which consumer tests may import).
 - Add a package test that fails if `core` imports anything outside the standard library.
 
 ## Depends on

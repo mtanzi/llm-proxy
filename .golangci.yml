@@ -30,8 +30,16 @@ linters:
           list-mode: strict
           files:
             - "**/internal/core/**"
+            - "!**/internal/core/coretest/**"
           allow:
             - $gostd
+        coretest:
+          list-mode: strict
+          files:
+            - "**/internal/core/coretest/**"
+          allow:
+            - $gostd
+            - github.com/mtanzi/llm-proxy/internal/core
         family:
           list-mode: strict
           files:
@@ -39,6 +47,7 @@ linters:
           allow:
             - $gostd
             - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/llm-proxy/internal/core/coretest
             - github.com/tidwall/gjson
         core-only:
           list-mode: strict
@@ -50,6 +59,7 @@ linters:
           allow:
             - $gostd
             - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/llm-proxy/internal/core/coretest
         ui:
           list-mode: strict
           files:
@@ -57,6 +67,7 @@ linters:
           allow:
             - $gostd
             - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/llm-proxy/internal/core/coretest
             - github.com/mtanzi/llm-proxy/internal/recorder
             - github.com/mtanzi/llm-proxy/internal/keyring
         postgres:
