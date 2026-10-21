@@ -1,6 +1,6 @@
 # ADR 0005: Config snapshot and `SIGHUP` reload
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

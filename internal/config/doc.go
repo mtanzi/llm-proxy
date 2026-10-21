@@ -5,6 +5,14 @@
 // file is rejected whole: Load returns either a valid *Config or an error that
 // lists every problem found.
 //
+// Reload. A Holder keeps the current Snapshot behind an atomic pointer. A
+// request reads Current once and keeps that snapshot for its whole life. Reload
+// (on SIGHUP, see Holder.ReloadOnSIGHUP) builds and validates a new snapshot
+// and swaps it in; a bad file is rejected whole, the previous snapshot stays,
+// and the failure is logged and counted. Restart-only settings (listener
+// addresses, TLS files, database URL, queue capacity) keep their running
+// values, and a reload that changes them logs a warning.
+//
 // Environment overrides. Every scalar key can be overridden by LLM_PROXY_ plus
 // the upper-cased key path joined by underscores, for example
 // LLM_PROXY_SERVER_DRAIN_TIMEOUT or LLM_PROXY_LISTEN_TLS_CERT_FILE. A secret
