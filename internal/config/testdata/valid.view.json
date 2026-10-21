@@ -28,11 +28,11 @@
       "model": "claude-opus-4-8",
       "from": "2026-10-01",
       "price": {
-        "Input": 5000000,
-        "Output": 25000000,
-        "CacheRead": 500000,
-        "CacheWrite5m": 6250000,
-        "CacheWrite1h": 10000000
+        "input": 5000000,
+        "output": 25000000,
+        "cache_read": 500000,
+        "cache_write_5m": 6250000,
+        "cache_write_1h": 10000000
       }
     },
     {
@@ -40,11 +40,11 @@
       "model": "claude-opus-4-8",
       "from": "2027-01-01",
       "price": {
-        "Input": 4500000,
-        "Output": 22500000,
-        "CacheRead": 0,
-        "CacheWrite5m": 0,
-        "CacheWrite1h": 0
+        "input": 4500000,
+        "output": 22500000,
+        "cache_read": 0,
+        "cache_write_5m": 0,
+        "cache_write_1h": 0
       }
     },
     {
@@ -52,11 +52,11 @@
       "model": "llama",
       "from": "2026-01-01",
       "price": {
-        "Input": 0,
-        "Output": 0,
-        "CacheRead": 0,
-        "CacheWrite5m": 0,
-        "CacheWrite1h": 0
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write_5m": 0,
+        "cache_write_1h": 0
       }
     }
   ],

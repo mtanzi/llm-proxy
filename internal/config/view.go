@@ -22,10 +22,20 @@ type ProviderView struct {
 
 // PricingView is one price version. Prices are micro-USD per million tokens.
 type PricingView struct {
-	Provider string     `json:"provider"`
-	Model    string     `json:"model"`
-	From     Date       `json:"from"`
-	Price    core.Price `json:"price"`
+	Provider string    `json:"provider"`
+	Model    string    `json:"model"`
+	From     Date      `json:"from"`
+	Price    PriceView `json:"price"`
+}
+
+// PriceView holds the per-column prices of one price version in micro-USD per
+// million tokens. Its keys match the config file's pricing keys.
+type PriceView struct {
+	Input        core.MicroUSD `json:"input"`
+	Output       core.MicroUSD `json:"output"`
+	CacheRead    core.MicroUSD `json:"cache_read"`
+	CacheWrite5m core.MicroUSD `json:"cache_write_5m"`
+	CacheWrite1h core.MicroUSD `json:"cache_write_1h"`
 }
 
 // KeyView is a key name and its disabled flag, never its hash.
@@ -45,7 +55,7 @@ func (c *Config) View() View {
 		v.Providers[i] = ProviderView{Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, AuthMode: p.AuthMode, IdleTimeout: p.IdleTimeout}
 	}
 	for i, p := range c.Pricing {
-		v.Pricing[i] = PricingView{Provider: p.Provider, Model: p.Model, From: p.From, Price: p.Price()}
+		v.Pricing[i] = PricingView{Provider: p.Provider, Model: p.Model, From: p.From, Price: PriceView(p.Price())}
 	}
 	for i, k := range c.Keys {
 		v.Keys[i] = KeyView{Name: k.Name, Disabled: k.Disabled}
