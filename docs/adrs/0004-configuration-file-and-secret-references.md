@@ -1,6 +1,6 @@
 # ADR 0004: Configuration file and secret references
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

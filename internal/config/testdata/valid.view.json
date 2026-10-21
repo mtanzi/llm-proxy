@@ -1,0 +1,73 @@
+{
+  "providers": [
+    {
+      "name": "anthropic",
+      "kind": "anthropic",
+      "base_url": "https://api.anthropic.com",
+      "auth_mode": "both",
+      "idle_timeout": "90s"
+    },
+    {
+      "name": "local-vllm",
+      "kind": "openai_compatible",
+      "base_url": "http://vllm.internal:8000",
+      "auth_mode": "proxy_key",
+      "idle_timeout": "2m"
+    },
+    {
+      "name": "passthrough-only",
+      "kind": "anthropic",
+      "base_url": "https://api.anthropic.com",
+      "auth_mode": "client_passthrough",
+      "idle_timeout": "2m"
+    }
+  ],
+  "pricing": [
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "from": "2026-10-01",
+      "price": {
+        "Input": 5000000,
+        "Output": 25000000,
+        "CacheRead": 500000,
+        "CacheWrite5m": 6250000,
+        "CacheWrite1h": 10000000
+      }
+    },
+    {
+      "provider": "anthropic",
+      "model": "claude-opus-4-8",
+      "from": "2027-01-01",
+      "price": {
+        "Input": 4500000,
+        "Output": 22500000,
+        "CacheRead": 0,
+        "CacheWrite5m": 0,
+        "CacheWrite1h": 0
+      }
+    },
+    {
+      "provider": "local-vllm",
+      "model": "llama",
+      "from": "2026-01-01",
+      "price": {
+        "Input": 0,
+        "Output": 0,
+        "CacheRead": 0,
+        "CacheWrite5m": 0,
+        "CacheWrite1h": 0
+      }
+    }
+  ],
+  "keys": [
+    {
+      "name": "alice",
+      "disabled": false
+    },
+    {
+      "name": "ci",
+      "disabled": true
+    }
+  ]
+}
