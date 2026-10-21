@@ -9,6 +9,7 @@ One Go module, one static binary `llm-proxy` built from `cmd/llm-proxy`. Everyth
 | Package | Role | May import |
 |---|---|---|
 | `core` | Domain types, pure rules, storage ports | standard library only |
+| `core/coretest` | Fakes of the core ports for consumer tests (test support only) | `core` |
 | `family/anthropic` | Anthropic protocol knowledge (pure) | `core`, `gjson` |
 | `recorder`, `keyring` | Application use cases | `core` |
 | `proxy` | Data-plane adapter | `core`, application packages, `family/*`, `config`; no `store` package |
