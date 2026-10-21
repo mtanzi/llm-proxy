@@ -1,6 +1,6 @@
 # ADR 0002: v1 scope and the metadata-only storage model
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
@@ -30,6 +30,8 @@ The captain narrowed v1 in several steps (decisions D1, D2, C1 to C7). The resul
 - Add a review checklist item for pull requests: no new field may carry prompt, response, tool argument, tool result or provider error text, and no new endpoint may return such content.
 - Make the "no bodies" rule testable at two layers: the storage contract suite scan (ADR 0018) and an end-to-end check that sends a request with a marker string and verifies the marker is in no stored value and no log line (ADR 0038).
 - Record in the code (a `doc.go` in `core`) that every v1 write is an insert and every relational view is derived in `CallReader`.
+
+The two enforcement checks in the third item are delivered by ADR 0018 (storage contract suite scan) and ADR 0038 (end-to-end marker check), not by this ADR.
 
 ## Depends on
 
