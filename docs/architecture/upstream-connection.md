@@ -17,7 +17,7 @@ Notes from Anthropic's gateway compatibility guide:
 - Claude Code posts inference to `/v1/messages?beta=true`, so the proxy matches on the path, not the full URL.
 - `count_tokens` is optional. Without it, Claude Code falls back to a character-based estimate. The proxy forwards it upstream.
 - `HEAD /api/hello` is a connection-warming probe that a gateway may reject without breaking anything. The proxy answers it locally with `200` and does not log it as a call.
-- `GET /v1/models` is used for model discovery only when the client sets `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`. In v1 the proxy forwards it upstream, so the `/model` picker shows the upstream's models, not the aliases. Answering from the alias list is a later item. The endpoint must answer directly at the base URL, without redirects, within 3 seconds.
+- `GET /v1/models` is used for model discovery only when the client sets `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`. In v1 the proxy forwards it upstream, so the `/model` picker shows the upstream's models. The endpoint must answer directly at the base URL, without redirects, within 3 seconds.
 
 Out of scope for v1: cloud-provider formats (Amazon Bedrock InvokeModel, Google Cloud's Agent Platform rawPredict, Microsoft Foundry, Claude Platform on AWS). They need request signing or a different wire format, which falls under the translation decision (gap review B8, B2).
 
@@ -37,7 +37,7 @@ providers:
 ```
 
 - `credential` resolves to an env var or a file. It is read at start and on `SIGHUP`. No API returns it, it is redacted from every log, and no call record holds it.
-- Aliases and pricing are in the same file ([deployment.md](deployment.md#configuration)). An alias maps to one route `(provider, model)`; a model name that is not an alias passes through to the default Anthropic provider.
+- Pricing is in the same file ([deployment.md](deployment.md#configuration)). The model name in a request is forwarded as sent.
 - Per-provider timeouts other than `idle_timeout` use the `http.Transport` defaults in v1.
 - One provider may later hold a pool of keys to spread upstream rate limits (gap review B8). v1 has one key per provider.
 
@@ -63,7 +63,6 @@ flowchart LR
 | How the proxy identifies the client | The virtual key | A virtual key in the `x-llm-proxy-key` header, required |
 | Upstream credential | The provider key held by the proxy | The client's credential, forwarded unchanged |
 | Who is billed | The owner of the proxy's provider key | The owner of the client's credential |
-| Aliases | Yes, to a model of the same provider | No: the credential is only valid at its own provider |
 | Cost | Computed from pricing; the owner of the provider key pays | Computed as an API-equivalent figure for analysis; the plan bills the person |
 | Main use | API-key access for every harness | A person routing their own Claude subscription through their own proxy |
 
@@ -91,7 +90,7 @@ For the Anthropic family. "Forward" means unchanged, byte for byte.
 | `request-id` | Forwarded and stored as `upstream_request_id` |
 | `x-request-id` | Added: the proxy's call id |
 
-Body handling follows Anthropic's "inspect without modifying" rule. The proxy forwards the `system` array, `tools`, earlier `messages`, `cache_control` markers and error bodies unchanged. Rewriting any of them breaks the system-prompt attribution strip, prompt caching, or the preserved-thinking check, which then fails with `bound to a different conversation`. The only body edit is the `model` splice when an alias resolves to a different model, done on bytes ([backend.md](backend.md#route-resolver)).
+Body handling follows Anthropic's "inspect without modifying" rule. The proxy forwards the `system` array, `tools`, earlier `messages`, `cache_control` markers and error bodies unchanged. Rewriting any of them breaks the system-prompt attribution strip, prompt caching, or the preserved-thinking check, which then fails with `bound to a different conversation`. The proxy makes no body edit.
 
 ## Claude Code with a proxy-held API key
 
@@ -196,7 +195,6 @@ The proxy **must not**:
 
 - **Usage limits.** The subscription's limits apply. A fleet of parallel Claude Code sessions on one Max login consumes them fast, and the terms assume ordinary, individual use.
 - **No billed cost.** Calls are billed by plan, not per token. The proxy still computes an API-equivalent cost for analysis and labels it `billing_mode = subscription`. v1 enforces no budget or rate limit in any mode.
-- **No aliasing** to other providers or keys, as above.
 - **Features tied to the claude.ai identity:** Remote Control is disabled while `ANTHROPIC_BASE_URL` points at a non-Anthropic host, even with a claude.ai login.
 - **Compliance:** sessions that go through a gateway are not eligible for Anthropic's HIPAA configuration.
 - **Team or multi-user deployments** should use `proxy_key` mode with an organization API key under the Commercial Terms. Anthropic's rollout guidance issues each developer a gateway credential and gives the gateway the provider credential. Passthrough in a shared deployment is acceptable only when every request carries the requester's own login, which the proxy cannot verify. The default configuration therefore disables passthrough.

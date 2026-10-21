@@ -34,7 +34,7 @@ flowchart TB
 
     subgraph bin[llm-proxy serve]
         subgraph inbound[Inbound adapters]
-            proxy["proxy<br/>auth, correlation, alias,<br/>ReverseProxy, tap"]
+            proxy["proxy<br/>auth, correlation,<br/>ReverseProxy, tap"]
             api["api<br/>JSON, SSE, session cookie"]
             ui["ui<br/>embedded SPA"]
         end
@@ -50,7 +50,7 @@ flowchart TB
             pgs["store/postgres<br/>pgx, goose, retention"]
             rt["http.RoundTripper<br/>per provider"]
         end
-        cfg["config<br/>YAML: providers, aliases,<br/>pricing, keys"]
+        cfg["config<br/>YAML: providers,<br/>pricing, keys"]
         wiring["cmd/llm-proxy<br/>wiring"]
     end
 
@@ -107,12 +107,12 @@ Clean architecture with small rings. `core` at the centre holds entities, pure r
 - Server timeouts: set `ReadHeaderTimeout` and `IdleTimeout`. **Do not set a global `WriteTimeout`**: it cuts long SSE streams. The approaches report measured this (section 6, finding 4). Each streaming request clears its own write deadline with `http.NewResponseController(w).SetWriteDeadline(time.Time{})`.
 - **One request-size limit:** `server.max_request_bytes`, default 32 MiB (gap review R15), enforced with `http.MaxBytesReader`. A larger body is rejected before the tap sees it. There is no second, extraction-side request limit. `extraction_partial` applies to the response side only (see [Tap](#tap)).
 - Every response carries `x-request-id`, a UUIDv7 that is also the primary id of the call. A client-supplied `x-request-id` is kept as `client_request_id`, never reused as the id (gap review R17).
-- The handler runs these steps as plain function calls: recover, request id, access log (`log/slog`, with header redaction in one place), auth, correlation, alias lookup.
+- The handler runs these steps as plain function calls: recover, request id, access log (`log/slog`, with header redaction in one place), auth, correlation.
 - Graceful shutdown on SIGTERM: stop accepting connections, wait for in-flight streams up to a drain deadline (default 10 minutes, gap review R14), close the queue, and let the batch writer drain it into the store within a flush deadline (default 30 seconds). Records still queued after the deadline are counted as dropped and their number is logged.
 
 ### Proxy handler (`proxy` package)
 
-The hot path is one flow, so it is one package with one file per concern: request id, auth, correlation, alias lookup, body read and model splice, `ReverseProxy` setup, tap, idle watchdog, drain. It defines small interfaces for what it needs (`KeyLookup`, `Recorder`) and imports no `store` package.
+The hot path is one flow, so it is one package with one file per concern: request id, auth, correlation, body read, `ReverseProxy` setup, tap, idle watchdog, drain. It defines small interfaces for what it needs (`KeyLookup`, `Recorder`) and imports no `store` package.
 
 #### Auth (virtual keys)
 
@@ -122,7 +122,7 @@ The hot path is one flow, so it is one package with one file per concern: reques
 - **Changing keys** is a config edit plus `SIGHUP`. Add: append an entry. Revoke: set `disabled: true` or delete the entry. Rotate: add the new entry, switch the client, then disable the old one. There is no key API.
 - **Where the key is read from.** In the default `proxy_key` mode the client sends its virtual key as its API credential: `Authorization: Bearer lp_…` or `x-api-key: lp_…`. In `client_passthrough` mode the client's own credential occupies `Authorization`, so the virtual key travels in a separate `x-llm-proxy-key` header. [upstream-connection.md](upstream-connection.md#credential-modes) explains both modes. The proxy consumes `x-llm-proxy-key` and never forwards it.
 - **Lookup** is an in-memory map from SHA-256 to key record, owned by `keyring`. `keyring` builds it from the keys of a config snapshot, and the map travels with that snapshot: `SIGHUP` builds a new snapshot and swaps it atomically, and a request in flight keeps the map it started with. The handler hashes the presented key and looks the hash up. The config loader rejects a snapshot with a duplicate name, a duplicate hash or a malformed hash, and the proxy keeps the previous snapshot and logs the error. Nothing about keys touches the store.
-- **Checks:** the key exists and is not disabled. A failure returns a protocol-correct Anthropic error body with a stable `type` per error class (gap review R3). Expiry, allowed aliases, request-rate and concurrency limits and budgets are deferred ([Later versions](#later-versions)).
+- **Checks:** the key exists and is not disabled. A failure returns a protocol-correct Anthropic error body with a stable `type` per error class (gap review R3). Expiry, request-rate and concurrency limits and budgets are deferred ([Later versions](#later-versions)).
 - **Admin plane auth** is separate: one admin token, read from a secret file. The browser exchanges it for a session cookie; see [frontend.md](frontend.md#authentication-to-the-admin-api).
 
 #### Correlation
@@ -146,20 +146,18 @@ The correlation step reads harness headers into the call record. It never parses
 - **Session derivation** is a fallback for a request without a session header. It is a pure function in `core`: a hash of (key, client, hash of tools and system prompt, hash of the first user message). It keeps no idle state and has no timeout, so it needs no per-key memory and gives the same key on every replica. Only hashes are used; no message text is kept. Header-less clients with identical openings merge into one session; that is the accepted cost.
 - Session headers of other harnesses (Codex, OpenCode) are a v2 item ([Later versions](#later-versions)).
 
-#### Route resolver
+#### Forwarding and the config snapshot
 
-- The client's `model` value is looked up in the alias table of the config snapshot. An alias name may equal a vendor model id, so `claude-opus-4-8` can be an alias (gap review B3).
-- An alias maps to **one** route `(provider, model, params)`. A model name that is not an alias passes through unchanged to the default provider of the Anthropic family, so no alias is needed per model.
+- v1 has one configured Anthropic provider. A request is forwarded exactly as sent: the body bytes and the `model` value are never rewritten. The call record keeps the model the client asked for.
 - The config snapshot is read once per request, so a `SIGHUP` reload never changes a request in flight (gap review R2).
-- When the route's model differs from the client's value, the proxy splices the new value into the body bytes with `tidwall/sjson` `SetBytes`. It never decodes and re-encodes the body. Re-encoding would break prompt caching, the attribution-block strip and the preserved-thinking checks that Anthropic's gateway guide describes.
-- In `client_passthrough` mode the resolver allows only the provider the client's credential belongs to, and alias rewriting is off; see [upstream-connection.md](upstream-connection.md#what-the-proxy-must-and-must-not-do-in-passthrough-mode).
-- **One body read.** The handler reads the whole request body once, bounded by `MaxBytesReader`, before routing. That byte slice is spliced if needed, forwarded to the upstream, and handed to the extractor after the exchange ends. There is no tee and no second buffer.
+- In `client_passthrough` mode the proxy allows only the provider the client's credential belongs to; see [upstream-connection.md](upstream-connection.md#what-the-proxy-must-and-must-not-do-in-passthrough-mode).
+- **One body read.** The handler reads the whole request body once, bounded by `MaxBytesReader`, before forwarding. That byte slice is forwarded to the upstream and handed to the extractor after the exchange ends. There is no tee and no second buffer.
 
 #### Proxy passthrough and streaming
 
 Built on `net/http/httputil.ReverseProxy`. The approaches report verified the relevant behaviour with an experiment (section 6): immediate flushing of `text/event-stream`, cancellation propagation, body closing on client abort, and no measurable added latency.
 
-- **`Rewrite`** sets the upstream URL from the route, applies the credential mode (replace the client credential with the provider key, or pass it through), removes `x-llm-proxy-key`, and splices `model` when needed. All other headers and body bytes are forwarded unchanged. `anthropic-version`, `anthropic-beta` and every other `anthropic-*` header are forwarded as open lists, as Anthropic's guide requires.
+- **`Rewrite`** sets the upstream URL from the configured provider, applies the credential mode (replace the client credential with the provider key, or pass it through) and removes `x-llm-proxy-key`. All other headers and body bytes are forwarded unchanged. `anthropic-version`, `anthropic-beta` and every other `anthropic-*` header are forwarded as open lists, as Anthropic's guide requires.
 - **`Transport`** is a plain `http.Transport` with default pool and HTTP/2 settings, one per provider. v1 has no retry and no fallback. An upstream 4xx or 5xx reaches the client unchanged, with `x-request-id` added, and the client applies its own retry rules. Claude Code's retry logic matches on the upstream's error wording, so error bodies are never wrapped (gap review R3).
 - **Response headers** pass through unchanged, in particular `content-type`, `retry-after`, `x-should-retry` and `anthropic-ratelimit-unified-*`. The upstream's own request id header is stored as `upstream_request_id` on the call row.
 - **Upstream timeouts:** a `net.Dialer` timeout, `Transport.ResponseHeaderTimeout` for time to headers, and an idle-between-chunks watchdog in the tap (provider setting `idle_timeout`). SSE `ping` events are never stripped: during long thinking pauses they are the only bytes on the stream.
@@ -183,7 +181,7 @@ The only code that understands provider formats, in package `family/anthropic`. 
 A call record holds:
 
 - **Who:** key name, client, session key, agent and parent agent, agent type, prompt id (all from headers, see [Correlation](#correlation)).
-- **What ran:** alias, provider, final model, and `upstream_request_id`. There is one attempt per call in v1.
+- **What ran:** provider, model (as the client sent it), and `upstream_request_id`. There is one attempt per call in v1.
 - **Usage and cost:** tokens normalized into disjoint columns (input, cache read, cache write, output, reasoning), the raw provider usage JSON (gap review B6), and cost from the versioned pricing in the config snapshot, with the pricing version. `usage_raw` is the only thing that lets a normalization fix be applied to old rows.
 - **Timings:** time to first byte, TTFT, total duration, and the end timestamp.
 - **Outcome:** HTTP status, `error_class`, the provider's error `type` (for example `overloaded_error`), stop reason, `streamed`, `usage_estimated`, `extraction_partial`. The provider's error message text is not kept.
@@ -236,7 +234,7 @@ Served on the admin listener under `/admin/`, implemented by the `api` package. 
 | `GET /admin/tool-calls/summary` | Per-tool count, error rate, p50 and p95 duration | G6 |
 | `GET /admin/usage` | Time series computed from raw rows, `group_by` and `grain` | G7 |
 | `GET /admin/stream` | SSE live tail with the call-log filters | G13 |
-| `GET /admin/config` | Read-only view of providers, aliases and pricing from the config file, and the key names with their `disabled` flag (never a hash) | |
+| `GET /admin/config` | Read-only view of providers and pricing from the config file, and the key names with their `disabled` flag (never a hash) | |
 | `POST /admin/session`, `DELETE /admin/session` | Browser sign-in and sign-out | R8 |
 
 List conventions:
@@ -267,7 +265,7 @@ One job, owned by the adapter and started by `cmd`: **retention**, daily, `DELET
 ### Configuration
 
 - Static configuration comes from one YAML file plus environment variables; secrets come from files or environment variables referenced by name. The layout is in [deployment.md](deployment.md#configuration).
-- **Resolved decision D7 (C3):** providers, aliases and pricing live in the config file. Virtual keys are in the file too, as SHA-256 hashes (see [Auth](#auth-virtual-keys)); the database holds call records only. `SIGHUP` re-reads the file and swaps an immutable snapshot atomically; requests in flight keep the snapshot they started with. The UI shows aliases, pricing and key names read-only.
+- **Resolved decision D7 (C3):** providers and pricing live in the config file. Virtual keys are in the file too, as SHA-256 hashes (see [Auth](#auth-virtual-keys)); the database holds call records only. `SIGHUP` re-reads the file and swaps an immutable snapshot atomically; requests in flight keep the snapshot they started with. The UI shows providers, pricing and key names read-only.
 
 ## Storage ports and adapters
 
@@ -318,8 +316,7 @@ type CallFilter struct {
 	Keys           []string // key names
 	Clients        []string
 	Providers      []string
-	Models         []string // final model
-	Aliases        []string
+	Models         []string
 	Statuses       []int
 	ErrorClasses   []string
 	SessionKey     string
@@ -414,8 +411,7 @@ sequenceDiagram
     P->>P: id = UUIDv7, read body (max 32 MiB)
     P->>K: Lookup(sha256(virtual key))
     K-->>P: key or 401 in the client's protocol shape
-    P->>P: correlation from headers, alias lookup in config snapshot
-    P->>P: splice model with sjson only if the alias changes it
+    P->>P: correlation from headers
     P->>R: Started(id, key, model, session, agent) (non-blocking)
     P->>U: ReverseProxy: credential applied, x-llm-proxy-key removed
     U-->>P: status, headers
@@ -481,7 +477,7 @@ CREATE TABLE calls (
   family              text NOT NULL,           -- 'anthropic' in v1
   endpoint            text NOT NULL,
   auth_mode           text NOT NULL,           -- 'proxy_key' | 'oauth_passthrough'
-  alias               text, provider text NOT NULL, model text,
+  provider            text NOT NULL, model text,
   upstream_request_id text,
   status              smallint, error_class text, error_type text, stop_reason text,
   streamed            boolean NOT NULL,
@@ -527,7 +523,7 @@ Notes:
 - **Tool calls at read time.** A tool call is a `use` row joined to the `result` row with the same `tool_call_id`, as described in [Tool calls, sessions and agents at read time](#tool-calls-sessions-and-agents-at-read-time).
 - **Keys are not in the database.** `calls.key_name` holds the name from the config file at the time of the call. There is no key table and no foreign key, so removing a key from the config leaves its history readable under the old name. Per-key usage is `GROUP BY key_name` over `calls` (`GET /admin/usage?group_by=key`).
 - **Retention defaults:** `calls` and `tool_events` 400 days. Deployment sizing is in [deployment.md](deployment.md#storage-retention-and-sizing).
-- **Removed against the design doc:** `request_attempts`, `tool_calls` as a table, `sessions`, `agents`, `usage_rollups`, `alerts`, `admin_tokens`, `virtual_keys`, `aliases`, `alias_routes`, `pricing`, `budget_counters`, the `providers` view and all partitioning.
+- **Removed against the design doc:** `request_attempts`, `tool_calls` as a table, `sessions`, `agents`, `usage_rollups`, `alerts`, `admin_tokens`, `virtual_keys`, `pricing`, `budget_counters`, the `providers` view and all partitioning.
 
 ## Package layout
 
@@ -543,8 +539,8 @@ llm-proxy/
 │   ├── family/
 │   │   └── anthropic/      request facts (tool_results), SSE scanner, usage,
 │   │                       protocol-correct error bodies. Pure, golden-tested.
-│   ├── proxy/              data-plane handler: request id, auth, correlation, alias lookup,
-│   │                       body read and model splice, ReverseProxy, tap, idle watchdog,
+│   ├── proxy/              data-plane handler: request id, auth, correlation,
+│   │                       body read, ReverseProxy, tap, idle watchdog,
 │   │                       graceful drain. One package, one file per concern.
 │   ├── keyring/            immutable key map (SHA-256 to key) built from a config snapshot; lookup
 │   ├── recorder/           Started and Finished events: live fan-out, bounded queue,
@@ -587,7 +583,7 @@ Later executables from design doc 9 (the firstmate ledger reporter) go under `cm
 | Concern | Choice |
 |---|---|
 | HTTP, proxying, SSE | `net/http`, `net/http/httputil` (no fasthttp: no HTTP/2 client, different streaming model) |
-| Hot-path JSON | `github.com/tidwall/gjson` to read, `github.com/tidwall/sjson` to splice |
+| Hot-path JSON | `github.com/tidwall/gjson` to read |
 | Postgres (inside the `store/postgres` adapter only) | `github.com/jackc/pgx/v5`, goose migrations |
 | Logging | `log/slog`, JSON handler |
 | Metrics | Prometheus Go client |
@@ -603,8 +599,9 @@ Everything below is out of v1. Each item has a trigger for adding it back. The v
 | Feature | v1 consequence | Add back when |
 |---|---|---|
 | Fallback, retries, commit point, circuit breaker, `request_attempts` | An upstream 429 or 5xx reaches the client unchanged, and the client retries on its own terms. No failover across providers | A second route exists for the same family and users want automatic failover, or upstream errors measurably disrupt work. The earlier commit-point design (commit at the first upstream 2xx, before any byte reaches the client; no retry after) is sound and can be reused as is |
+| Model aliases and request rewriting | Requests go upstream exactly as sent, and the call records the model the client asked for | Routing to a second provider, or pinning model versions centrally. The earlier design: an alias table in the config file, each alias mapping to one `(provider, model, params)`, looked up per request in the config snapshot, with the new `model` value spliced into the body bytes by `tidwall/sjson` `SetBytes` (never a decode and re-encode, which would break prompt caching) |
 | Budgets and the pre-check | A leaked key or a runaway agent can spend without limit until the key is revoked. Mitigate with the provider console's own spend limit on the provider key | Shared or team deployment, or a first runaway incident |
-| Request-rate and concurrency limits, allowed aliases, key expiry | Any key may call any model at any rate | More than one person holds keys |
+| Request-rate and concurrency limits, key expiry | Any key may call any model at any rate | More than one person holds keys |
 | Alerts, `AlertLog`, `/admin/alerts`, the firstmate alert adapter | Proxy health is visible through `/metrics` | Design-doc phase 6 (firstmate process-event adapter) |
 | OTel span export | Calls are visible only in the proxy's UI and database | Someone wants calls in Tempo, Jaeger or Phoenix. It is a second `recorder` subscriber; nothing in `core` changes. Spans would follow the OpenTelemetry GenAI semantic conventions, pinned to one schema version |
 | Admin scopes (`admin` and `read`), `admin_tokens` table | One admin token from a secret; rotating it means changing the secret and sending `SIGHUP` | Several admins, read-only viewers, or OIDC |
@@ -655,7 +652,7 @@ These follow the gap review's suggestions, adjusted by decisions C1 to C4. All a
 |---|---|
 | B1 schema | Plain unpartitioned tables, `PRIMARY KEY (id)`, UUIDv7, no foreign keys on fact tables by design. Partitioning is deferred |
 | B2 protocol scope | Anthropic-family passthrough only (D3) |
-| B3 model names | Any string may be an alias; unmapped names pass to the family's default provider |
+| B3 model names | The model name is forwarded exactly as sent; no aliases and no rewriting in v1 |
 | B4 fallback | Deferred (C1). Upstream errors pass through unchanged |
 | B5 queue | In-process bounded channel feeding a batch writer; idempotent insert on the call id; drops counted; no durable buffer, so a crash loses the queued records (decision D2, resolved) |
 | B6 usage | Disjoint columns plus `usage_raw`. `include_usage` handling is v2 |

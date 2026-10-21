@@ -1,6 +1,6 @@
 # Front-end architecture (React UI)
 
-Part of the [architecture set](README.md). v1 is an observe-only logging proxy for the Anthropic family; the admin pages for aliases and pricing are read-only. The JSON API this UI calls is specified in [backend.md](backend.md#admin-and-query-api). How the built UI ships inside the container is in [deployment.md](deployment.md).
+Part of the [architecture set](README.md). v1 is an observe-only logging proxy for the Anthropic family; the admin page for providers and pricing is read-only. The JSON API this UI calls is specified in [backend.md](backend.md#admin-and-query-api). How the built UI ships inside the container is in [deployment.md](deployment.md).
 
 ## Decision and shape
 
@@ -49,7 +49,7 @@ session → prompt (user turn) → agent (main or sub-agent) → LLM call → to
 | V3 Call detail | `/ui/calls/:id` | Who and route, timings, usage and cost, outcome, tools requested and resolved. No content | `GET /admin/requests/{id}` |
 | V4 Tool-call explorer | `/ui/tools` | Per-tool summary and a list of tool calls with filters on name, error, duration and sizes | `GET /admin/tool-calls/summary`, `GET /admin/tool-calls` |
 | V5 Cost and cache | `/ui/cost` | Cost by key, model, client and session; cache hit ratio over time | `GET /admin/usage`, `GET /admin/requests` |
-| Admin | `/ui/admin/config` | View providers, aliases, pricing and key names (with `disabled`), read-only, because they live in the config file and change with `SIGHUP`. No key management: keys are added, disabled and rotated in the config file | `GET /admin/config` |
+| Admin | `/ui/admin/config` | View providers, pricing and key names (with `disabled`), read-only, because they live in the config file and change with `SIGHUP`. No key management: keys are added, disabled and rotated in the config file | `GET /admin/config` |
 
 The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that show message text, tool arguments or tool results are dropped. Behavior that matters for the architecture:
 
@@ -57,7 +57,7 @@ The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that
 
 - Columns: time, session and prompt, agent, client, model, status, latency, tokens in and out, cost, number of tool calls requested.
 - A row click opens V3. A session cell opens V2.
-- The filter menu covers every logged criterion: time, session, prompt, agent, agent type, request class, client, key name, alias, provider, model, endpoint, status, error class, streamed, latency, TTFT, tokens, cost, cache hit, tool name, tool error.
+- The filter menu covers every logged criterion: time, session, prompt, agent, agent type, request class, client, key name, provider, model, endpoint, status, error class, streamed, latency, TTFT, tokens, cost, cache hit, tool name, tool error.
 - "Group by session" folds consecutive calls of a session into one row with "N turns" (Bifrost pattern), kept in the URL.
 - Counts are exact up to 10,000 and show "10,000+" above that (UI report 6.3). A 24-hour window holds at most about 50,000 rows.
 - A **Live** toggle prepends new calls from the SSE stream. See [Live tail](#live-tail).
@@ -205,4 +205,4 @@ From UI report section 9. Each is resolved in [backend.md](backend.md#data-model
 
 ## Deferred
 
-Saved views, annotations and scores, editing aliases and pricing in the UI, admin roles, OIDC sign-in, static HTML export of a session, backward paging, a cache-miss view (cache strip, Cache tab in call detail, misses with cause; deferred with cache-miss diagnosis, see [backend.md](backend.md#cache-miss-diagnosis)), and an OTel export to an external trace viewer such as Phoenix (UI report 8.5). Triggers for the backend items are in [backend.md](backend.md#later-versions).
+Saved views, annotations and scores, editing pricing in the UI, admin roles, OIDC sign-in, static HTML export of a session, backward paging, a cache-miss view (cache strip, Cache tab in call detail, misses with cause; deferred with cache-miss diagnosis, see [backend.md](backend.md#cache-miss-diagnosis)), and an OTel export to an external trace viewer such as Phoenix (UI report 8.5). Triggers for the backend items are in [backend.md](backend.md#later-versions).

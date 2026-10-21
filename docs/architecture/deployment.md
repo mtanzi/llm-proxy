@@ -8,7 +8,7 @@ The design doc (7.1) names two tiers: one container plus Postgres for a home lab
 
 | Piece | Form | State |
 |---|---|---|
-| `llm-proxy serve` | One static Go binary in a distroless container. Applies its embedded migrations at start | None on disk; the call queue and the key map are in memory. Keys, providers, aliases and pricing come from the config file; call records are in the store (the `store/postgres` adapter) |
+| `llm-proxy serve` | One static Go binary in a distroless container. Applies its embedded migrations at start | None on disk; the call queue and the key map are in memory. Keys, providers and pricing come from the config file; call records are in the store (the `store/postgres` adapter) |
 | Postgres 16 or later | Separate container or managed service | Call tables |
 | Optional: reverse proxy (Caddy, a cloud load balancer) or Tailscale | In front of the listeners | TLS certificates |
 | Optional: Prometheus, Grafana | Existing observability stack | Their own |
@@ -108,9 +108,6 @@ keys:                           # virtual keys: names and SHA-256 hashes, never 
     sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752   # placeholder
     disabled: true              # revoked: requests with this key get 401
 
-aliases:                        # optional; unmapped model names go to the family's default provider
-  coding-main: { provider: anthropic, model: claude-opus-4-8 }
-
 pricing:                        # versioned by effective date; placeholder prices show the shape only
   - { provider: anthropic, model: claude-opus-4-8, from: 2026-10-01,
       input: 5.00, output: 25.00, cache_read: 0.50, cache_write_5m: 6.25, cache_write_1h: 10.00 }
@@ -129,7 +126,7 @@ log:
   format: json
 ```
 
-- Providers, aliases, pricing and virtual keys are in this file and nowhere else (resolved decisions D7 and D15). The database holds call records only. A key entry has a unique `name`, the lowercase hex `sha256` of the key, and an optional `disabled: true`. A reload that finds a duplicate name, a duplicate hash or a malformed hash is rejected whole, and the proxy keeps the previous snapshot and logs the error.
+- Providers, pricing and virtual keys are in this file and nowhere else (resolved decisions D7 and D15). The database holds call records only. A key entry has a unique `name`, the lowercase hex `sha256` of the key, and an optional `disabled: true`. A reload that finds a duplicate name, a duplicate hash or a malformed hash is rejected whole, and the proxy keeps the previous snapshot and logs the error.
 - The file holds hashes, not secrets, so it can sit in version control. Anyone who can edit it can add a key and so gain access to the proxy: restrict write access as for any deploy configuration.
 - Batch size and interval, the SSE event bound and the shutdown flush timeout are constants in code until measurement says otherwise. `queue_capacity` is the one writer setting.
 - `SIGHUP` re-reads the file and the referenced secrets, rebuilds the key map and swaps the snapshot atomically. Requests in flight keep the snapshot they started with. This matters because a restart drains streams for up to 10 minutes. Listener addresses need a restart.
@@ -229,7 +226,7 @@ At the upper end that is about 20 million `calls` rows over 400 days, 0.14 to 0.
 | Data | Importance | Backup |
 |---|---|---|
 | `calls`, `tool_events` | Audit history (gap review N8) | Nightly full `pg_dump` |
-| Config file and secrets | Required to restore (providers, aliases, pricing, virtual-key hashes, credentials, admin token). Lose the hashes and every client needs a new key | The config file in version control; secrets in the secret store's own backup |
+| Config file and secrets | Required to restore (providers, pricing, virtual-key hashes, credentials, admin token). Lose the hashes and every client needs a new key | The config file in version control; secrets in the secret store's own backup |
 
 Test a restore at least once per release cycle: restore Postgres, start `serve` against it, and open a recent call in the UI.
 
@@ -279,7 +276,7 @@ Prometheus metrics at `/metrics` on the admin listener. This is a minimal set; e
 Compatibility rules:
 
 - Rollback: migrations are expand-only within a release, so the previous binary works against the expanded schema and rolling back one release needs no database restore.
-- A config-only change (aliases, pricing, provider credentials) needs `SIGHUP`, not a restart.
+- A config-only change (pricing, provider credentials) needs `SIGHUP`, not a restart.
 
 ## docker-compose sketch
 

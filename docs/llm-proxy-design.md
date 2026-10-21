@@ -19,7 +19,7 @@ Scope: v1 is an observe-only logging proxy for the Anthropic family (architectur
 | R2 | Logs of which key called which model, from which client, at what time, and with what status |
 | R3 | Virtual API keys, so the real provider key is never spread across work, agents and harnesses |
 | R4 | Infrastructure you control (self-hosted) |
-| R5 | Fast pivot of model or provider without reconfiguring every client |
+| R5 | Fast pivot of model or provider without reconfiguring every client (later version) |
 | R6 | Engineer-grade usage data: token time series, not a vendor "proof of work" panel |
 | R7 | Cache-miss diagnosis in seconds, with an API so it can be automated (later version) |
 | R8 | Extensibility: custom MCP server endpoints and extra features |
@@ -35,6 +35,7 @@ Later versions, each with a trigger in [architecture/backend.md](architecture/ba
 
 - Cache-miss diagnosis (section 5)
 - Budgets and rate limits per virtual key
+- Model aliases and request rewriting
 - Fallback, retry and circuit-breaker routing
 - Alerts
 - OTel export as one output among several
@@ -57,7 +58,7 @@ Clients (Claude Code, scripts, apps)
 ┌───────────────────────── Proxy ─────────────────────────┐
 │ 1. Edge: TLS in front, Anthropic Messages endpoints     │
 │ 2. Auth: virtual key → identity (key map from config)   │
-│ 3. Router: alias → provider/model (static config)       │
+│ 3. Router: the one configured Anthropic provider        │
 │ 4. ReverseProxy: stream bytes through unchanged         │
 │ 5. Telemetry tap: wraps the stream, extracts facts      │
 └───────┬───────────────────────────────┬─────────────────┘
@@ -72,8 +73,8 @@ Clients (Claude Code, scripts, apps)
 
 1. Client sends a request with `Authorization: Bearer <virtual key>` to the proxy.
 2. Auth hashes the presented key, looks the hash up in the in-memory key map built from the config file, and checks that the key exists and is not disabled.
-3. The router resolves the requested model name through the alias table in the config file. A name that is not an alias passes through unchanged.
-4. The proxy attaches the real provider credential and sends the request upstream. It splices the `model` value only when an alias changes it.
+3. The proxy forwards the request to the single configured Anthropic provider. The model name is not changed.
+4. The proxy attaches the real provider credential and sends the request upstream.
 5. The response is streamed back without buffering. The telemetry tap observes chunks and captures time-to-first-token, final usage and status.
 6. An upstream error (4xx, 5xx) reaches the client unchanged, and the client applies its own retry rules. Retry and fallback routing are a later version.
 7. On completion, one event is pushed to the queue. The writer batches inserts. The request path never waits on storage.
@@ -92,15 +93,14 @@ Clients (Claude Code, scripts, apps)
 ### 3.2 Auth and virtual keys
 
 - Keys live in the `keys` section of the config file as a name and a SHA-256 hash, never plaintext. Keys are 256-bit random values, so no pepper is needed. A key is generated outside the proxy (`openssl`, or `llm-proxy keygen --name <name>`), and the plaintext is shown once, by the generator. Add, revoke and rotate are config edits plus `SIGHUP`.
-- Each key carries: a unique name (for example `claude-code-laptop`, `ci-agent`, or a task id) and a `disabled` flag. The call record stores the name. Allowed aliases, request-rate limits, spend budgets and expiry are later versions.
+- Each key carries: a unique name (for example `claude-code-laptop`, `ci-agent`, or a task id) and a `disabled` flag. The call record stores the name. Request-rate limits, spend budgets and expiry are later versions.
 - Real provider keys live in a secrets manager or secret files that no API ever returns.
 - Issue one key per harness, agent or task so logs answer "who called what".
 
 ### 3.3 Router
 
-- Clients request a stable alias such as `coding-main`, or a vendor model name. The alias table lives in the config file and maps each alias to one `(provider, model, params)`; a name that is not an alias passes through to the default provider of the family.
-- Pivoting providers or models is a config change and a `SIGHUP`, with no client changes (R5).
-- Routing is deterministic and logged. Each request records the alias requested and the target that served it.
+- v1 has one configured Anthropic provider. Requests are forwarded exactly as sent: the `model` value and the body are never rewritten, and each call records the model the client asked for.
+- Model aliases and request rewriting are a later version, with a trigger in [architecture/backend.md](architecture/backend.md#gateway-features-decision-c1).
 - Later versions add ordered fallback on 5xx, 429 and timeouts, bounded retries with jitter, per-provider circuit breakers and weighted or cost-based selection. Their design and trigger are in [architecture/backend.md](architecture/backend.md#gateway-features-decision-c1).
 
 ### 3.4 Provider adapters
@@ -133,18 +133,18 @@ Principle: **write facts, derive views.** Every table is written by insert only.
 calls ──< tool_events      (tool use and result halves, paired at read)
 ```
 
-Virtual keys, aliases, providers and pricing are not tables. They live in the config file and are reloaded on `SIGHUP`. `calls.key_name` holds the key's name from that file.
+Virtual keys, providers and pricing are not tables. They live in the config file and are reloaded on `SIGHUP`. `calls.key_name` holds the key's name from that file.
 
 ### 4.2 Tables
 
 Two plain tables, not partitioned:
 
-- `calls`: one row per client request, append-only, `PRIMARY KEY (id)` with `id` a UUIDv7 that is also returned as `x-request-id`. It holds who called (key name, client, session, agent, prompt), what ran (alias, provider, model, `upstream_request_id`), the outcome (status, `error_class`, provider `error_type`, stop reason, `streamed`, TTFT, duration), disjoint usage columns (`input_uncached`, `cache_read`, `cache_write_5m`, `cache_write_1h`, `output`, `reasoning`) plus `usage_raw jsonb`, and `cost_usd` with `pricing_version`. Indexes: `(ts DESC, id DESC)`, `(session_key, ts)`, `(key_name, ts DESC)`, and a partial index on `error_class`.
+- `calls`: one row per client request, append-only, `PRIMARY KEY (id)` with `id` a UUIDv7 that is also returned as `x-request-id`. It holds who called (key name, client, session, agent, prompt), what ran (provider, model, `upstream_request_id`), the outcome (status, `error_class`, provider `error_type`, stop reason, `streamed`, TTFT, duration), disjoint usage columns (`input_uncached`, `cache_read`, `cache_write_5m`, `cache_write_1h`, `output`, `reasoning`) plus `usage_raw jsonb`, and `cost_usd` with `pricing_version`. Indexes: `(ts DESC, id DESC)`, `(session_key, ts)`, `(key_name, ts DESC)`, and a partial index on `error_class`.
 - `tool_events`: one row per tool-call half (`kind = use` or `result`), with the provider tool-call id, tool name, byte size and `is_error`. The text is never kept.
 
 ### 4.3 Design decisions
 
-- **Requested vs actual routing are stored separately.** `alias` is what the client asked for. `provider` and `model` are what served it. There is one attempt per call in v1, so `request_attempts` is a later version with fallback.
+- **One model value.** `model` is the value the client sent, and requests are not rewritten. There is one attempt per call in v1, so `request_attempts` is a later version with fallback.
 - **Cost is snapshotted, not recomputed.** `cost_usd` plus `pricing_version` keeps historical numbers stable when prices change.
 - **Usage is normalized at write time**, so queries never branch on provider. `usage_raw` keeps the original so a normalization fix can be applied to old rows.
 - **The hot path is write-only.** Nothing in the request path reads these tables. Auth and routing read memory.
@@ -170,11 +170,11 @@ Not in v1. Each call keeps its cache read and write token counts, so the cache h
 
 | Method and path | Purpose |
 |---|---|
-| `GET /admin/config` | Read-only view of providers, aliases, pricing and key names from the config file |
+| `GET /admin/config` | Read-only view of providers, pricing and key names from the config file |
 | `GET /admin/usage?group_by=key,model,client&from=&to=&grain=` | Time-series usage, computed from raw rows |
 | `GET /admin/requests/{id}` | Single call trace |
 
-The full v1 endpoint list is in [architecture/backend.md](architecture/backend.md#admin-and-query-api). Key rotation is a config edit: add the new key, switch the client, disable the old key, `SIGHUP`. `GET /admin/alerts` and editing of aliases and pricing through the API are later versions.
+The full v1 endpoint list is in [architecture/backend.md](architecture/backend.md#admin-and-query-api). Key rotation is a config edit: add the new key, switch the client, disable the old key, `SIGHUP`. `GET /admin/alerts` and editing of pricing through the API are later versions.
 
 The admin plane uses separate auth from the data plane.
 
@@ -271,7 +271,7 @@ v1 phases (observe-only, Anthropic family). Items marked *later* are outside v1.
 
 | Phase | Deliverable | Depends on |
 |---|---|---|
-| 1 | Proxy core: edge, auth from an in-memory key map, alias lookup, one provider, recorder and event writer, `calls` table | none |
+| 1 | Proxy core: edge, auth from an in-memory key map, one provider, recorder and event writer, `calls` table | none |
 | 2 | Cost and pricing from the config file, tool events, usage columns | 1 |
 | 3 | Admin API, dashboard, usage from raw rows, `GET /admin/stream` live tail | 2 |
 | 4 | *Later:* cache diagnosis: segment hashes, `call_segments`, analysis endpoint (paired by agent) | 2 |
