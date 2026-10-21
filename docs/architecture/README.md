@@ -18,6 +18,8 @@ The goal: a self-hosted Go proxy that logs every LLM call and every tool call as
 
 Read [backend.md](backend.md) first. The other three documents assume its vocabulary.
 
+The v1 work is broken down into architecture decision records in [`../adrs/`](../adrs/README.md), with dependencies and a suggested implementation order.
+
 ## System at a glance
 
 ```mermaid
