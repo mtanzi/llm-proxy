@@ -16,12 +16,14 @@ One Go module, one static binary, `llm-proxy`, with two subcommands:
 
 **Write facts, derive views.** The database receives only inserts. Tool-call pairing, sessions, agent trees and statistics are computed by `CallReader` when asked, not maintained when written. This is what keeps the write path and the schema small.
 
-The binary has two listeners, so the data plane and the admin plane can be exposed and authenticated separately (design doc 6.1, gap review R8):
+The binary has two listeners, so the data plane and the admin plane can be exposed separately (design doc 6.1):
 
 | Listener | Default address | Serves |
 |---|---|---|
 | Data plane | `:8080` | `/v1/*` Anthropic Messages endpoints, `HEAD /api/hello`, `/healthz`, `/readyz` |
-| Admin plane | `:9090` | `/admin/*` JSON API and SSE, `/ui/*` embedded React SPA, `/metrics`, `/healthz`, `/readyz` |
+| Admin plane | `127.0.0.1:9090` | `/admin/*` JSON API and SSE, `/ui/*` embedded React SPA, `/metrics`, `/healthz`, `/readyz` |
+
+**The admin plane has no sign-in in v1.** It binds to a loopback address by default, and `serve` refuses to start if `listen.admin` is not a loopback address (`127.0.0.1`, `::1` or `localhost`). Anyone who can reach the loopback interface of the host can read the admin API and the UI, so the host must be trusted. Admin sign-in is a later item ([Later versions](#later-versions)). Virtual-key auth on the data plane is unchanged.
 
 ## Component diagram
 
@@ -35,7 +37,7 @@ flowchart TB
     subgraph bin[llm-proxy serve]
         subgraph inbound[Inbound adapters]
             proxy["proxy<br/>auth, correlation,<br/>ReverseProxy, tap"]
-            api["api<br/>JSON, SSE, session cookie"]
+            api["api<br/>JSON, SSE"]
             ui["ui<br/>embedded SPA"]
         end
         subgraph app[Application]
@@ -123,7 +125,7 @@ The hot path is one flow, so it is one package with one file per concern: reques
 - **Where the key is read from.** In the default `proxy_key` mode the client sends its virtual key as its API credential: `Authorization: Bearer lp_…` or `x-api-key: lp_…`. In `client_passthrough` mode the client's own credential occupies `Authorization`, so the virtual key travels in a separate `x-llm-proxy-key` header. [upstream-connection.md](upstream-connection.md#credential-modes) explains both modes. The proxy consumes `x-llm-proxy-key` and never forwards it.
 - **Lookup** is an in-memory map from SHA-256 to key record, owned by `keyring`. `keyring` builds it from the keys of a config snapshot, and the map travels with that snapshot: `SIGHUP` builds a new snapshot and swaps it atomically, and a request in flight keeps the map it started with. The handler hashes the presented key and looks the hash up. The config loader rejects a snapshot with a duplicate name, a duplicate hash or a malformed hash, and the proxy keeps the previous snapshot and logs the error. Nothing about keys touches the store.
 - **Checks:** the key exists and is not disabled. A failure returns a protocol-correct Anthropic error body with a stable `type` per error class (gap review R3). Expiry, request-rate and concurrency limits and budgets are deferred ([Later versions](#later-versions)).
-- **Admin plane auth** is separate: one admin token, read from a secret file. The browser exchanges it for a session cookie; see [frontend.md](frontend.md#authentication-to-the-admin-api).
+- **Admin plane** has no auth in v1. The admin listener is loopback-only and `serve` refuses to start otherwise (see [Shape](#shape)). Admin sign-in is a later item ([Later versions](#later-versions)).
 
 #### Correlation
 
@@ -235,7 +237,6 @@ Served on the admin listener under `/admin/`, implemented by the `api` package. 
 | `GET /admin/usage` | Time series computed from raw rows, `group_by` and `grain` | G7 |
 | `GET /admin/stream` | SSE live tail with the call-log filters | G13 |
 | `GET /admin/config` | Read-only view of providers and pricing from the config file, and the key names with their `disabled` flag (never a hash) | |
-| `POST /admin/session`, `DELETE /admin/session` | Browser sign-in and sign-out | R8 |
 
 List conventions:
 
@@ -545,7 +546,7 @@ llm-proxy/
 │   ├── keyring/            immutable key map (SHA-256 to key) built from a config snapshot; lookup
 │   ├── recorder/           Started and Finished events: live fan-out, bounded queue,
 │   │                       batch writer, retry, drop counting, shutdown flush
-│   ├── api/                admin JSON handlers, SSE stream, session cookie, cursor wire format,
+│   ├── api/                admin JSON handlers, SSE stream, cursor wire format,
 │   │                       OpenAPI document
 │   ├── config/             YAML and env loading, secret references, key validation,
 │   │                       SIGHUP snapshot swap
@@ -604,7 +605,8 @@ Everything below is out of v1. Each item has a trigger for adding it back. The v
 | Request-rate and concurrency limits, key expiry | Any key may call any model at any rate | More than one person holds keys |
 | Alerts, `AlertLog`, `/admin/alerts`, the firstmate alert adapter | Proxy health is visible through `/metrics` | Design-doc phase 6 (firstmate process-event adapter) |
 | OTel span export | Calls are visible only in the proxy's UI and database | Someone wants calls in Tempo, Jaeger or Phoenix. It is a second `recorder` subscriber; nothing in `core` changes. Spans would follow the OpenTelemetry GenAI semantic conventions, pinned to one schema version |
-| Admin scopes (`admin` and `read`), `admin_tokens` table | One admin token from a secret; rotating it means changing the secret and sending `SIGHUP` | Several admins, read-only viewers, or OIDC |
+| Admin sign-in | No sign-in: the admin plane is loopback-only, and `serve` refuses to start on a non-loopback admin address | Exposing the admin UI or API beyond localhost, or shared use. The earlier design: one admin token read from a secret file (`admin.token`, `admin.session_ttl`). The browser pastes it into a sign-in page, and `POST /admin/session` exchanges it for an in-memory session cookie (`HttpOnly`, `Secure` over TLS, `SameSite=Strict`, path `/admin`, 12-hour expiry; a cookie is needed because `EventSource` cannot send `Authorization`). `DELETE /admin/session` signs out, state-changing requests require an `X-Requested-With: llm-proxy-ui` header, and scripts and the firstmate adapter send `Authorization: Bearer <admin token>` |
+| Admin scopes (`admin` and `read`), `admin_tokens` table | Not available, because there is no admin sign-in | Several admins, read-only viewers, or OIDC, after admin sign-in |
 
 ### Storage and scale
 
@@ -660,7 +662,7 @@ These follow the gap review's suggestions, adjusted by decisions C1 to C4. All a
 | B8 providers | Config-file providers with credential references (D7, resolved) |
 | B10 Go baseline | As in [Libraries](#libraries); one static binary; distroless image |
 | R1 keys | `lp_` keys, SHA-256 hash in the config file, in-memory map rebuilt on `SIGHUP` |
-| R8 admin auth | One admin token from a secret; browser session cookie |
+| R8 admin auth | None in v1: the admin listener is loopback-only and `serve` refuses a non-loopback address; sign-in is a later version |
 | R9 alerts | Deferred (C1) |
 | R10 retention | See [Data model](#data-model) and [deployment.md](deployment.md#storage-retention-and-sizing) |
 | R14 multi-replica | v1 targets one replica; the process stays stateless on disk so a second replica remains possible ([Later versions](#later-versions)); drain timeout 10 minutes |

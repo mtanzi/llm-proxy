@@ -43,7 +43,7 @@ flowchart LR
 
 - One `llm-proxy` container runs everything: data plane, admin plane, recorder and the retention job.
 - Postgres runs beside it with its own volume.
-- Both listeners bind to a private address. Remote access goes through a tunnel such as WireGuard or Tailscale (design doc 7.1).
+- The data plane binds to a private address. The admin plane has no sign-in, so it binds to loopback, and `serve` refuses to start if `listen.admin` is not a loopback address. Remote access to the data plane goes through a tunnel such as WireGuard or Tailscale (design doc 7.1).
 - Sized for about 12,000 to 50,000 calls per day (UI report 6.1 estimates); see [Sizing](#sizing).
 
 ## Later: multi-replica tier
@@ -60,7 +60,7 @@ Not built in v1. The process keeps the property that makes it possible: it is st
 | Derived sessions | A pure hash, no idle state | Nothing: every replica derives the same key |
 | Budgets, rate limits, circuit breakers | Deferred ([backend.md](backend.md#later-versions)) | Shared counter row, per-replica limit shares, per-replica breakers |
 
-A load balancer in front of replicas must not buffer responses, must keep idle connections open longer than the longest expected stream, and needs no session affinity. The admin plane would be exposed through a separate ingress behind SSO or a VPN.
+A load balancer in front of replicas must not buffer responses, must keep idle connections open longer than the longest expected stream, and needs no session affinity. The admin plane would need admin sign-in first ([backend.md](backend.md#gateway-features-decision-c1)), then a separate ingress behind SSO or a VPN.
 
 ## Container image
 
@@ -80,7 +80,7 @@ One YAML file, path from `--config` or `LLM_PROXY_CONFIG`. Every key can be over
 ```yaml
 listen:
   data: ":8080"
-  admin: ":9090"
+  admin: "127.0.0.1:9090"       # must be a loopback address; serve refuses to start otherwise
   tls:                          # optional; usually terminated in front
     cert_file: ""
     key_file: ""
@@ -88,10 +88,6 @@ listen:
 database:
   url: { env: LLM_PROXY_DATABASE_URL }
   max_conns: 20
-
-admin:
-  token: { file: /run/secrets/admin_token }   # the only admin credential
-  session_ttl: 12h
 
 providers:                      # resolved decision D7; see upstream-connection.md
   - name: anthropic
@@ -136,7 +132,6 @@ log:
 | Secret | Used for | Source |
 |---|---|---|
 | Provider API keys | Upstream authentication in `proxy_key` mode | File (Docker or Kubernetes secret) or environment variable |
-| Admin token | The only admin credential, for sign-in and scripts | File. Rotate by changing the secret and sending `SIGHUP` |
 | Database URL and password | Postgres connection | Environment variable or file |
 
 - Virtual keys are not secrets of the proxy: the config file holds only their SHA-256 hashes. They are 256-bit random values, so there is no pepper and no extra secret to back up. The plaintext key lives only with the client that uses it.
@@ -149,7 +144,7 @@ log:
 
   Put the hash in the config as `sha256`, hand the key to the client, and do not keep the plaintext anywhere else. The proxy cannot show a key again.
 - No secret is ever returned by the API or logged. No header value is stored in Postgres; log redaction happens in one place ([backend.md](backend.md#listener-and-router)).
-- Rotation: provider keys, the admin token and the database password rotate by updating the secret and sending `SIGHUP`. Virtual keys rotate by config edit: generate a new key, add its entry, send `SIGHUP`, switch the client, then set `disabled: true` on the old entry (or delete it) and send `SIGHUP` again (gap review R8). A revoked key is rejected from the next request after the reload; a stream already in flight finishes.
+- Rotation: provider keys and the database password rotate by updating the secret and sending `SIGHUP`. Virtual keys rotate by config edit: generate a new key, add its entry, send `SIGHUP`, switch the client, then set `disabled: true` on the old entry (or delete it) and send `SIGHUP` again (gap review R8). A revoked key is rejected from the next request after the reload; a stream already in flight finishes.
 
 ### Personal local setup (subscription passthrough)
 
@@ -164,9 +159,6 @@ listen:
 
 database:
   url: { env: LLM_PROXY_DATABASE_URL }
-
-admin:
-  token: { file: ./secrets/admin_token }
 
 providers:
   - name: anthropic
@@ -226,7 +218,7 @@ At the upper end that is about 20 million `calls` rows over 400 days, 0.14 to 0.
 | Data | Importance | Backup |
 |---|---|---|
 | `calls`, `tool_events` | Audit history (gap review N8) | Nightly full `pg_dump` |
-| Config file and secrets | Required to restore (providers, pricing, virtual-key hashes, credentials, admin token). Lose the hashes and every client needs a new key | The config file in version control; secrets in the secret store's own backup |
+| Config file and secrets | Required to restore (providers, pricing, virtual-key hashes, credentials). Lose the hashes and every client needs a new key | The config file in version control; secrets in the secret store's own backup |
 
 Test a restore at least once per release cycle: restore Postgres, start `serve` against it, and open a recent call in the UI.
 
@@ -234,7 +226,7 @@ Test a restore at least once per release cycle: restore Postgres, start `serve` 
 
 - The binary serves plain HTTP by default. TLS is terminated in front of it by Caddy, Tailscale (`tailscale serve`), or a cloud load balancer (gap review N2). Optional `listen.tls` serves TLS directly.
 - **Data plane:** private network or tailnet. When exposed beyond that, put TLS and connection limits in front, and keep virtual-key auth on.
-- **Admin plane:** never public. Bind it to localhost or a private interface; for remote use, reach it through the tailnet or an SSO-protecting reverse proxy.
+- **Admin plane:** loopback only, with no sign-in in v1. `serve` refuses to start if `listen.admin` is not a loopback address (`127.0.0.1`, `::1` or `localhost`), so it cannot be exposed by mistake. To use it from another machine, tunnel to the host, for example `ssh -L 9090:127.0.0.1:9090 <host>`. Exposing it beyond localhost, or sharing it, needs admin sign-in first ([backend.md, Later versions](backend.md#gateway-features-decision-c1)).
 - **Load balancers and reverse proxies in front of the data plane** must stream: turn off response buffering (for nginx, `proxy_buffering off`), set idle and read timeouts above the longest stream (the drain timeout of 10 minutes is a good floor), and keep HTTP/1.1 keep-alive or HTTP/2 to the backend.
 - **Web application firewalls:** Anthropic's gateway docs report that WAF body rules (for example AWS WAF `CrossSiteScripting_Body`) block real Claude Code requests with an HTML `403`, because prompts contain XML-style tags and source code. Exempt `/v1/messages` from request-body inspection.
 - Outbound: the container needs egress only to the configured provider base URLs and Postgres.
@@ -307,10 +299,9 @@ services:
       LLM_PROXY_DATABASE_URL: postgres://llmproxy@postgres:5432/llmproxy?sslmode=disable
     volumes:
       - ./config.yaml:/etc/llm-proxy/config.yaml:ro
-    secrets: [pg_password, admin_token, anthropic_api_key]
+    secrets: [pg_password, anthropic_api_key]
     ports:
       - "127.0.0.1:8080:8080"   # data plane; front with Tailscale or Caddy for remote clients
-      - "127.0.0.1:9090:9090"   # admin plane and UI; never bind publicly
     depends_on:
       postgres: { condition: service_healthy }
     stop_grace_period: 10m       # matches server.drain_timeout
@@ -321,7 +312,6 @@ volumes:
 
 secrets:
   pg_password:       { file: ./secrets/pg_password }
-  admin_token:       { file: ./secrets/admin_token }
   anthropic_api_key: { file: ./secrets/anthropic_api_key }
 ```
 
@@ -330,5 +320,5 @@ Notes on the sketch:
 - The database password reaches `llm-proxy` as a file; the config's `database.url` can reference it, or the URL can carry it from an environment file kept out of version control.
 - `llm-proxy` mounts no data volume: it writes nothing to disk. `serve` migrates the database at start, so there is no migrate service.
 - Before the first start, generate a key (`llm-proxy keygen --name <name>`, or the `openssl` lines under [Secrets](#secrets)) and add its entry under `keys:` in `config.yaml`. Without a `keys` entry every data-plane request gets `401`. After later key changes, run `docker compose kill -s HUP llm-proxy`.
-- After the first start, sign in at `http://127.0.0.1:9090/ui/` with the admin token to see calls.
+- The admin listener is loopback-only, so inside the container it is not reachable through a published port. To open the UI at `http://127.0.0.1:9090/ui/`, run `serve` on the host (see [Personal local setup](#personal-local-setup-subscription-passthrough)), or use the host network (`network_mode: host`, Linux) with `listen.admin: 127.0.0.1:9090`. There is no sign-in.
 - Point Claude Code at `http://127.0.0.1:8080` as described in [upstream-connection.md](upstream-connection.md#claude-code-with-a-proxy-held-api-key).

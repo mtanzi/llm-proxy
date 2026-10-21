@@ -38,6 +38,7 @@ Later versions, each with a trigger in [architecture/backend.md](architecture/ba
 - Model aliases and request rewriting
 - Fallback, retry and circuit-breaker routing
 - Alerts
+- Admin sign-in, needed before the admin plane leaves localhost
 - OTel export as one output among several
 - The OpenAI family (v2)
 
@@ -176,7 +177,7 @@ Not in v1. Each call keeps its cache read and write token counts, so the cache h
 
 The full v1 endpoint list is in [architecture/backend.md](architecture/backend.md#admin-and-query-api). Key rotation is a config edit: add the new key, switch the client, disable the old key, `SIGHUP`. `GET /admin/alerts` and editing of pricing through the API are later versions.
 
-The admin plane uses separate auth from the data plane.
+The admin plane has no sign-in in v1. It binds to a loopback address, and `serve` refuses to start if the admin address is not loopback. Admin sign-in is a later version, with a trigger in [architecture/backend.md](architecture/backend.md#gateway-features-decision-c1).
 
 ### 6.2 Dashboard
 
@@ -202,7 +203,7 @@ A later version emits spans and metrics so the data also lands in existing obser
 - Prompts and outputs are sensitive. The proxy never stores them: logging is metadata only, with no body capture option. Tool arguments, tool results and provider error messages are not stored either.
 - Keep provider secrets in secret files or a secrets manager. Redact auth headers from all logs.
 - A leaked virtual key can spend without limit until it is disabled in the config file and the proxy reloaded in v1. Mitigate with the provider console's own spend limit; per-key spend caps are a later version.
-- Separate admin and data plane credentials.
+- The admin plane is loopback-only with no sign-in. Data-plane virtual keys are separate.
 
 ### 7.3 Build or adopt
 

@@ -27,7 +27,7 @@ flowchart LR
 
     router --> views
     views --> qc
-    qc -->|typed fetch, cookie| api
+    qc -->|typed fetch| api
     es --> stream
     spa -.loads.-> browser
     api --> pg
@@ -102,7 +102,7 @@ Tabs: Overview, Tools, Usage and cost. All of them show stored numbers, names an
 - **Typed client:** TypeScript types are generated from the admin API's OpenAPI document (`api/openapi.yaml`, served at `/admin/openapi.json`) with `openapi-typescript`, and requests go through a thin typed `fetch` wrapper. A change to the API that breaks the UI fails the UI's type check in CI.
 - **Pagination:** lists use the forward keyset cursor the API returns. There are no page numbers and no "newer" button; the user reloads the first page to see newer calls. Infinite scroll in V1 and V4 uses `useInfiniteQuery` over `next_cursor`.
 - **Caching rules:** finished calls never change, so call detail is cached without expiry for the session. List queries refetch on focus and when the live toggle is off.
-- **Errors:** API errors carry a stable `type`; the UI maps them to inline messages. A `401` sends the user to the sign-in page.
+- **Errors:** API errors carry a stable `type`; the UI maps them to inline messages.
 
 ## Table virtualization
 
@@ -123,13 +123,12 @@ Every payload is a small JSON object of numbers, names, ids and hashes, so there
 - The stream is one-way, so SSE is enough; no WebSocket.
 - v1 runs one replica, so the stream carries every call. The multi-replica live tail (pending decision D8) is a later item ([deployment.md](deployment.md#later-multi-replica-tier)).
 
-## Authentication to the admin API
+## Admin API access
 
-- The admin plane uses one admin token, read from a secret file (gap review R8). It is separate from virtual keys, which only work on the data plane and are configured in the config file, not in the UI. Scopes and several admins are later items ([backend.md](backend.md#gateway-features-decision-c1)).
-- **Sign-in:** the user pastes the admin token into the sign-in page. `POST /admin/session` exchanges it for a session cookie: `HttpOnly`, `Secure` (when served over TLS), `SameSite=Strict`, path `/admin`, with an expiry (default 12 hours). Sessions are held in memory, so a restart signs everyone out.
-- A cookie is needed because `EventSource` cannot send an `Authorization` header. Scripts and the firstmate adapter still call the API with `Authorization: Bearer <admin token>`.
-- **CSRF:** `SameSite=Strict` plus a required `X-Requested-With: llm-proxy-ui` header on every state-changing request. The API rejects cross-origin requests; there is no CORS allowance.
-- Single sign-on (OIDC) is deferred. A reverse proxy with its own authentication can sit in front of the admin listener in the meantime ([deployment.md](deployment.md#tls-and-network-exposure)).
+- The admin plane has no sign-in in v1. The admin listener binds to a loopback address and `serve` refuses to start otherwise ([backend.md](backend.md#shape)), so the UI and the API are open to whoever can reach that interface. There is no sign-in page, no session cookie and no admin token. Scripts and the firstmate adapter call the API without a credential.
+- Virtual keys work only on the data plane and are configured in the config file, not in the UI.
+- Every v1 admin endpoint is a read-only `GET`. The API sends no CORS headers, so other web pages cannot read it from a browser.
+- Admin sign-in, scopes, several admins and OIDC are later items ([backend.md](backend.md#gateway-features-decision-c1)).
 - **Content Security Policy** on `/ui/*`: `default-src 'self'`, no inline scripts, no third-party origins. Stored strings (tool names, model names, labels) are rendered as text, never as HTML, so a value that contains markup cannot run in the browser.
 
 ## What the UI can show without bodies
@@ -205,4 +204,4 @@ From UI report section 9. Each is resolved in [backend.md](backend.md#data-model
 
 ## Deferred
 
-Saved views, annotations and scores, editing pricing in the UI, admin roles, OIDC sign-in, static HTML export of a session, backward paging, a cache-miss view (cache strip, Cache tab in call detail, misses with cause; deferred with cache-miss diagnosis, see [backend.md](backend.md#cache-miss-diagnosis)), and an OTel export to an external trace viewer such as Phoenix (UI report 8.5). Triggers for the backend items are in [backend.md](backend.md#later-versions).
+Saved views, annotations and scores, editing pricing in the UI, admin sign-in, admin roles, OIDC sign-in, static HTML export of a session, backward paging, a cache-miss view (cache strip, Cache tab in call detail, misses with cause; deferred with cache-miss diagnosis, see [backend.md](backend.md#cache-miss-diagnosis)), and an OTel export to an external trace viewer such as Phoenix (UI report 8.5). Triggers for the backend items are in [backend.md](backend.md#later-versions).
