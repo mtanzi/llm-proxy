@@ -27,10 +27,10 @@ make build          # static binary in bin/
 make vet
 make test
 make lint           # golangci-lint, including depguard rules (.golangci.yml)
-make check-imports  # scripts/check-imports.sh, same rules via go list
+make check-imports  # depguard rules only
 ```
 
-The `depguard` rules in `.golangci.yml` and `scripts/check-imports.sh` encode the same table; change both together. CI runs all of them on the latest two Go releases.
+The `depguard` rules in `.golangci.yml` encode the table above. CI runs build, vet and tests on the latest two Go releases, and lint and the import check once.
 
 ## Version
 

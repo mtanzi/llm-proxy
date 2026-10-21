@@ -11,8 +11,21 @@ linters:
     - unused
   settings:
     depguard:
-      # Keep in sync with scripts/check-imports.sh.
       rules:
+        store:
+          files:
+            - $all
+            - "!**/cmd/llm-proxy/**"
+            - "!**/internal/store/postgres/**"
+          deny:
+            - pkg: github.com/mtanzi/llm-proxy/internal/store/postgres
+              desc: only cmd/llm-proxy may import store/postgres
+            - pkg: database/sql
+              desc: no database access outside store/postgres
+            - pkg: github.com/jackc
+              desc: no database driver outside store/postgres
+            - pkg: github.com/pressly/goose
+              desc: no migrations outside store/postgres
         core:
           list-mode: strict
           files:
@@ -27,20 +40,25 @@ linters:
             - $gostd
             - github.com/mtanzi/llm-proxy/internal/core
             - github.com/tidwall/gjson
-        application:
+        core-only:
+          list-mode: strict
           files:
             - "**/internal/recorder/**"
             - "**/internal/keyring/**"
-            - "**/internal/api/**"
-          deny:
-            - pkg: github.com/mtanzi/llm-proxy/internal/store
-              desc: only cmd/llm-proxy may import a store package
-            - pkg: database/sql
-              desc: no database access outside store/postgres
-            - pkg: github.com/jackc
-              desc: no database driver outside store/postgres
-            - pkg: github.com/pressly/goose
-              desc: no migrations outside store/postgres
+            - "**/internal/config/**"
+            - "**/internal/store/storetest/**"
+          allow:
+            - $gostd
+            - github.com/mtanzi/llm-proxy/internal/core
+        ui:
+          list-mode: strict
+          files:
+            - "**/internal/ui/**"
+          allow:
+            - $gostd
+            - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/llm-proxy/internal/recorder
+            - github.com/mtanzi/llm-proxy/internal/keyring
         postgres:
           list-mode: strict
           files:
