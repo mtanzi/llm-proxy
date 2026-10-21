@@ -155,6 +155,49 @@ log:
 - No secret is ever returned by the API or logged. No header value is stored in Postgres; log redaction happens in one place ([backend.md](backend.md#listener-and-router)).
 - Rotation: provider keys, the admin token and the database password rotate by updating the secret and sending `SIGHUP`. Virtual keys rotate by config edit: generate a new key, add its entry, send `SIGHUP`, switch the client, then set `disabled: true` on the old entry (or delete it) and send `SIGHUP` again (gap review R8). A revoked key is rejected from the next request after the reload; a stream already in flight finishes.
 
+### Personal local setup (subscription passthrough)
+
+Resolved decision D6: one person routes their own Claude login through their own proxy. `proxy_key` stays the default; this is the opt-in. It is for one person's own traffic, on one machine, never shared. Heavy or shared use goes through `proxy_key` with an API key. Rules and terms notes are in [upstream-connection.md](upstream-connection.md#claude-code-with-a-claude-subscription).
+
+Generate a key (`llm-proxy keygen --name me-laptop`, or the `openssl` lines under [Secrets](#secrets)) and use a config like this:
+
+```yaml
+listen:
+  data: "127.0.0.1:8080"        # loopback only
+  admin: "127.0.0.1:9090"
+
+database:
+  url: { env: LLM_PROXY_DATABASE_URL }
+
+admin:
+  token: { file: ./secrets/admin_token }
+
+providers:
+  - name: anthropic
+    kind: anthropic
+    base_url: https://api.anthropic.com
+    auth_mode: client_passthrough   # no provider credential: the client's own login is forwarded
+    idle_timeout: 120s
+
+keys:
+  - name: me-laptop
+    sha256: <hex sha256 printed by keygen>
+```
+
+Claude Code, in `~/.claude/settings.json` (not a committed project file):
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
+    "ANTHROPIC_CUSTOM_HEADERS": "x-llm-proxy-key: lp_…",
+    "CLAUDE_CODE_GATEWAY_HINT_HEADERS": "1"
+  }
+}
+```
+
+Do not set `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or `apiKeyHelper`; sign in with `/login`. The proxy stores no token, and the call record carries `auth_mode = oauth_passthrough` only. A call without a valid `x-llm-proxy-key` gets `401`.
+
 ## Migrations
 
 - Migrations belong to the store adapter. The `store/postgres` SQL migrations live in `internal/store/postgres/migrations/` and are embedded in the binary.

@@ -129,7 +129,7 @@ Known traffic that never passes through the proxy, per Anthropic's docs: the fas
 
 ## Claude Code with a Claude subscription
 
-**Pending decision D6** ([README](README.md#open-decisions)): support this as an opt-in `client_passthrough` mode for a person's own subscription traffic. The alternative is API keys only.
+**Resolved decision D6** ([README](README.md#resolved-decisions)): the proxy supports this as an opt-in `client_passthrough` mode, off by default per provider. It is documented as the **personal local setup**: one person routes their own Claude login through their own proxy on `127.0.0.1`. It is not for shared or heavy use; for that, use `proxy_key` with an API key ([above](#claude-code-with-a-proxy-held-api-key)). The rules below apply.
 
 ### What Anthropic documents
 
@@ -145,10 +145,12 @@ So a documented, working setup exists: Claude Code signed in with a Pro or Max a
 
 ### Client configuration
 
+Personal local setup, in `~/.claude/settings.json` or the shell:
+
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "https://llm-proxy.internal:8080",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
     "ANTHROPIC_CUSTOM_HEADERS": "x-llm-proxy-key: lp_…",
     "CLAUDE_CODE_GATEWAY_HINT_HEADERS": "1"
   }
@@ -156,8 +158,9 @@ So a documented, working setup exists: Claude Code signed in with a Pro or Max a
 ```
 
 - Do not set `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or `apiKeyHelper`. Any of them takes precedence over the saved login.
+- The proxy listens on `127.0.0.1` only, and its provider uses `auth_mode: client_passthrough`; the matching config is a worked example in [deployment.md](deployment.md#personal-local-setup-subscription-passthrough).
 - Sign in with `/login` in Claude Code, as usual. The sign-in completes through Anthropic's flow. The proxy takes no part in it.
-- The virtual key travels in `x-llm-proxy-key` through `ANTHROPIC_CUSTOM_HEADERS`, which Claude Code adds to its requests. Anthropic's docs list custom routing headers among the values that can need approval, with extra rules when they come from a project settings file, so set them in `~/.claude/settings.json` or the shell.
+- The virtual key is an entry in the proxy's `keys` section (name and SHA-256; see [deployment.md](deployment.md#secrets)). It travels in `x-llm-proxy-key` through `ANTHROPIC_CUSTOM_HEADERS`, which Claude Code adds to its requests. Anthropic's docs list custom routing headers among the values that can need approval, with extra rules when they come from a project settings file, so set them in `~/.claude/settings.json` or the shell.
 
 ### Terms that apply
 
