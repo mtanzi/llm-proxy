@@ -2,7 +2,7 @@
 
 Status: draft
 Based on: "If you don't run your own LLM proxy, how the fuck do you even know whats going on?" (jrdsgl.com, 18 Oct 2026), plus an integration analysis for [firstmate](https://github.com/kunchenguid/firstmate).
-Architecture: the backend, front end, upstream connection and deployment are detailed in [architecture/](architecture/README.md). Where they differ from this document, they are newer. In particular, request and response bodies are never stored (architecture decisions D1 and D2), so this document's body-related parts are removed. Storage sits behind three ports with a Postgres adapter in v1 (decision D14); where this document says Postgres it means that adapter.
+Architecture: the backend, front end, upstream connection and deployment are detailed in [architecture/](architecture/README.md). Where they differ from this document, they are newer. In particular, request and response bodies are never stored (architecture decisions D1 and D2), so this document's body-related parts are removed. Storage sits behind two ports with a Postgres adapter in v1 (decision D14), and virtual keys live in the config file (decision D15); where this document says Postgres it means that adapter.
 Scope: v1 is an observe-only logging proxy for the Anthropic family (architecture decisions C1 to C4). Where this document describes fallback, budgets, rate limits, alerts, OTel export, rollups, partitioning or the OpenAI family, those parts are later versions; see [architecture/backend.md, Later versions](architecture/backend.md#later-versions). The data model in section 4 is the v1 model.
 
 > The article is an opinion piece with few specifics. Sections 1 and 2 separate what the article asks for from what this design adds. Everything beyond the article's list is extrapolation.
@@ -55,7 +55,7 @@ Clients (Claude Code, scripts, apps)
         ▼
 ┌───────────────────────── Proxy ─────────────────────────┐
 │ 1. Edge: TLS in front, Anthropic Messages endpoints     │
-│ 2. Auth: virtual key → identity (in-memory key map)     │
+│ 2. Auth: virtual key → identity (key map from config)   │
 │ 3. Router: alias → provider/model (static config)       │
 │ 4. ReverseProxy: stream bytes through unchanged         │
 │ 5. Telemetry tap: wraps the stream, extracts facts      │
@@ -70,7 +70,7 @@ Clients (Claude Code, scripts, apps)
 ### 2.1 Request lifecycle
 
 1. Client sends a request with `Authorization: Bearer <virtual key>` to the proxy.
-2. Auth resolves the key hash to a `virtual_keys` row held in memory and checks that the key exists and is not revoked.
+2. Auth hashes the presented key, looks the hash up in the in-memory key map built from the config file, and checks that the key exists and is not disabled.
 3. The router resolves the requested model name through the alias table in the config file. A name that is not an alias passes through unchanged.
 4. The proxy attaches the real provider credential and sends the request upstream. It splices the `model` value only when an alias changes it.
 5. The response is streamed back without buffering. The telemetry tap observes chunks and captures time-to-first-token, final usage and status.
@@ -90,8 +90,8 @@ Clients (Claude Code, scripts, apps)
 
 ### 3.2 Auth and virtual keys
 
-- Store only a SHA-256 hash of each key plus a short display prefix. Keys are 256-bit random values, so no pepper is needed. The plaintext is shown once at creation.
-- Each key carries: a purpose label (for example `claude-code-laptop`, `ci-agent`, or a task id) and a revocation time. Allowed aliases, request-rate limits, spend budgets and expiry are later versions.
+- Keys live in the `keys` section of the config file as a name and a SHA-256 hash, never plaintext. Keys are 256-bit random values, so no pepper is needed. A key is generated outside the proxy (`openssl`, or `llm-proxy keygen --name <name>`), and the plaintext is shown once, by the generator. Add, revoke and rotate are config edits plus `SIGHUP`.
+- Each key carries: a unique name (for example `claude-code-laptop`, `ci-agent`, or a task id) and a `disabled` flag. The call record stores the name. Allowed aliases, request-rate limits, spend budgets and expiry are later versions.
 - Real provider keys live in a secrets manager or secret files that no API ever returns.
 - Issue one key per harness, agent or task so logs answer "who called what".
 
@@ -129,18 +129,17 @@ Principle: **write facts, derive views.** Every table is written by insert only.
 ### 4.1 Entity overview
 
 ```
-virtual_keys ──< calls ──< tool_events      (tool use and result halves, paired at read)
-                   └─────< call_segments    (cache diagnosis, one row per call)
+calls ──< tool_events      (tool use and result halves, paired at read)
+  └─────< call_segments    (cache diagnosis, one row per call)
 ```
 
-Aliases, providers and pricing are not tables. They live in the config file and are reloaded on `SIGHUP`.
+Virtual keys, aliases, providers and pricing are not tables. They live in the config file and are reloaded on `SIGHUP`. `calls.key_name` holds the key's name from that file.
 
 ### 4.2 Tables
 
-Four plain tables, not partitioned:
+Three plain tables, not partitioned:
 
-- `virtual_keys`: `id`, `key_hash` (SHA-256, unique), `key_prefix`, `label`, `created_at`, `revoked_at`. Mutable only by create and revoke.
-- `calls`: one row per client request, append-only, `PRIMARY KEY (id)` with `id` a UUIDv7 that is also returned as `x-request-id`. It holds who called (key, client, session, agent, prompt), what ran (alias, provider, model, `upstream_request_id`), the outcome (status, `error_class`, provider `error_type`, stop reason, `streamed`, TTFT, duration), disjoint usage columns (`input_uncached`, `cache_read`, `cache_write_5m`, `cache_write_1h`, `output`, `reasoning`) plus `usage_raw jsonb`, and `cost_usd` with `pricing_version`. Indexes: `(ts DESC, id DESC)`, `(session_key, ts)`, `(key_id, ts DESC)`, and a partial index on `error_class`.
+- `calls`: one row per client request, append-only, `PRIMARY KEY (id)` with `id` a UUIDv7 that is also returned as `x-request-id`. It holds who called (key name, client, session, agent, prompt), what ran (alias, provider, model, `upstream_request_id`), the outcome (status, `error_class`, provider `error_type`, stop reason, `streamed`, TTFT, duration), disjoint usage columns (`input_uncached`, `cache_read`, `cache_write_5m`, `cache_write_1h`, `output`, `reasoning`) plus `usage_raw jsonb`, and `cost_usd` with `pricing_version`. Indexes: `(ts DESC, id DESC)`, `(session_key, ts)`, `(key_name, ts DESC)`, and a partial index on `error_class`.
 - `tool_events`: one row per tool-call half (`kind = use` or `result`), with the provider tool-call id, tool name, byte size and `is_error`. The text is never kept.
 - `call_segments`: one row per call holding the ordered segment hashes (tools, system, each message boundary) as one `bytea`, plus token estimates. Short retention.
 
@@ -212,14 +211,12 @@ Retain `call_segments` for recent days only (default 14). The token columns on `
 
 | Method and path | Purpose |
 |---|---|
-| `POST /admin/keys` | Create a virtual key (returns plaintext once) |
-| `DELETE /admin/keys/{id}` | Revoke |
-| `GET /admin/config` | Read-only view of providers, aliases and pricing from the config file |
+| `GET /admin/config` | Read-only view of providers, aliases, pricing and key names from the config file |
 | `GET /admin/usage?group_by=key,model,client&from=&to=&grain=` | Time-series usage, computed from raw rows |
 | `GET /admin/requests/{id}` | Single call trace |
 | `GET /admin/sessions/{key}/cache-analysis` | Section 5.3 |
 
-The full v1 endpoint list is in [architecture/backend.md](architecture/backend.md#admin-and-query-api). Key rotation is create, switch, revoke. `GET /admin/alerts` and editing of aliases and pricing through the API are later versions.
+The full v1 endpoint list is in [architecture/backend.md](architecture/backend.md#admin-and-query-api). Key rotation is a config edit: add the new key, switch the client, disable the old key, `SIGHUP`. `GET /admin/alerts` and editing of aliases and pricing through the API are later versions.
 
 The admin plane uses separate auth from the data plane.
 
@@ -240,13 +237,13 @@ A later version emits spans and metrics so the data also lands in existing obser
 - Home or small team: one container plus Postgres.
 - Team or production (later): stateless proxy replicas behind a load balancer and a shared Postgres. Each replica has its own in-memory call queue. v1 builds one replica; the replica tier is described in [architecture/deployment.md](architecture/deployment.md#later-multi-replica-tier).
 - Keep it on a private network or behind a tunnel (WireGuard, Tailscale). Put TLS and rate limiting on anything public.
-- Back up `virtual_keys` and the config file. The event log is expendable by comparison.
+- Back up the config file, which holds the key hashes. The event log is expendable by comparison.
 
 ### 7.2 Security
 
 - Prompts and outputs are sensitive. The proxy never stores them: logging is metadata only, with no body capture option. Tool arguments, tool results and provider error messages are not stored either.
 - Keep provider secrets in secret files or a secrets manager. Redact auth headers from all logs.
-- A leaked virtual key can spend without limit until it is revoked in v1. Mitigate with the provider console's own spend limit; per-key spend caps are a later version.
+- A leaked virtual key can spend without limit until it is disabled in the config file and the proxy reloaded in v1. Mitigate with the provider console's own spend limit; per-key spend caps are a later version.
 - Separate admin and data plane credentials.
 
 ### 7.3 Build or adopt
@@ -269,7 +266,7 @@ Firstmate's extension mechanism is deliberately narrow. Per its own docs, the fi
 
 Firstmate runs many agents in parallel, possibly on different models and harnesses. That is the situation where per-key attribution pays off.
 
-**(a) Per-task virtual keys.** Issue one key per crewmate, labeled with the firstmate task id, so proxy logs answer which task spent what on which model.
+**(a) Per-task virtual keys.** Issue one key per crewmate, named with the firstmate task id (one config entry and a `SIGHUP` each), so proxy logs answer which task spent what on which model.
 - Open question: how firstmate injects environment into crewmates. Worker-launch grants are out of scope for the extension system, so check its dispatch-profile configuration or propose a core change.
 
 **(b) A process-event adapter for alerts (later version; v1 has no alert feed).** This is the one thing the plugin boundary supports.

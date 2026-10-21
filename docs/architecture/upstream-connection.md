@@ -114,7 +114,8 @@ Client configuration, in the shell or in the `env` block of `~/.claude/settings.
 - The documentation warns against putting the credential in a project's committed `.claude/settings.json`.
 - Billing: "While a gateway credential variable or `apiKeyHelper` is active, requests carry that credential in place of a developer's claude.ai subscription login, and the subscription's usage limits don't apply to them." The traffic is billed per token to the owner of the key the proxy forwards, for example an Anthropic Console account.
 - A saved claude.ai login stays on the machine but is not sent while the gateway credential is set. `/status` in Claude Code shows which credential is active.
-- For firstmate, each crewmate gets its own virtual key labelled `fm:<task-id>` (design doc 8.3 a, gap review N7).
+- Virtual keys come from the proxy's config file, not from the UI: the operator generates one (`llm-proxy keygen --name <name>`, see [deployment.md](deployment.md#secrets)), adds its name and hash to `keys:`, sends `SIGHUP`, and gives the plaintext to the client. The key's name is what the call log shows.
+- For firstmate, each crewmate gets its own virtual key named `fm:<task-id>` (design doc 8.3 a, gap review N7). That means one config entry per key and a `SIGHUP`; names must stay stable, because history is grouped by name.
 
 Optional client settings that help behind a proxy:
 

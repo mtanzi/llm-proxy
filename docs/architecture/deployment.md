@@ -8,8 +8,8 @@ The design doc (7.1) names two tiers: one container plus Postgres for a home lab
 
 | Piece | Form | State |
 |---|---|---|
-| `llm-proxy serve` | One static Go binary in a distroless container. Applies its embedded migrations at start | None on disk; the call queue and the key map are in memory, everything else is in the store (the `store/postgres` adapter) |
-| Postgres 16 or later | Separate container or managed service | Call tables, virtual keys |
+| `llm-proxy serve` | One static Go binary in a distroless container. Applies its embedded migrations at start | None on disk; the call queue and the key map are in memory. Keys, providers, aliases and pricing come from the config file; call records are in the store (the `store/postgres` adapter) |
+| Postgres 16 or later | Separate container or managed service | Call tables |
 | Optional: reverse proxy (Caddy, a cloud load balancer) or Tailscale | In front of the listeners | TLS certificates |
 | Optional: Prometheus, Grafana | Existing observability stack | Their own |
 
@@ -52,7 +52,7 @@ Not built in v1. The process keeps the property that makes it possible: it is st
 
 | State | v1 (one replica) | Needed for several replicas |
 |---|---|---|
-| Key map | In process, write-through on create and revoke | Poll `KeyStore.All` every 30 s (simpler than `LISTEN/NOTIFY`) |
+| Key map | In process, built from the config snapshot on start and on `SIGHUP` | Nothing: every replica reads the same config file and reloads it on `SIGHUP` |
 | Live tail | In-process fan-out in `recorder` | A `LiveFeed` port: `store/postgres` sends `NOTIFY` after each commit, relayed by every replica (**pending decision D8**). In-flight calls show only on the replica that serves them |
 | Retention job | One process runs it | Any replica; a Postgres advisory lock keeps it single-writer |
 | Migrations | `serve` applies them at start under goose's session lock | A migration job (`--migrate=off` on replicas) when change control is strict |
@@ -101,6 +101,13 @@ providers:                      # resolved decision D7; see upstream-connection.
     credential: { file: /run/secrets/anthropic_api_key }
     idle_timeout: 120s          # idle-between-chunks watchdog
 
+keys:                           # virtual keys: names and SHA-256 hashes, never plaintext
+  - name: marco-laptop
+    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08   # placeholder
+  - name: ci
+    sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752   # placeholder
+    disabled: true              # revoked: requests with this key get 401
+
 aliases:                        # optional; unmapped model names go to the family's default provider
   coding-main: { provider: anthropic, model: claude-opus-4-8 }
 
@@ -123,9 +130,10 @@ log:
   format: json
 ```
 
-- Providers, aliases and pricing are in this file and nowhere else (resolved decision D7). Only virtual keys live in the store (Postgres, via `KeyStore`); they are managed through the admin API.
+- Providers, aliases, pricing and virtual keys are in this file and nowhere else (resolved decisions D7 and D15). The database holds call records only. A key entry has a unique `name`, the lowercase hex `sha256` of the key, and an optional `disabled: true`. A reload that finds a duplicate name, a duplicate hash or a malformed hash is rejected whole, and the proxy keeps the previous snapshot and logs the error.
+- The file holds hashes, not secrets, so it can sit in version control. Anyone who can edit it can add a key and so gain access to the proxy: restrict write access as for any deploy configuration.
 - Batch size and interval, the SSE event bound and the shutdown flush timeout are constants in code until measurement says otherwise. `queue_capacity` is the one writer setting.
-- `SIGHUP` re-reads the file and the referenced secrets and swaps the snapshot atomically. Requests in flight keep the snapshot they started with. This matters because a restart drains streams for up to 10 minutes. Listener addresses need a restart.
+- `SIGHUP` re-reads the file and the referenced secrets, rebuilds the key map and swaps the snapshot atomically. Requests in flight keep the snapshot they started with. This matters because a restart drains streams for up to 10 minutes. Listener addresses need a restart.
 
 ## Secrets
 
@@ -135,9 +143,17 @@ log:
 | Admin token | The only admin credential, for sign-in and scripts | File. Rotate by changing the secret and sending `SIGHUP` |
 | Database URL and password | Postgres connection | Environment variable or file |
 
-- Virtual keys are stored as SHA-256 hashes. They are 256-bit random values, so there is no pepper and no extra secret to back up. The first virtual key is created in the UI or API after signing in with the admin token.
+- Virtual keys are not secrets of the proxy: the config file holds only their SHA-256 hashes. They are 256-bit random values, so there is no pepper and no extra secret to back up. The plaintext key lives only with the client that uses it.
+- **Generate a key** outside the proxy. With the helper, `llm-proxy keygen --name marco-laptop` prints the plaintext key once (`lp_` plus base62 of 32 random bytes) and the `keys` entry to paste into the config. Without it, any 256-bit random value with the `lp_` prefix works, because the proxy hashes the presented string as is:
+
+  ```sh
+  key="lp_$(openssl rand -hex 32)"
+  printf '%s' "$key" | sha256sum | cut -d' ' -f1    # on macOS: shasum -a 256
+  ```
+
+  Put the hash in the config as `sha256`, hand the key to the client, and do not keep the plaintext anywhere else. The proxy cannot show a key again.
 - No secret is ever returned by the API or logged. No header value is stored in Postgres; log redaction happens in one place ([backend.md](backend.md#listener-and-router)).
-- Rotation: provider keys, the admin token and the database password rotate by updating the secret and sending `SIGHUP`. Virtual keys rotate by creating a new key, switching the client, and revoking the old one (gap review R8).
+- Rotation: provider keys, the admin token and the database password rotate by updating the secret and sending `SIGHUP`. Virtual keys rotate by config edit: generate a new key, add its entry, send `SIGHUP`, switch the client, then set `disabled: true` on the old entry (or delete it) and send `SIGHUP` again (gap review R8). A revoked key is rejected from the next request after the reload; a stream already in flight finishes.
 
 ## Migrations
 
@@ -170,9 +186,8 @@ At the upper end that is about 20 million `calls` rows over 400 days, 0.14 to 0.
 
 | Data | Importance | Backup |
 |---|---|---|
-| `virtual_keys` | High, small | Daily `pg_dump` of this table |
 | `calls`, `tool_events`, `call_segments` | Audit history (gap review N8) | Nightly full `pg_dump` |
-| Config file and secrets | Required to restore (providers, aliases, pricing, credentials, admin token) | The config file in version control; secrets in the secret store's own backup |
+| Config file and secrets | Required to restore (providers, aliases, pricing, virtual-key hashes, credentials, admin token). Lose the hashes and every client needs a new key | The config file in version control; secrets in the secret store's own backup |
 
 Test a restore at least once per release cycle: restore Postgres, start `serve` against it, and open a recent call in the UI.
 
@@ -275,5 +290,6 @@ Notes on the sketch:
 
 - The database password reaches `llm-proxy` as a file; the config's `database.url` can reference it, or the URL can carry it from an environment file kept out of version control.
 - `llm-proxy` mounts no data volume: it writes nothing to disk. `serve` migrates the database at start, so there is no migrate service.
-- After the first start, sign in at `http://127.0.0.1:9090/ui/` with the admin token and create a virtual key.
+- Before the first start, generate a key (`llm-proxy keygen --name <name>`, or the `openssl` lines under [Secrets](#secrets)) and add its entry under `keys:` in `config.yaml`. Without a `keys` entry every data-plane request gets `401`. After later key changes, run `docker compose kill -s HUP llm-proxy`.
+- After the first start, sign in at `http://127.0.0.1:9090/ui/` with the admin token to see calls.
 - Point Claude Code at `http://127.0.0.1:8080` as described in [upstream-connection.md](upstream-connection.md#claude-code-with-a-proxy-held-api-key).

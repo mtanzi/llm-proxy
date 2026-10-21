@@ -49,7 +49,7 @@ session → prompt (user turn) → agent (main or sub-agent) → LLM call → to
 | V3 Call detail | `/ui/calls/:id` | Who and route, timings, usage and cost, outcome, tools requested and resolved, cache segments. No content | `GET /admin/requests/{id}` |
 | V4 Tool-call explorer | `/ui/tools` | Per-tool summary and a list of tool calls with filters on name, error, duration and sizes | `GET /admin/tool-calls/summary`, `GET /admin/tool-calls` |
 | V5 Cost and cache | `/ui/cost` | Cost by key, model, client and session; cache hit ratio over time; misses with cause | `GET /admin/usage`, `GET /admin/requests`, `…/cache-analysis` |
-| Admin | `/ui/admin/keys`, `/ui/admin/config` | Create and revoke virtual keys; view providers, aliases and pricing, read-only, because they live in the config file and change with `SIGHUP` | `/admin/keys…`, `GET /admin/config` |
+| Admin | `/ui/admin/config` | View providers, aliases, pricing and key names (with `disabled`), read-only, because they live in the config file and change with `SIGHUP`. No key management: keys are added, disabled and rotated in the config file | `GET /admin/config` |
 
 The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that show message text, tool arguments or tool results are dropped. Behavior that matters for the architecture:
 
@@ -57,7 +57,7 @@ The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that
 
 - Columns: time, session and prompt, agent, client, model, status, latency, tokens in and out, cost, number of tool calls requested.
 - A row click opens V3. A session cell opens V2.
-- The filter menu covers every logged criterion: time, session, prompt, agent, agent type, request class, client, key, alias, provider, model, endpoint, status, error class, streamed, latency, TTFT, tokens, cost, cache hit, tool name, tool error.
+- The filter menu covers every logged criterion: time, session, prompt, agent, agent type, request class, client, key name, alias, provider, model, endpoint, status, error class, streamed, latency, TTFT, tokens, cost, cache hit, tool name, tool error.
 - "Group by session" folds consecutive calls of a session into one row with "N turns" (Bifrost pattern), kept in the URL.
 - Counts are exact up to 10,000 and show "10,000+" above that (UI report 6.3). A 24-hour window holds at most about 50,000 rows.
 - A **Live** toggle prepends new calls from the SSE stream. See [Live tail](#live-tail).
@@ -127,7 +127,7 @@ Every payload is a small JSON object of numbers, names, ids and hashes, so there
 
 ## Authentication to the admin API
 
-- The admin plane uses one admin token, read from a secret file (gap review R8). It is separate from virtual keys, which only work on the data plane. Scopes and several admins are later items ([backend.md](backend.md#gateway-features-decision-c1)).
+- The admin plane uses one admin token, read from a secret file (gap review R8). It is separate from virtual keys, which only work on the data plane and are configured in the config file, not in the UI. Scopes and several admins are later items ([backend.md](backend.md#gateway-features-decision-c1)).
 - **Sign-in:** the user pastes the admin token into the sign-in page. `POST /admin/session` exchanges it for a session cookie: `HttpOnly`, `Secure` (when served over TLS), `SameSite=Strict`, path `/admin`, with an expiry (default 12 hours). Sessions are held in memory, so a restart signs everyone out.
 - A cookie is needed because `EventSource` cannot send an `Authorization` header. Scripts and the firstmate adapter still call the API with `Authorization: Bearer <admin token>`.
 - **CSRF:** `SameSite=Strict` plus a required `X-Requested-With: llm-proxy-ui` header on every state-changing request. The API rejects cross-origin requests; there is no CORS allowance.

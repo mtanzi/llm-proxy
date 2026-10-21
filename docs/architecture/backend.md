@@ -1,6 +1,6 @@
 # Backend architecture (Go)
 
-Part of the [architecture set](README.md). v1 is an observe-only logging proxy for the Anthropic family: it forwards, records and shows calls. Gateway features (fallback, budgets, rate limits, alerts, OTel) are in [Later versions](#later-versions). Storage sits behind three ports; see [Storage ports and adapters](#storage-ports-and-adapters). Upstream credentials and Claude subscription routing are in [upstream-connection.md](upstream-connection.md). The UI that consumes the admin API is in [frontend.md](frontend.md). How the binary is deployed is in [deployment.md](deployment.md).
+Part of the [architecture set](README.md). v1 is an observe-only logging proxy for the Anthropic family: it forwards, records and shows calls. Gateway features (fallback, budgets, rate limits, alerts, OTel) are in [Later versions](#later-versions). Storage sits behind two ports; see [Storage ports and adapters](#storage-ports-and-adapters). Upstream credentials and Claude subscription routing are in [upstream-connection.md](upstream-connection.md). The UI that consumes the admin API is in [frontend.md](frontend.md). How the binary is deployed is in [deployment.md](deployment.md).
 
 ## Shape
 
@@ -9,6 +9,7 @@ One Go module, one static binary, `llm-proxy`, with two subcommands:
 | Subcommand | Purpose |
 |---|---|
 | `serve` | Applies the embedded migrations, then runs the data plane, the admin plane, the recorder and the retention job |
+| `keygen --name <name>` | Generates a virtual key, prints the plaintext once and the config entry with its SHA-256. Touches no config file and no database; see [Auth](#auth-virtual-keys) |
 | `version` | Prints the build version |
 
 **Storage model.** The proxy never stores request or response bodies. The tap reads each exchange in memory, the extractor keeps a small set of facts (who, route, tokens, cost, timings, outcome, cache hashes, tool-call metadata), and the recorder inserts them as append-only rows through the `CallWriter` store port, implemented in v1 by the `store/postgres` adapter. There is no capture journal and no body table. Consequences: no search over prompt or response text, call detail shows numbers and tool names but not content, and a wrong parsing rule cannot be recomputed for past rows; a fix applies to new calls only. This resolves decisions D1 and D2 ([README](README.md#resolved-decisions)).
@@ -38,18 +39,18 @@ flowchart TB
             ui["ui<br/>embedded SPA"]
         end
         subgraph app[Application]
-            keyring["keyring<br/>in-memory keys"]
+            keyring["keyring<br/>key map from the<br/>config snapshot"]
             recorder["recorder<br/>live fan-out, queue,<br/>batch writer"]
         end
         subgraph domain[Domain]
-            core["core<br/>entities, rules, ports:<br/>CallWriter, CallReader, KeyStore"]
+            core["core<br/>entities, rules, ports:<br/>CallWriter, CallReader"]
             fam["family/anthropic"]
         end
         subgraph outbound[Outbound adapters]
             pgs["store/postgres<br/>pgx, goose, retention"]
             rt["http.RoundTripper<br/>per provider"]
         end
-        cfg["config<br/>YAML: providers, aliases, pricing"]
+        cfg["config<br/>YAML: providers, aliases,<br/>pricing, keys"]
         wiring["cmd/llm-proxy<br/>wiring"]
     end
 
@@ -64,10 +65,9 @@ flowchart TB
     proxy -->|Started, Finished| recorder
     proxy --> rt --> up
     api --> recorder
-    api --> keyring
     api -->|CallReader| core
     recorder -->|CallWriter| core
-    keyring -->|KeyStore| core
+    keyring -.builds from.-> cfg
     pgs -.implements.-> core
     pgs --> pg
     wiring -.builds.-> proxy & api & recorder & keyring & pgs & cfg
@@ -78,7 +78,7 @@ Everything between the Go components and Postgres goes through the store ports. 
 
 Two properties hold for every arrow out of the data plane:
 
-- **The hot path never waits on storage.** Nothing between the client and the upstream calls a store port. Auth reads the in-memory key map and routing reads the config snapshot.
+- **The hot path never waits on storage.** Nothing between the client and the upstream calls a store port. Auth reads the in-memory key map and routing reads the config snapshot. The key map is built from that snapshot, so a key change takes effect on `SIGHUP`.
 - **Logging never fails a request.** A full queue drops the call record and increments a counter. A failed batch write is retried, logged and counted. A store outage (for example Postgres down) fills the queue, and records past its capacity are dropped and counted.
 
 ## Layers and the dependency rule
@@ -116,10 +116,13 @@ The hot path is one flow, so it is one package with one file per concern: reques
 
 #### Auth (virtual keys)
 
-- **Virtual keys** look like `lp_<base62 of 32 random bytes>`. The store (`KeyStore`) keeps only the SHA-256 of the key, plus a display prefix of `lp_` and 4 characters (gap review R1). Keys are 256 bits of randomness, so a plain hash cannot be brute-forced and no server pepper is needed. The plaintext is shown once at creation.
+- **Virtual keys** look like `lp_<base62 of 32 random bytes>`. They live in the `keys` section of the config file, one entry per key: a `name`, the `sha256` (hex) of the key, and an optional `disabled` flag. The file never holds the plaintext (gap review R1). Keys are 256 bits of randomness, so a plain hash cannot be brute-forced and no server pepper is needed.
+- **Key names** are unique and stay stable: the call record stores the name, so renaming a key splits its history. `fm:<task-id>` is a valid name. A name is the only per-key label; there is no display prefix.
+- **Generating a key** happens outside the proxy. `llm-proxy keygen --name <name>` draws 32 bytes from the system random source, prints the plaintext key once, and prints the config entry to paste (`name` and `sha256`). The proxy keeps nothing. Without the helper, `openssl rand -hex 32` behind an `lp_` prefix gives an equally strong key, and `sha256sum` gives its hash; the proxy treats the presented key as an opaque string and hashes it. [deployment.md](deployment.md#secrets) has the exact commands.
+- **Changing keys** is a config edit plus `SIGHUP`. Add: append an entry. Revoke: set `disabled: true` or delete the entry. Rotate: add the new entry, switch the client, then disable the old one. There is no key API.
 - **Where the key is read from.** In the default `proxy_key` mode the client sends its virtual key as its API credential: `Authorization: Bearer lp_…` or `x-api-key: lp_…`. In `client_passthrough` mode the client's own credential occupies `Authorization`, so the virtual key travels in a separate `x-llm-proxy-key` header. [upstream-connection.md](upstream-connection.md#credential-modes) explains both modes. The proxy consumes `x-llm-proxy-key` and never forwards it.
-- **Lookup** is an in-memory map from SHA-256 to key record, owned by `keyring`. It loads all keys from `KeyStore` at start and updates itself on create and revoke (write-through), because all key writes go through the same process. v1 runs one replica, so there is no change notification and no TTL.
-- **Checks:** the key exists and is not revoked. A failure returns a protocol-correct Anthropic error body with a stable `type` per error class (gap review R3). Expiry, allowed aliases, request-rate and concurrency limits and budgets are deferred ([Later versions](#later-versions)).
+- **Lookup** is an in-memory map from SHA-256 to key record, owned by `keyring`. `keyring` builds it from the keys of a config snapshot, and the map travels with that snapshot: `SIGHUP` builds a new snapshot and swaps it atomically, and a request in flight keeps the map it started with. The handler hashes the presented key and looks the hash up. The config loader rejects a snapshot with a duplicate name, a duplicate hash or a malformed hash, and the proxy keeps the previous snapshot and logs the error. Nothing about keys touches the store.
+- **Checks:** the key exists and is not disabled. A failure returns a protocol-correct Anthropic error body with a stable `type` per error class (gap review R3). Expiry, allowed aliases, request-rate and concurrency limits and budgets are deferred ([Later versions](#later-versions)).
 - **Admin plane auth** is separate: one admin token, read from a secret file. The browser exchanges it for a session cookie; see [frontend.md](frontend.md#authentication-to-the-admin-api).
 
 #### Correlation
@@ -179,7 +182,7 @@ The only code that understands provider formats, in package `family/anthropic`. 
 
 A call record holds:
 
-- **Who:** virtual key, client, session key, agent and parent agent, agent type, prompt id (all from headers, see [Correlation](#correlation)).
+- **Who:** key name, client, session key, agent and parent agent, agent type, prompt id (all from headers, see [Correlation](#correlation)).
 - **What ran:** alias, provider, final model, and `upstream_request_id`. There is one attempt per call in v1.
 - **Usage and cost:** tokens normalized into disjoint columns (input, cache read, cache write, output, reasoning), the raw provider usage JSON (gap review B6), and cost from the versioned pricing in the config snapshot, with the pricing version. `usage_raw` is the only thing that lets a normalization fix be applied to old rows.
 - **Timings:** time to first byte, TTFT, total duration, and the end timestamp.
@@ -222,7 +225,7 @@ A proxy never sees a tool run. It sees the model request the tool in response N,
 
 ### Admin and query API
 
-Served on the admin listener under `/admin/`, implemented by the `api` package. The handlers read through the `CallReader` and `KeyStore` ports (the latter through `keyring`) and never see SQL. JSON over HTTP, described by an OpenAPI 3.1 document at `/admin/openapi.json`, from which the UI generates its TypeScript types. `api` owns the wire format, including the cursor encoding; the port takes typed `core.Cursor` values.
+Served on the admin listener under `/admin/`, implemented by the `api` package. The handlers read through the `CallReader` port and never see SQL. JSON over HTTP, described by an OpenAPI 3.1 document at `/admin/openapi.json`, from which the UI generates its TypeScript types. `api` owns the wire format, including the cursor encoding; the port takes typed `core.Cursor` values.
 
 | Method and path | Purpose | Gap |
 |---|---|---|
@@ -235,8 +238,7 @@ Served on the admin listener under `/admin/`, implemented by the `api` package. 
 | `GET /admin/tool-calls/summary` | Per-tool count, error rate, p50 and p95 duration | G6 |
 | `GET /admin/usage` | Time series computed from raw rows, `group_by` and `grain` | G7 |
 | `GET /admin/stream` | SSE live tail with the call-log filters | G13 |
-| `GET /admin/config` | Read-only view of providers, aliases and pricing from the config file | |
-| `GET /admin/keys`, `POST /admin/keys`, `DELETE /admin/keys/{id}` | Virtual keys (firstmate creates per-task keys here) | |
+| `GET /admin/config` | Read-only view of providers, aliases and pricing from the config file, and the key names with their `disabled` flag (never a hash) | |
 | `POST /admin/session`, `DELETE /admin/session` | Browser sign-in and sign-out | R8 |
 
 List conventions:
@@ -267,7 +269,7 @@ One job, owned by the adapter and started by `cmd`: **retention**, daily, `DELET
 ### Configuration
 
 - Static configuration comes from one YAML file plus environment variables; secrets come from files or environment variables referenced by name. The layout is in [deployment.md](deployment.md#configuration).
-- **Resolved decision D7 (C3):** providers, aliases and pricing live in the config file. Only virtual keys live in the database, behind `KeyStore`. `SIGHUP` re-reads the file and swaps an immutable snapshot atomically; requests in flight keep the snapshot they started with. The UI shows aliases and pricing read-only.
+- **Resolved decision D7 (C3):** providers, aliases and pricing live in the config file. Virtual keys are in the file too, as SHA-256 hashes (see [Auth](#auth-virtual-keys)); the database holds call records only. `SIGHUP` re-reads the file and swaps an immutable snapshot atomically; requests in flight keep the snapshot they started with. The UI shows aliases, pricing and key names read-only.
 
 ## Storage ports and adapters
 
@@ -282,13 +284,12 @@ Rules:
 
 ### Ports
 
-Three interfaces. Signatures are a sketch of shape and responsibility; the Go source is the source of truth once it exists.
+Two interfaces. Signatures are a sketch of shape and responsibility; the Go source is the source of truth once it exists.
 
 | Port | Responsibility | Used by |
 |---|---|---|
 | `CallWriter` | Insert a batch of call records with their tool halves and segment hashes, atomically and idempotently | `recorder` |
 | `CallReader` | Every admin view: lists, detail, sessions, tool calls, usage, cache-analysis input. All relational views are derived here | `api` |
-| `KeyStore` | Virtual keys | `keyring`, `api` (through `keyring`) |
 
 ```go
 package core
@@ -313,18 +314,11 @@ type CallReader interface {
 	SessionSegments(ctx context.Context, key string) ([]CallSegments, error) // input to CacheDiff
 }
 
-// KeyStore holds virtual keys.
-type KeyStore interface {
-	All(ctx context.Context) ([]Key, error) // loaded once at start by keyring
-	Create(ctx context.Context, k NewKey) (Key, error)
-	Revoke(ctx context.Context, id uuid.UUID) error
-}
-
 // CallFilter mirrors the call-log query parameters. Zero values mean "no constraint".
 // Every query is time-bounded: From and To are required (the API defaults to the last 24 hours).
 type CallFilter struct {
 	From, To       time.Time // half-open [From, To)
-	Keys           []string
+	Keys           []string // key names
 	Clients        []string
 	Providers      []string
 	Models         []string // final model
@@ -372,7 +366,7 @@ Notes on the shapes:
 | Adapter | Package | Status | Purpose |
 |---|---|---|---|
 | Postgres | `internal/store/postgres` | **v1** | The production store. Postgres 16 or later |
-| SQLite | `internal/store/sqlite` | Possible later; **not v1** | Single-machine installs without a Postgres server. No design work now; it would implement the same three interfaces |
+| SQLite | `internal/store/sqlite` | Possible later; **not v1** | Single-machine installs without a Postgres server. No design work now; it would implement the same two interfaces |
 
 **`store/postgres`** is the adapter this document set describes where it talks about tables and SQL:
 
@@ -387,7 +381,7 @@ Notes on the shapes:
 Decision D14 (revised by C2): there is no in-memory store adapter. A second implementation of the read side would have to reimplement filters, keyset paging, percentiles and tool pairing in Go.
 
 - The contract suite `internal/store/storetest` and the `CallReader` tests run against a real Postgres, a container started per test run (or `LLM_PROXY_TEST_DATABASE_URL`). They need Docker or a local Postgres. CI runs them.
-- Unit tests of `recorder`, `keyring` and `proxy` use small fakes of the narrow ports: a `CallWriter` that appends to a slice, and a `KeyStore` backed by a map. `api` handler tests use a fake `CallReader` that returns canned values.
+- Unit tests of `recorder`, `keyring` and `proxy` use small fakes of the narrow ports: a `CallWriter` that appends to a slice. `keyring` needs no fake: its tests build a key map from literal `core.Key` values and cover lookup, a disabled key, an unknown key, and rejection of duplicate names and malformed hashes at config load. `api` handler tests use a fake `CallReader` that returns canned values.
 
 ### Contract test suite
 
@@ -402,7 +396,6 @@ The suite covers:
 - **Filters.** Each `CallFilter` field, alone and combined.
 - **Detail.** `GetCall` returns segments and tool halves.
 - **Usage.** `Usage` sums disjoint token columns and cost correctly for each `GroupBy` and `Grain`. Percentiles agree with the exact value.
-- **Keys.** `KeyStore` stores only the SHA-256; revoked keys stay listed with `revoked_at`.
 - **Retention.** `DeleteBefore` removes rows past the cutoff and nothing else, in batches, and running it twice is safe.
 - **No bodies.** The suite writes records, then scans every stored value it can reach (via a store-specific hook) and fails if any text from the test's fake prompt, response or tool arguments is present. This holds the no-bodies model at the storage layer.
 
@@ -475,14 +468,14 @@ If the store is down, `WriteBatch` fails, the writer retries with backoff and th
 
 This section describes the schema of the `store/postgres` adapter. It is the adapter's private detail: nothing outside `internal/store/postgres` knows these table names, and another adapter may lay data out differently as long as it passes the [contract suite](#contract-test-suite). It replaces the design doc's section 4. Column lists are indicative; the migrations are the source of truth once they exist.
 
-Four plain tables, unpartitioned, all written by insert only:
+Three plain tables, unpartitioned, all written by insert only:
 
 ```sql
 -- One row per LLM call. Append-only.
 CREATE TABLE calls (
   id                  uuid PRIMARY KEY,        -- UUIDv7, also x-request-id
   ts                  timestamptz NOT NULL,    -- request start
-  key_id              uuid NOT NULL,
+  key_name            text NOT NULL,           -- name from the config keys section
   client              text, client_raw text, client_request_id text,
   session_key         text,                    -- header, else pure derived hash
   agent_id            text, parent_agent_id text, agent_type text,
@@ -506,7 +499,7 @@ CREATE TABLE calls (
 );
 CREATE INDEX ON calls (ts DESC, id DESC);
 CREATE INDEX ON calls (session_key, ts);
-CREATE INDEX ON calls (key_id, ts DESC);
+CREATE INDEX ON calls (key_name, ts DESC);
 CREATE INDEX ON calls (ts DESC) WHERE error_class IS NOT NULL;
 
 -- One row per tool-call half. Append-only. Pairing happens at read time.
@@ -536,15 +529,6 @@ CREATE TABLE call_segments (
   token_estimate int[]
 );
 CREATE INDEX ON call_segments (ts);
-
-CREATE TABLE virtual_keys (
-  id          uuid PRIMARY KEY,
-  key_hash    bytea NOT NULL UNIQUE,           -- SHA-256 of the key
-  key_prefix  text NOT NULL,                   -- 'lp_' + 4 chars
-  label       text NOT NULL,                   -- e.g. fm:<task-id>
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  revoked_at  timestamptz
-);
 ```
 
 Notes:
@@ -554,8 +538,9 @@ Notes:
 - **Tool calls at read time.** A tool call is a `use` row joined to the `result` row with the same `tool_call_id`, as described in [Tool calls, sessions and agents at read time](#tool-calls-sessions-and-agents-at-read-time).
 - **Segments.** One row per call instead of one row per segment cuts the row count by the number of segments (often 100 or more on Claude Code requests). Only per-segment hashes are kept: the first index where the prefix hashes differ is the first index where the segment hashes differ, so a stored `prefix_hash` would be redundant (the reader recomputes the prefix chain).
 - **Cache analysis pairs by agent.** `CacheDiff` is a pure function in `core`. `api` calls `SessionSegments`, then pairs each call with the previous call of the same `(session_key, agent_id)` and the same `request_class`. Claude Code runs sub-agents inside one session, in parallel, with their own system prompts and histories, and compaction and auxiliary requests have their own prefixes. Pairing by session alone would report a "system prompt changed" miss on nearly every interleaved call.
+- **Keys are not in the database.** `calls.key_name` holds the name from the config file at the time of the call. There is no key table and no foreign key, so removing a key from the config leaves its history readable under the old name. Per-key usage is `GROUP BY key_name` over `calls` (`GET /admin/usage?group_by=key`).
 - **Retention defaults:** `calls` and `tool_events` 400 days, `call_segments` 14 days. Deployment sizing is in [deployment.md](deployment.md#storage-retention-and-sizing).
-- **Removed against the design doc:** `request_attempts`, per-segment `request_segments`, `tool_calls` as a table, `sessions`, `agents`, `usage_rollups`, `alerts`, `admin_tokens`, `aliases`, `alias_routes`, `pricing`, `budget_counters`, the `providers` view and all partitioning.
+- **Removed against the design doc:** `request_attempts`, per-segment `request_segments`, `tool_calls` as a table, `sessions`, `agents`, `usage_rollups`, `alerts`, `admin_tokens`, `virtual_keys`, `aliases`, `alias_routes`, `pricing`, `budget_counters`, the `providers` view and all partitioning.
 
 ## Package layout
 
@@ -566,7 +551,7 @@ llm-proxy/
 ├── internal/
 │   ├── core/               entities (CallRecord, ToolUse, ToolResult, Usage, Key), pure rules
 │   │                       (Cost, SessionKey, CacheDiff, Filter.Match), port interfaces
-│   │                       (CallWriter, CallReader, KeyStore), filter, cursor and page types.
+│   │                       (CallWriter, CallReader), filter, cursor and page types.
 │   │                       Standard library only.
 │   ├── family/
 │   │   └── anthropic/      request facts (segments, tool_results), SSE scanner, usage,
@@ -574,12 +559,13 @@ llm-proxy/
 │   ├── proxy/              data-plane handler: request id, auth, correlation, alias lookup,
 │   │                       body read and model splice, ReverseProxy, tap, idle watchdog,
 │   │                       graceful drain. One package, one file per concern.
-│   ├── keyring/            in-memory key map over KeyStore; write-through on create and revoke
+│   ├── keyring/            immutable key map (SHA-256 to key) built from a config snapshot; lookup
 │   ├── recorder/           Started and Finished events: live fan-out, bounded queue,
 │   │                       batch writer, retry, drop counting, shutdown flush
 │   ├── api/                admin JSON handlers, SSE stream, session cookie, cursor wire format,
 │   │                       OpenAPI document
-│   ├── config/             YAML and env loading, secret references, SIGHUP snapshot swap
+│   ├── config/             YAML and env loading, secret references, key validation,
+│   │                       SIGHUP snapshot swap
 │   ├── store/
 │   │   ├── postgres/       pgx pool, hand-written queries, filter builder, goose migrations,
 │   │   │   └── migrations/ retention delete
@@ -604,7 +590,7 @@ Dependency rules:
 - `store/postgres` imports `core` and its drivers, and nothing else from the module.
 - **Only `cmd/llm-proxy` (the wiring) imports `store/postgres`.** It builds the adapter from config, passes it to each consumer as the port it needs, applies migrations and starts the retention job. Tests wire fakes the same way.
 - `family/anthropic` is the only package that decodes provider body formats. It returns call records and keeps no bytes.
-- `recorder` is the only caller of `CallWriter`. Nothing else writes call or tool records. `api` writes only through `keyring`.
+- `recorder` is the only caller of `CallWriter`. Nothing else writes call or tool records.
 - An import check in CI (a `depguard` rule or `go list -deps`) enforces the rules above.
 
 Later executables from design doc 9 (the firstmate ledger reporter) go under `cmd/` in the same module (gap review N9).
@@ -634,7 +620,7 @@ Everything below is out of v1. Each item has a trigger for adding it back. The v
 | Request-rate and concurrency limits, allowed aliases, key expiry | Any key may call any model at any rate | More than one person holds keys |
 | Alerts, `AlertLog`, `/admin/alerts`, the firstmate alert adapter | Proxy health is visible through `/metrics` | Design-doc phase 6 (firstmate process-event adapter) |
 | OTel span export | Calls are visible only in the proxy's UI and database | Someone wants calls in Tempo, Jaeger or Phoenix. It is a second `recorder` subscriber; nothing in `core` changes. Spans would follow the OpenTelemetry GenAI semantic conventions, pinned to one schema version |
-| Admin scopes (`admin` and `read`), `admin_tokens` table, `keys` CLI | One admin token from a secret; rotating it means changing the secret and sending `SIGHUP` | Several admins, read-only viewers, or OIDC |
+| Admin scopes (`admin` and `read`), `admin_tokens` table | One admin token from a secret; rotating it means changing the secret and sending `SIGHUP` | Several admins, read-only viewers, or OIDC |
 
 ### Storage and scale
 
@@ -645,7 +631,7 @@ Everything below is out of v1. Each item has a trigger for adding it back. The v
 | `CopyFrom` staging for batch writes | None at the expected volume | Writer lag grows under measured load (well above 100 calls per second) |
 | Materialized tool-call pairing table | Tool views do a join at read; at very large volumes the explorer gets slower | Tool explorer p95 above about 1 s. A background job fills the table; the port does not change |
 | `sync.Pool` buffers in the tap | Slightly more GC work | A profile shows allocation pressure |
-| Multi-replica tier: `LiveFeed` port with `NOTIFY`, key polling, advisory locks, migration job | One replica; live tail works on that replica only | A team or production deployment. Then add `LiveFeed` back as a port, and a 30-second poll of `KeyStore.All` (simpler than `LISTEN/NOTIFY`). See [deployment.md](deployment.md#later-multi-replica-tier) |
+| Multi-replica tier: `LiveFeed` port with `NOTIFY`, advisory locks, migration job | One replica; live tail works on that replica only | A team or production deployment. Then add `LiveFeed` back as a port. Keys need nothing: each replica reads the same config file. See [deployment.md](deployment.md#later-multi-replica-tier) |
 | `Last-Event-ID` catch-up | A reconnecting browser refetches the first page | Never in its current form. If needed, add a commit sequence number |
 | Backward paging, exact counts above 10,000 | No "newer page" button; counts above 10,000 show as "10,000+" | The UI needs backward paging deep in history |
 | Sub-agent link to the spawning `Task` call | A sub-agent nests under its parent agent, not under the exact `Task` call | The UI needs Task-level nesting |
@@ -676,7 +662,7 @@ These follow the gap review's suggestions, adjusted by decisions C1 to C4. All a
 | B7 budgets | Deferred (C1) |
 | B8 providers | Config-file providers with credential references (D7, resolved) |
 | B10 Go baseline | As in [Libraries](#libraries); one static binary; distroless image |
-| R1 keys | `lp_` keys, SHA-256 hash, in-memory map with write-through |
+| R1 keys | `lp_` keys, SHA-256 hash in the config file, in-memory map rebuilt on `SIGHUP` |
 | R8 admin auth | One admin token from a secret; browser session cookie |
 | R9 alerts | Deferred (C1) |
 | R10 retention | See [Data model](#data-model) and [deployment.md](deployment.md#storage-retention-and-sizing) |
