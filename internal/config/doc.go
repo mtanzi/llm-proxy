@@ -9,8 +9,9 @@
 // the upper-cased key path joined by underscores, for example
 // LLM_PROXY_SERVER_DRAIN_TIMEOUT or LLM_PROXY_LISTEN_TLS_CERT_FILE. A secret
 // reference is overridden by its parts: LLM_PROXY_DATABASE_URL_ENV or
-// LLM_PROXY_DATABASE_URL_FILE. Lists (providers, keys, pricing) are not
-// overridable from the environment.
+// LLM_PROXY_DATABASE_URL_FILE; setting either replaces the whole reference from
+// the file. Lists (providers, keys, pricing) are not overridable from the
+// environment.
 //
 // Secrets are never inlined. A resolved secret lives in an unexported field,
 // is returned only by Secret.Reveal, and is redacted from fmt, slog, JSON and

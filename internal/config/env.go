@@ -11,10 +11,19 @@ const envPrefix = "LLM_PROXY"
 
 // applyEnv overrides scalar keys from LLM_PROXY_<SECTION>_<KEY> variables. The
 // names come from the yaml tags of Config, so every key has one. Lists and maps
-// are skipped.
+// are skipped. A secret reference is replaced whole by its _ENV and _FILE parts,
+// so overriding one part drops the other part set in the file.
 func applyEnv(cfg *Config, o Options) []error {
 	var errs []error
 	walkLeaves(reflect.ValueOf(cfg).Elem(), []string{envPrefix}, func(name string, v reflect.Value) {
+		if v.Type() == refType {
+			env, envOK := o.LookupEnv(name + "_ENV")
+			file, fileOK := o.LookupEnv(name + "_FILE")
+			if envOK || fileOK {
+				v.Set(reflect.ValueOf(Ref{Env: env, File: file}))
+			}
+			return
+		}
 		raw, ok := o.LookupEnv(name)
 		if !ok {
 			return
@@ -29,6 +38,7 @@ func applyEnv(cfg *Config, o Options) []error {
 var (
 	durationType = reflect.TypeFor[Duration]()
 	sizeType     = reflect.TypeFor[Size]()
+	refType      = reflect.TypeFor[Ref]()
 )
 
 // walkLeaves calls fn with the variable name and field of each overridable key.
@@ -43,7 +53,7 @@ func walkLeaves(v reflect.Value, path []string, fn func(name string, v reflect.V
 		p := append(path[:len(path):len(path)], strings.ToUpper(tag))
 		fv := v.Field(i)
 		switch {
-		case f.Type == durationType, f.Type == sizeType:
+		case f.Type == durationType, f.Type == sizeType, f.Type == refType:
 			fn(strings.Join(p, "_"), fv)
 		case f.Type.Kind() == reflect.Struct:
 			walkLeaves(fv, p, fn)

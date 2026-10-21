@@ -306,6 +306,22 @@ func TestEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestEnvOverrideSwitchesSecretSource(t *testing.T) {
+	env := map[string]string{"KEY": "k", "LLM_PROXY_DATABASE_URL_FILE": "/run/secrets/db"}
+	cfg, err := Parse([]byte(base), fakeOpts(env, map[string]string{"/run/secrets/db": "postgres://f\n"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Database.URL; got.Env != "" || got.File != "/run/secrets/db" || got.Secret().Reveal() != "postgres://f" {
+		t.Errorf("database.url = %s, %q", got, got.Secret().Reveal())
+	}
+
+	env["LLM_PROXY_DATABASE_URL_ENV"], env["DB"] = "DB", "postgres://x"
+	if _, err := Parse([]byte(base), fakeOpts(env, map[string]string{"/run/secrets/db": "postgres://f\n"})); err == nil {
+		t.Error("both env and file overrides accepted")
+	}
+}
+
 func TestEnvOverrideIsValidated(t *testing.T) {
 	for name, env := range map[string]map[string]string{
 		"non-loopback admin": {"LLM_PROXY_LISTEN_ADMIN": "0.0.0.0:9090"},
@@ -327,7 +343,7 @@ func TestEnvOverrideNames(t *testing.T) {
 	got := strings.Join(names, " ")
 	for _, want := range []string{
 		"LLM_PROXY_LISTEN_DATA", "LLM_PROXY_LISTEN_ADMIN", "LLM_PROXY_LISTEN_TLS_CERT_FILE", "LLM_PROXY_LISTEN_TLS_KEY_FILE",
-		"LLM_PROXY_DATABASE_URL_ENV", "LLM_PROXY_DATABASE_URL_FILE", "LLM_PROXY_DATABASE_MAX_CONNS",
+		"LLM_PROXY_DATABASE_URL", "LLM_PROXY_DATABASE_MAX_CONNS",
 		"LLM_PROXY_RETENTION_CALLS", "LLM_PROXY_SERVER_DRAIN_TIMEOUT", "LLM_PROXY_SERVER_MAX_REQUEST_BYTES",
 		"LLM_PROXY_QUEUE_CAPACITY", "LLM_PROXY_LOG_LEVEL", "LLM_PROXY_LOG_FORMAT",
 	} {
