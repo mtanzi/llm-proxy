@@ -13,7 +13,7 @@ llm-proxy has no code yet. Every later ADR adds packages, so the module layout, 
 - One Go module, one static binary `llm-proxy` built from `cmd/llm-proxy`.
 - Packages under `internal/`: `core`, `family/anthropic`, `proxy`, `keyring`, `recorder`, `api`, `config`, `store/postgres`, `store/storetest`, `ui`. Plus `api/openapi.yaml`, `web/`, `testdata/fixtures/` and `docs/`.
 - Go version: the latest two Go releases (1.26 and 1.27 today).
-- Libraries: `net/http` and `httputil`, `tidwall/gjson`, `jackc/pgx/v5` and goose (inside `store/postgres` only), `log/slog`, the Prometheus Go client. No web framework, no ORM, no `fasthttp`.
+- Libraries: `net/http` and `httputil`, `tidwall/gjson`, `go.yaml.in/yaml/v3` (inside `config` only), `jackc/pgx/v5` and goose (inside `store/postgres` only), `log/slog`, the Prometheus Go client. No web framework, no ORM, no `fasthttp`.
 - An import check in CI enforces the dependency rules (a `depguard` rule or a `go list -deps` script).
 - Only `cmd/llm-proxy` may import `store/postgres`.
 

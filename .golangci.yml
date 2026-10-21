@@ -54,12 +54,20 @@ linters:
           files:
             - "**/internal/recorder/**"
             - "**/internal/keyring/**"
-            - "**/internal/config/**"
             - "**/internal/store/storetest/**"
           allow:
             - $gostd
             - github.com/mtanzi/llm-proxy/internal/core
             - github.com/mtanzi/llm-proxy/internal/core/coretest
+        config:
+          list-mode: strict
+          files:
+            - "**/internal/config/**"
+          allow:
+            - $gostd
+            - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/llm-proxy/internal/core/coretest
+            - go.yaml.in/yaml/v3
         ui:
           list-mode: strict
           files:

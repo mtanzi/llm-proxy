@@ -1,0 +1,48 @@
+# Example llm-proxy configuration. Copy it, then edit it.
+# Layout and rules: docs/architecture/deployment.md, "Configuration".
+# Path: --config or LLM_PROXY_CONFIG. Any scalar key can be overridden by
+# LLM_PROXY_<SECTION>_<KEY>, for example LLM_PROXY_LOG_LEVEL=debug.
+
+listen:
+  data: ":8080"
+  admin: "127.0.0.1:9090"       # must be a loopback address; serve refuses to start otherwise
+  tls:                          # optional; usually terminated in front
+    cert_file: ""
+    key_file: ""
+
+database:
+  url: { env: LLM_PROXY_DATABASE_URL }
+  max_conns: 20
+
+providers:
+  - name: anthropic
+    kind: anthropic
+    base_url: https://api.anthropic.com
+    auth_mode: proxy_key        # proxy_key | client_passthrough | both
+    credential: { file: /run/secrets/anthropic_api_key }
+    idle_timeout: 120s          # idle-between-chunks watchdog
+
+keys:                           # virtual keys: names and SHA-256 hashes, never plaintext
+  # PLACEHOLDER hashes: replace each with the output of `llm-proxy keygen --name <name>`.
+  - name: marco-laptop
+    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08   # placeholder
+  - name: ci
+    sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752   # placeholder
+    disabled: true              # revoked: requests with this key get 401
+
+pricing:                        # versioned by effective date; placeholder prices show the shape only
+  - { provider: anthropic, model: claude-opus-4-8, from: 2026-10-01,
+      input: 5.00, output: 25.00, cache_read: 0.50, cache_write_5m: 6.25, cache_write_1h: 10.00 }
+
+retention:
+  calls: 400d                   # calls and tool_events
+
+server:
+  drain_timeout: 10m
+  max_request_bytes: 32MiB      # the only request-size limit; larger bodies are rejected
+
+queue_capacity: 10000           # call records; a full queue drops and counts
+
+log:
+  level: info
+  format: json

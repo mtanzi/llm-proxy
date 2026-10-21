@@ -75,7 +75,7 @@ A load balancer in front of replicas must not buffer responses, must keep idle c
 
 ## Configuration
 
-One YAML file, path from `--config` or `LLM_PROXY_CONFIG`. Every key can be overridden by an environment variable named `LLM_PROXY_<SECTION>_<KEY>`. Secrets are never inlined; they are referenced by environment variable or file.
+One YAML file, path from `--config` or `LLM_PROXY_CONFIG`. Every scalar key can be overridden by an environment variable named `LLM_PROXY_<SECTION>_<KEY>`; a secret reference is overridden by its parts (`LLM_PROXY_DATABASE_URL_ENV` or `LLM_PROXY_DATABASE_URL_FILE`), and the lists (`providers`, `keys`, `pricing`) are not overridable. Secrets are never inlined; they are referenced by environment variable or file.
 
 ```yaml
 listen:

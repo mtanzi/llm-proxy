@@ -15,7 +15,7 @@ One Go module, one static binary `llm-proxy` built from `cmd/llm-proxy`. Everyth
 | `proxy` | Data-plane adapter | `core`, application packages, `family/*`, `config`; no `store` package |
 | `api` | Admin-plane adapter | `core`, `recorder`; no database driver |
 | `ui` | Embedded web UI | `core`, application packages |
-| `config` | Configuration | `core` |
+| `config` | Configuration | `core`, `yaml` (`go.yaml.in/yaml/v3`) |
 | `store/postgres` | Postgres adapter | `core`, drivers (`pgx`, goose) |
 | `store/storetest` | Shared store contract tests | `core` |
 

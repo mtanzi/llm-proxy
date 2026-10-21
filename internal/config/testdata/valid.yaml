@@ -1,0 +1,53 @@
+listen:
+  data: ":8443"
+  admin: "[::1]:9090"
+  tls:
+    cert_file: /etc/llm-proxy/tls.crt
+    key_file: /etc/llm-proxy/tls.key
+
+database:
+  url: { env: TEST_DATABASE_URL }
+  max_conns: 8
+
+providers:
+  - name: anthropic
+    kind: anthropic
+    base_url: https://api.anthropic.com
+    auth_mode: both
+    credential: { file: /run/secrets/anthropic_api_key }
+    idle_timeout: 90s
+  - name: local-vllm
+    kind: openai_compatible
+    base_url: http://vllm.internal:8000
+    credential: none
+    headers_to_add: { OpenAI-Project: proj_1 }
+  - name: passthrough-only
+    kind: anthropic
+    base_url: https://api.anthropic.com
+    auth_mode: client_passthrough
+
+keys:
+  - name: alice
+    sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
+  - name: ci
+    sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752
+    disabled: true
+
+pricing:
+  - { provider: anthropic, model: claude-opus-4-8, from: 2026-10-01,
+      input: 5.00, output: 25.00, cache_read: 0.50, cache_write_5m: 6.25, cache_write_1h: 10.00 }
+  - { provider: anthropic, model: claude-opus-4-8, from: 2027-01-01, input: 4.5, output: 22.5 }
+  - { provider: local-vllm, model: llama, from: 2026-01-01 }
+
+retention:
+  calls: 90d
+
+server:
+  drain_timeout: 120s
+  max_request_bytes: 16MiB
+
+queue_capacity: 500
+
+log:
+  level: debug
+  format: text
