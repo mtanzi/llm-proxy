@@ -94,7 +94,7 @@ Clean architecture with small rings. `core` at the centre holds entities, pure r
 | Application (use cases) | `recorder`, `keyring` | `core` |
 | Adapters, inbound | `proxy` (data plane), `api` (admin plane), `ui` | `core`, application packages, `family/*` (`proxy` only) |
 | Adapters, outbound | `store/postgres`; upstream is `http.RoundTripper` | `core`, drivers |
-| Configuration | `config` | `core` |
+| Configuration | `config` | `core`, `yaml` |
 | Wiring | `cmd/llm-proxy` | everything |
 
 **Upstream port.** The standard library already has one: `http.RoundTripper`. `proxy` takes a `RoundTripper` per provider; tests pass a fake or an `httptest.Server`. A custom `Upstream` interface would wrap `RoundTripper` in a narrower shape and lose `ReverseProxy`'s streaming, flushing and cancellation behaviour (see [Proxy passthrough and streaming](#proxy-passthrough-and-streaming)). There is no custom upstream port.
