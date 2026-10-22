@@ -4,7 +4,7 @@ Part of the [architecture set](README.md). v1 is an observe-only logging proxy f
 
 ## Shape
 
-One Go module, one static binary, `llm-proxy`, with two subcommands:
+One Go module, one static binary, `llm-proxy`, with three subcommands:
 
 | Subcommand | Purpose |
 |---|---|
