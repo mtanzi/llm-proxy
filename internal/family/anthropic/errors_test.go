@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -15,20 +14,18 @@ const testRequestID = "0198a5c0-1234-7abc-8def-0123456789ab"
 
 func TestErrorBodiesGolden(t *testing.T) {
 	tests := []struct {
-		name       string
-		resp       ErrorResponse
-		status     int
-		errType    string
-		retryAfter string
+		name    string
+		resp    ErrorResponse
+		status  int
+		errType string
 	}{
-		{"invalid_key", MissingOrInvalidKeyError(testRequestID), 401, "authentication_error", ""},
-		{"disabled_key", DisabledKeyError(testRequestID), 401, "authentication_error", ""},
-		{"oversize_body", OversizeBodyError(testRequestID), 413, "request_too_large", ""},
-		{"malformed_request", MalformedRequestError(testRequestID), 400, "invalid_request_error", ""},
-		{"upstream_unreachable", UpstreamUnreachableError(testRequestID), 502, "api_error", ""},
-		{"upstream_timeout", UpstreamTimeoutError(testRequestID), 504, "timeout_error", ""},
-		{"internal", InternalError(testRequestID), 500, "api_error", ""},
-		{"rate_limited", RateLimitedError(testRequestID, 1500*time.Millisecond), 429, "rate_limit_error", "2"},
+		{"invalid_key", MissingOrInvalidKeyError(testRequestID), 401, "authentication_error"},
+		{"disabled_key", DisabledKeyError(testRequestID), 401, "authentication_error"},
+		{"oversize_body", OversizeBodyError(testRequestID), 413, "request_too_large"},
+		{"malformed_request", MalformedRequestError(testRequestID), 400, "invalid_request_error"},
+		{"upstream_unreachable", UpstreamUnreachableError(testRequestID), 502, "api_error"},
+		{"upstream_timeout", UpstreamTimeoutError(testRequestID), 504, "timeout_error"},
+		{"internal", InternalError(testRequestID), 500, "api_error"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -40,9 +37,6 @@ func TestErrorBodiesGolden(t *testing.T) {
 			}
 			if got := tt.resp.Header.Get("X-Request-Id"); got != testRequestID {
 				t.Errorf("x-request-id = %q", got)
-			}
-			if got := tt.resp.Header.Get("Retry-After"); got != tt.retryAfter {
-				t.Errorf("retry-after = %q, want %q", got, tt.retryAfter)
 			}
 
 			// The documented shape: top-level type "error", nested type and message.
@@ -85,20 +79,5 @@ func TestErrorWithoutRequestID(t *testing.T) {
 	}
 	if want := `{"type":"error","error":{"type":"api_error","message":"internal error"}}`; string(r.Body) != want {
 		t.Errorf("body = %s", r.Body)
-	}
-}
-
-func TestRateLimitedRetryAfterSeconds(t *testing.T) {
-	tests := []struct {
-		d    time.Duration
-		want string
-	}{
-		{0, "1"}, {-time.Second, "1"}, {time.Millisecond, "1"},
-		{time.Second, "1"}, {1001 * time.Millisecond, "2"}, {30 * time.Second, "30"},
-	}
-	for _, tt := range tests {
-		if got := RateLimitedError("", tt.d).Header.Get("Retry-After"); got != tt.want {
-			t.Errorf("retry-after for %v = %q, want %q", tt.d, got, tt.want)
-		}
 	}
 }

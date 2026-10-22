@@ -3,8 +3,6 @@ package anthropic
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
-	"time"
 )
 
 // Error types of the Anthropic error body. The proxy sends a fixed type per
@@ -13,7 +11,6 @@ const (
 	ErrTypeAuthentication  = "authentication_error"
 	ErrTypeInvalidRequest  = "invalid_request_error"
 	ErrTypeRequestTooLarge = "request_too_large"
-	ErrTypeRateLimit       = "rate_limit_error"
 	ErrTypeAPI             = "api_error"
 	ErrTypeTimeout         = "timeout_error"
 )
@@ -88,16 +85,4 @@ func UpstreamTimeoutError(requestID string) ErrorResponse {
 // InternalError is the 500 for a failure inside the proxy.
 func InternalError(requestID string) ErrorResponse {
 	return newError(http.StatusInternalServerError, ErrTypeAPI, "internal error", requestID)
-}
-
-// RateLimitedError is the 429 for a limit the proxy enforces itself. The
-// retry-after header carries whole seconds, rounded up, at least 1.
-func RateLimitedError(requestID string, retryAfter time.Duration) ErrorResponse {
-	r := newError(http.StatusTooManyRequests, ErrTypeRateLimit, "rate limit exceeded", requestID)
-	secs := int64((retryAfter + time.Second - 1) / time.Second)
-	if secs < 1 {
-		secs = 1
-	}
-	r.Header.Set("Retry-After", strconv.FormatInt(secs, 10))
-	return r
 }

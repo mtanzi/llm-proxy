@@ -199,7 +199,7 @@ After building the record, the proxy computes cost from the pricing snapshot, dr
 
 | `error_class` | Set when | Proxy-generated response | Anthropic `type` |
 |---|---|---|---|
-| `rate_limited` | Upstream 429, or a limit the proxy enforces | 429 with integer-second `retry-after` | `rate_limit_error` |
+| `rate_limited` | Upstream 429 | none (v1 enforces no rate limit) | none |
 | `upstream_5xx` | Upstream 5xx (including 529), or upstream unreachable | 502 | `api_error` |
 | `timeout` | Upstream 408 or 504, dial or header timeout, idle-between-chunks watchdog | 504 | `timeout_error` |
 | `auth` | Upstream 401 or 403, or a missing, invalid or disabled virtual key | 401 | `authentication_error` |
