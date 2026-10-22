@@ -20,7 +20,7 @@ func (c *Config) validate() []error {
 	}
 	if err := validAddr(c.Listen.Admin); err != nil {
 		add("listen.admin: %v", err)
-	} else if !isLoopback(c.Listen.Admin) {
+	} else if !IsLoopback(c.Listen.Admin) {
 		add("listen.admin: %q is not a loopback address; the admin plane must listen on 127.0.0.1, ::1 or localhost", c.Listen.Admin)
 	}
 	if (c.Listen.TLS.CertFile == "") != (c.Listen.TLS.KeyFile == "") {
@@ -180,9 +180,9 @@ func validAddr(addr string) error {
 	return nil
 }
 
-// isLoopback reports whether addr names only the loopback interface. An empty
+// IsLoopback reports whether addr names only the loopback interface. An empty
 // host listens on every interface and so is not loopback.
-func isLoopback(addr string) bool {
+func IsLoopback(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return false
