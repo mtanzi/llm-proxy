@@ -1,6 +1,6 @@
 # ADR 0007: Error classes and protocol-correct error bodies
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

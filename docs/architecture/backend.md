@@ -193,6 +193,22 @@ A call record holds:
 
 After building the record, the proxy computes cost from the pricing snapshot, drops the request bytes, and sends `Finished(record)` to the recorder.
 
+### Error classes and error bodies
+
+`error_class` is a closed vocabulary ([ADR 0007](../adrs/0007-anthropic-error-classes-and-error-bodies.md)). `core.ClassifyOutcome(status, kind)` maps one outcome to exactly one class. A failure the proxy saw itself (client abort, idle timeout, unreachable upstream, rejected key, internal error) decides alone; otherwise the HTTP status decides. A status below 400 has no class.
+
+| `error_class` | Set when | Proxy-generated response | Anthropic `type` |
+|---|---|---|---|
+| `rate_limited` | Upstream 429 | none (v1 enforces no rate limit) | none |
+| `upstream_5xx` | Upstream 5xx (including 529), or upstream unreachable | 502 | `api_error` |
+| `timeout` | Upstream 408 or 504, dial or header timeout, idle-between-chunks watchdog | 504 | `timeout_error` |
+| `auth` | Upstream 401 or 403, or a missing, invalid or disabled virtual key | 401 | `authentication_error` |
+| `client_abort` | The client went away before the call finished | none (nobody is listening) | none |
+| `invalid_request` | Any other upstream 4xx, or a request the proxy rejects | 400 malformed, 413 oversize body | `invalid_request_error`, `request_too_large` |
+| `internal` | A failure inside the proxy | 500 | `api_error` |
+
+The `type` column applies to bodies the proxy builds in `family/anthropic` (pure functions returning status, headers and body). Upstream error bodies are never rebuilt: they reach the client unchanged with `x-request-id` added, and the provider's own `type` (for example `overloaded_error`) is stored as `error_type`. The body shape is `{"type":"error","error":{"type":"<type>","message":"<text>"},"request_id":"<call id>"}`.
+
 ### Recorder (`recorder` package)
 
 The one "finished call" use case. It receives `Started` and `Finished` events from the proxy and does three things, none of them blocking:
