@@ -58,7 +58,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0005](0005-config-snapshot-and-sighup-reload.md) | Config snapshot and `SIGHUP` reload | Completed | 0004 |
 | [0006](0006-http-listeners-timeouts-and-request-lifecycle.md) | HTTP listeners, timeouts and request lifecycle | Completed | 0004, 0003 |
 | [0007](0007-anthropic-error-classes-and-error-bodies.md) | Error classes and protocol-correct error bodies | Completed | 0003 |
-| [0008](0008-virtual-key-auth-and-keyring.md) | Virtual-key auth and the keyring | Accepted | 0003, 0005, 0007 |
+| [0008](0008-virtual-key-auth-and-keyring.md) | Virtual-key auth and the keyring | Completed | 0003, 0005, 0007 |
 | [0009](0009-cli-keygen-and-version.md) | CLI subcommands: `keygen` and `version` | Accepted | 0001, 0004, 0008 |
 | [0010](0010-correlation-headers-and-session-derivation.md) | Correlation headers and session derivation | Accepted | 0003, 0006 |
 | [0011](0011-proxy-passthrough-and-streaming.md) | Proxy passthrough and streaming | Accepted | 0005, 0006, 0007, 0008, 0010 |

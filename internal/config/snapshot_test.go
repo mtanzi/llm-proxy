@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/mtanzi/llm-proxy/internal/core"
 )
 
 // memFS is a file system whose files change between reloads, safe for
@@ -316,5 +319,77 @@ func TestReloadOnSIGHUP(t *testing.T) {
 	<-done
 	if h.Reloads(ResultSuccess) == 0 {
 		t.Error("SIGHUP did not trigger a reload")
+	}
+}
+
+type mapKeys map[string]core.Key
+
+func (m mapKeys) Lookup(h string) (core.Key, bool) { k, ok := m[h]; return k, ok }
+
+func buildMapKeys(keys []core.Key) (KeyIndex, error) {
+	m := mapKeys{}
+	for _, k := range keys {
+		m[k.SHA256] = k
+	}
+	return m, nil
+}
+
+func newKeyedHolder(t *testing.T, build func([]core.Key) (KeyIndex, error)) (*Holder, *memFS) {
+	t.Helper()
+	m := &memFS{files: map[string]string{cfgPath: base}}
+	o := m.opts()
+	o.BuildKeys = build
+	h := NewHolder(cfgPath, o, nil)
+	if err := h.Load(); err != nil {
+		t.Fatal(err)
+	}
+	return h, m
+}
+
+func TestKeyIndexTravelsWithSnapshot(t *testing.T) {
+	h, m := newKeyedHolder(t, buildMapKeys)
+	old := h.Current()
+	if k, ok := old.Keys().Lookup(hashB); !ok || k.Disabled {
+		t.Fatalf("lookup before reload: %+v %v", k, ok)
+	}
+
+	m.set(cfgPath, strings.Replace(base, "sha256: "+hashB, "sha256: "+hashB+", disabled: true", 1))
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if k, ok := h.Current().Keys().Lookup(hashB); !ok || !k.Disabled {
+		t.Errorf("new snapshot index lacks the edit: %+v %v", k, ok)
+	}
+	if k, _ := old.Keys().Lookup(hashB); k.Disabled {
+		t.Error("old snapshot index changed after the swap")
+	}
+}
+
+func TestNoBuilderMeansNoKeyIndex(t *testing.T) {
+	h, _, _ := newHolder(t, base)
+	if h.Current().Keys() != nil {
+		t.Error("key index without BuildKeys")
+	}
+}
+
+func TestKeyBuildFailureRejectsReload(t *testing.T) {
+	fail := false
+	h, m := newKeyedHolder(t, func(k []core.Key) (KeyIndex, error) {
+		if fail {
+			return nil, errors.New("boom")
+		}
+		return buildMapKeys(k)
+	})
+	old := h.Current()
+	fail = true
+	m.set(cfgPath, base+"\n")
+	if err := h.Reload(); err == nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("Reload = %v", err)
+	}
+	if h.Current() != old {
+		t.Error("snapshot swapped despite key build failure")
+	}
+	if h.Reloads(ResultFailure) != 1 {
+		t.Errorf("failures = %d", h.Reloads(ResultFailure))
 	}
 }

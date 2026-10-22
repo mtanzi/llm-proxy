@@ -13,6 +13,11 @@
 // addresses, TLS files, database URL, queue capacity) keep their running
 // values, and a reload that changes them logs a warning.
 //
+// Keys. Options.BuildKeys builds the key index (keyring.New, passed in by the
+// composition root because config imports only core) from the validated keys.
+// The index belongs to the Snapshot, so the swap replaces config and index
+// together; a build error rejects the reload like a validation error.
+//
 // Environment overrides. Every scalar key can be overridden by LLM_PROXY_ plus
 // the upper-cased key path joined by underscores, for example
 // LLM_PROXY_SERVER_DRAIN_TIMEOUT or LLM_PROXY_LISTEN_TLS_CERT_FILE. A secret
