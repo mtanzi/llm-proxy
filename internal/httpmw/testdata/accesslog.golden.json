@@ -1,0 +1,21 @@
+{
+  "bytes": 2,
+  "call_id": "masked:call_id",
+  "client_request_id": "client-1",
+  "duration_ms": "masked:duration_ms",
+  "headers": {
+    "Authorization": "[redacted]",
+    "Cookie": "[redacted]",
+    "User-Agent": "test-agent",
+    "X-Api-Key": "[redacted]",
+    "X-Llm-Proxy-Key": "[redacted]",
+    "X-Request-Id": "client-1"
+  },
+  "level": "INFO",
+  "method": "POST",
+  "msg": "request",
+  "path": "/v1/messages",
+  "remote": "192.0.2.1:5555",
+  "status": 200,
+  "time": "masked:time"
+}

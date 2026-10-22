@@ -559,6 +559,8 @@ llm-proxy/
 │   ├── proxy/              data-plane handler: request id, auth, correlation,
 │   │                       body read, ReverseProxy, tap, idle watchdog,
 │   │                       graceful drain. One package, one file per concern.
+│   ├── httpmw/            request-lifecycle steps both listeners share: recover, request id,
+│   │                       access log with header redaction, request-size limit
 │   ├── keyring/            immutable key map (SHA-256 to key) built from a config snapshot; lookup
 │   ├── recorder/           Started and Finished events: live fan-out, bounded queue,
 │   │                       batch writer, retry, drop counting, shutdown flush
@@ -579,13 +581,14 @@ llm-proxy/
 └── docs/
 ```
 
-That is 10 packages under `internal/` (`ui` is the embed) plus `cmd/llm-proxy`, against 27 in the first draft, and one more package (`family/openai`) in v2. Merges: `server`, `auth`, `correlate`, `route`, `proxy` and `tap` became `proxy`; `extract/*` became `family/anthropic`; `writer` and `live` became `recorder`; `adminapi` and `query` became `api`; `configcache` became `keyring`; `domain` and the `store` ports became `core`; `metrics` collectors moved into the packages that update them. `budget`, `alerts` and `otelexport` are deferred.
+That is 11 packages under `internal/` (`ui` is the embed) plus `cmd/llm-proxy`, against 27 in the first draft, and one more package (`family/openai`) in v2. Merges: `server`, `auth`, `correlate`, `route`, `proxy` and `tap` became `proxy`; `extract/*` became `family/anthropic`; `writer` and `live` became `recorder`; `adminapi` and `query` became `api`; `configcache` became `keyring`; `domain` and the `store` ports became `core`; `metrics` collectors moved into the packages that update them. `budget`, `alerts` and `otelexport` are deferred.
 
 Dependency rules:
 
 - `core` imports only the standard library.
 - `family/*` imports `core` and `gjson`. No `net/http` server types, no I/O.
 - `proxy` imports `core`, `family/*` and `config` types, and defines small interfaces for what it needs (`KeyLookup`, `Recorder`). It imports no `store` package.
+- `httpmw` imports `core` and `family/anthropic` (for the protocol error bodies), and no `store` package. `proxy` and `api` build their muxes; `cmd/llm-proxy` wraps them with `httpmw`.
 - `recorder`, `keyring` and `api` import `core` (and `api` imports `recorder` for subscribing). None imports `store/postgres` or a database driver.
 - `store/postgres` imports `core` and its drivers, and nothing else from the module.
 - **Only `cmd/llm-proxy` (the wiring) imports `store/postgres`.** It builds the adapter from config, passes it to each consumer as the port it needs, applies migrations and starts the retention job. Tests wire fakes the same way.

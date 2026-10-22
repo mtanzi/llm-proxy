@@ -1,6 +1,6 @@
 # ADR 0006: HTTP listeners, timeouts and request lifecycle
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
