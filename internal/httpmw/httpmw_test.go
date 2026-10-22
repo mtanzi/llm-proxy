@@ -217,7 +217,7 @@ func TestRecoverAbortsAStartedResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err == nil {
 		t.Errorf("read completed cleanly, want an aborted response; body %q", body)
