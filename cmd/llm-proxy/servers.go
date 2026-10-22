@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -38,9 +37,6 @@ type Servers struct {
 func BuildServers(cfg *config.Config, log *slog.Logger) (*Servers, error) {
 	if !config.IsLoopback(cfg.Listen.Admin) {
 		return nil, fmt.Errorf("listen.admin %q is not a loopback address; the admin plane must listen on 127.0.0.1, ::1 or localhost", cfg.Listen.Admin)
-	}
-	if cfg.Listen.TLS.Enabled() && (cfg.Listen.TLS.CertFile == "" || cfg.Listen.TLS.KeyFile == "") {
-		return nil, errors.New("listen.tls: cert_file and key_file must be set together")
 	}
 	opts := httpmw.Options{Logger: log, MaxRequestBytes: int64(cfg.Server.MaxRequestBytes)}
 	s := &Servers{

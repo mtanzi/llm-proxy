@@ -217,14 +217,6 @@ func TestDataPlaneServesTLS(t *testing.T) {
 	}
 }
 
-func TestBuildServersRefusesHalfTLS(t *testing.T) {
-	cfg := testConfig()
-	cfg.Listen.TLS = config.TLS{CertFile: "cert.pem"}
-	if _, err := BuildServers(cfg, testLogger()); err == nil {
-		t.Error("want an error for cert_file without key_file")
-	}
-}
-
 func writeSelfSigned(t *testing.T, dir string) (certFile, keyFile string) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

@@ -200,3 +200,32 @@ func TestInnerStepsRunInOrder(t *testing.T) {
 		t.Errorf("order = %s", got)
 	}
 }
+
+func TestRecoverAbortsAStartedResponse(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	h := Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: chunk\n\n"))
+		w.(http.Flusher).Flush()
+		panic("boom")
+	}), Options{Logger: log})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err == nil {
+		t.Errorf("read completed cleanly, want an aborted response; body %q", body)
+	}
+	if strings.Contains(string(body), "api_error") {
+		t.Errorf("error body written into a started response: %q", body)
+	}
+	if !strings.Contains(buf.String(), `"status":200`) {
+		t.Errorf("access log does not record the sent status 200:\n%s", buf.String())
+	}
+}

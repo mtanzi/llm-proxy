@@ -39,8 +39,8 @@ func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 // AccessLog writes one slog line per request when the response ends: the call
 // id, the client's request id, method, path, status, size and duration. It
 // never logs a body or the query string. Request headers are added at debug
-// level, after RedactHeaders. A panic is logged as status 500 and passed on to
-// Recover.
+// level, after RedactHeaders. A panic before the response started is logged as
+// status 500 and passed on to Recover.
 func AccessLog(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -48,10 +48,11 @@ func AccessLog(log *slog.Logger, next http.Handler) http.Handler {
 		defer func() {
 			p := recover()
 			status := sw.status
-			if p != nil {
-				status = http.StatusInternalServerError
-			} else if status == 0 {
+			if status == 0 {
 				status = http.StatusOK
+				if p != nil {
+					status = http.StatusInternalServerError
+				}
 			}
 			attrs := []any{
 				"call_id", CallID(r.Context()).String(),
