@@ -114,7 +114,7 @@ Clean architecture with small rings. `core` at the centre holds entities, pure r
 
 ### Proxy handler (`proxy` package)
 
-The hot path is one flow, so it is one package with one file per concern: request id, auth, correlation, body read, `ReverseProxy` setup, tap, idle watchdog, drain. It defines small interfaces for what it needs (`KeyLookup`, `Recorder`) and imports no `store` package.
+The hot path is one flow, so it is one package with one file per concern: auth, correlation, body read, `ReverseProxy` setup, tap, idle watchdog, drain. It defines small interfaces for what it needs (`KeyLookup`, `Recorder`) and imports no `store` package.
 
 #### Auth (virtual keys)
 
@@ -556,10 +556,10 @@ llm-proxy/
 │   ├── family/
 │   │   └── anthropic/      request facts (tool_results), SSE scanner, usage,
 │   │                       protocol-correct error bodies. Pure, golden-tested.
-│   ├── proxy/              data-plane handler: request id, auth, correlation,
+│   ├── proxy/              data-plane handler: auth, correlation,
 │   │                       body read, ReverseProxy, tap, idle watchdog,
 │   │                       graceful drain. One package, one file per concern.
-│   ├── httpmw/            request-lifecycle steps both listeners share: recover, request id,
+│   ├── httpmw/             request-lifecycle steps both listeners share: recover, request id,
 │   │                       access log with header redaction, request-size limit
 │   ├── keyring/            immutable key map (SHA-256 to key) built from a config snapshot; lookup
 │   ├── recorder/           Started and Finished events: live fan-out, bounded queue,
