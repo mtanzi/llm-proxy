@@ -3,12 +3,15 @@ package config
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"sync"
 	"sync/atomic"
 	"syscall"
+
+	"github.com/mtanzi/llm-proxy/internal/core"
 )
 
 // Reload results, the values of the result label of
@@ -23,8 +26,20 @@ const (
 // snapshot once at its start and keeps it for its whole life, so a reload never
 // changes a request in flight. Nothing may modify the Config a snapshot returns.
 type Snapshot struct {
-	cfg *Config
+	cfg  *Config
+	keys KeyIndex
 }
+
+// KeyIndex finds a virtual key by the lowercase hex SHA-256 of its plaintext.
+// keyring.Keyring implements it.
+type KeyIndex interface {
+	Lookup(sha256 string) (core.Key, bool)
+}
+
+// Keys returns the key index built from this snapshot's keys, or nil when the
+// holder has no Options.BuildKeys. It is immutable and shares the snapshot's
+// life, so a reload never changes the index a request already holds.
+func (s *Snapshot) Keys() KeyIndex { return s.keys }
 
 // Config returns the validated configuration. Treat it as read-only.
 func (s *Snapshot) Config() *Config { return s.cfg }
@@ -60,12 +75,28 @@ func (h *Holder) Load() error {
 	if h.cur.Load() != nil {
 		return errors.New("config already loaded; use Reload")
 	}
-	cfg, err := Load(h.path, h.opts)
+	snap, err := h.build()
 	if err != nil {
 		return err
 	}
-	h.cur.Store(&Snapshot{cfg: cfg})
+	h.cur.Store(snap)
 	return nil
+}
+
+// build loads the config and builds the key index, so a snapshot is whole or
+// not made.
+func (h *Holder) build() (*Snapshot, error) {
+	cfg, err := Load(h.path, h.opts)
+	if err != nil {
+		return nil, err
+	}
+	snap := &Snapshot{cfg: cfg}
+	if h.opts.BuildKeys != nil {
+		if snap.keys, err = h.opts.BuildKeys(cfg.Keys); err != nil {
+			return nil, fmt.Errorf("build keys: %w", err)
+		}
+	}
+	return snap, nil
 }
 
 // Current returns the current snapshot, or nil before a successful Load.
@@ -83,18 +114,19 @@ func (h *Holder) Reload() error {
 	if prev == nil {
 		return errors.New("config not loaded; call Load first")
 	}
-	cfg, err := Load(h.path, h.opts)
+	snap, err := h.build()
 	if err != nil {
 		h.failed.Add(1)
 		h.log.Error("config reload rejected; keeping the previous config",
 			"path", h.path, "error", err)
 		return err
 	}
+	cfg := snap.cfg
 	if changed := keepRestartOnly(cfg, prev.cfg); len(changed) > 0 {
 		h.log.Warn("config reload changes settings that need a restart; the running values stay",
 			"settings", changed)
 	}
-	h.cur.Store(&Snapshot{cfg: cfg})
+	h.cur.Store(snap)
 	h.succeeded.Add(1)
 	h.log.Info("config reloaded", "path", h.path,
 		"providers", len(cfg.Providers), "keys", len(cfg.Keys), "pricing", len(cfg.Pricing))

@@ -1,6 +1,6 @@
 # ADR 0008: Virtual-key auth and the keyring
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

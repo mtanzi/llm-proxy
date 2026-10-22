@@ -154,6 +154,12 @@ type Log struct {
 type Options struct {
 	LookupEnv func(string) (string, bool)
 	ReadFile  func(string) ([]byte, error)
+
+	// BuildKeys builds the key index that travels with each Snapshot from the
+	// validated keys. The composition root passes keyring.New; config cannot
+	// import keyring. When nil, a Snapshot has no key index. A build error
+	// rejects the config like a validation error.
+	BuildKeys func([]core.Key) (KeyIndex, error)
 }
 
 func (o Options) withDefaults() Options {
