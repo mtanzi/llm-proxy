@@ -1,6 +1,6 @@
 # ADR 0045: Opt-in per-key body capture (D13)
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-10-21
 
@@ -10,21 +10,19 @@ Decision D1 removed body storage. Some operators may want bodies for chosen keys
 
 ## Decision
 
-Open (D13). The documents use the recommended option.
+Accepted (D13), with the strict default: no capture switch exists, off or on.
 
-- **Recommended (strict default):** no capture switch exists, off or on.
-- **Alternative:** a per-key switch, off by default, that writes bodies for chosen keys. It needs a separate store, its own retention, encryption, access control on the admin plane (which has no sign-in in v1), and UI views for conversations. It would be a new design, not an option flag.
+Rejected option: a per-key switch, off by default, that writes bodies for chosen keys. It needs a separate store, its own retention, encryption, access control on the admin plane (which has no sign-in in v1), and UI views for conversations. It would be a new design, not an option flag.
 
 ## Consequences
 
-- Strict: the product stays metadata-only and the admin plane stays safe on loopback.
-- Capture: admin sign-in becomes a prerequisite and the privacy model changes.
+- The product stays metadata-only and the admin plane stays safe on loopback.
+- Body capture would need admin sign-in first and would change the privacy model, so it is a new design if it is ever wanted.
 
 ## Work required
 
-- Decide and update this ADR with the outcome.
-- If capture is wanted: write a separate ADR set for the body store, retention, encryption and admin sign-in before any code.
-- If strict is confirmed: mark Accepted and remove the pending note from the architecture documents.
+- Add no capture switch, config key or body table.
+- If capture is ever wanted: write a separate ADR set for the body store, retention, encryption and admin sign-in before any code.
 
 ## Depends on
 
@@ -32,5 +30,5 @@ Open (D13). The documents use the recommended option.
 
 ## References
 
-- architecture/README.md, "Open decisions" (D13), "Resolved decisions" (D1, D2).
+- architecture/README.md, "Resolved decisions" (D1, D2, D13).
 - architecture/deployment.md, "Storage, retention and sizing".

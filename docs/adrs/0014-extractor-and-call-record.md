@@ -12,9 +12,9 @@ Date: 2026-10-21
 
 A call record holds:
 
-- **Who:** key name, client, session key, agent, parent agent, agent type, prompt id (from headers, ADR 0010).
-- **What ran:** provider, model as the client sent it, `upstream_request_id`, one attempt per call.
-- **Usage:** disjoint columns `input_uncached`, `cache_read`, `cache_write_5m`, `cache_write_1h`, `output` (including reasoning), `reasoning` (informational), plus `usage_raw` as the provider's usage JSON.
+- **Who:** key name, client, session key (null without the session header), agent, parent agent, agent type, prompt id, and the `compaction` and `context_compacted` flags (from headers, ADR 0010).
+- **What ran:** provider, model as the client sent it, `upstream_request_id`, one attempt per call, and `auth_mode`, the credential mode used for the request (`proxy_key` or `client_passthrough`).
+- **Usage:** disjoint columns `input_uncached`, `cache_read`, `cache_write_5m`, `cache_write_1h`, `output` (including reasoning), `reasoning` (informational), plus `usage_raw` as the provider's usage JSON. Cost carries `pricing_version`, the `from` date of the matched pricing entry (ADR 0015).
 - **Timings:** TTFB, TTFT, duration, end timestamp.
 - **Outcome:** status, `error_class`, provider `error_type`, stop reason, `streamed`, `usage_estimated`, `extraction_partial`. No provider message text.
 - **Tool halves:** for each `tool_use` in the response: call id, tool name, argument size in bytes. For each `tool_result` in the request: the id it answers, `is_error`, result size in bytes. Text is read to measure it and not kept.
@@ -25,12 +25,12 @@ After the record is built, the proxy computes cost (ADR 0015), drops the request
 ## Consequences
 
 - A client abort is logged with the facts extracted so far, `error_class = client_abort` and `usage_estimated = true`.
-- Prompt caching diagnosis (segment hashing) is not in v1; the extractor does not hash segments except the two hashes for session derivation.
-- Relaxing the strict reading is Proposed ADRs 0043 to 0045.
+- Prompt caching diagnosis (segment hashing) is not in v1; the extractor hashes nothing, because v1 has no session derivation.
+- The strict reading is confirmed by Accepted ADRs 0043 to 0045: no tool snippets, no error message text, no body capture.
 
 ## Work required
 
-- Implement request fact extraction with `gjson`: `model`, stream flag, `tool_result` blocks (ids, `is_error`, sizes), and the hashes of tools plus system prompt and of the first user message for session derivation.
+- Implement request fact extraction with `gjson`: `model`, stream flag, `tool_result` blocks (ids, `is_error`, sizes).
 - Implement usage normalisation into the disjoint columns, including 5-minute and 1-hour cache writes, and keep `usage_raw`.
 - Implement response-side assembly from the tap facts (ADR 0013), error mapping (ADR 0007), `stop_reason`, `streamed`, and `usage_estimated` for aborts.
 - Assemble the `core.CallRecord` and assign tool-half indices (`idx`) and timestamps (`use`: response end; `result`: request start).
@@ -45,4 +45,5 @@ After the record is built, the proxy computes cost (ADR 0015), drops the request
 ## References
 
 - architecture/backend.md, "Extractor", "Data model" (Notes on usage columns).
-- llm-proxy-design.md, sections 3.4, 4.3.
+- architecture/backend.md, "Data model".
+- ADR 0048, which amends Completed ADR 0003 for the record changes.

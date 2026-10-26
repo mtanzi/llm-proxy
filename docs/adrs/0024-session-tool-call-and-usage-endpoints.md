@@ -18,7 +18,7 @@ Views V2, V4 and V5 need session lists and detail, tool-call lists and summaries
 
 ## Consequences
 
-- The session key may contain `:` (for example derived keys); path encoding must be tested.
+- The session key is the header value as sent and may contain characters such as `:` or `/`; path encoding must be tested. Calls without a session header have no session and are not listed.
 - Long usage ranges can take seconds (accepted in v1).
 
 ## Work required

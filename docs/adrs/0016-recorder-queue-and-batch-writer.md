@@ -6,7 +6,7 @@ Date: 2026-10-21
 
 ## Context
 
-Logging must never add latency to a request or fail one. The recorder is the single use case for a finished call: it receives `Started` and `Finished` events and does three things, none of them blocking. It is the only caller of `CallWriter`. There is no durable buffer (decision D2).
+Logging must never add latency to a request or fail one. The recorder is the single use case for a finished call: it receives `Finished` events and does three things, none of them blocking. It is the only caller of `CallWriter`. There is no durable buffer (decision D2).
 
 ## Decision
 
@@ -21,12 +21,12 @@ The fan-out happens at `Finished`, before the commit, as an in-process event. Th
 ## Consequences
 
 - The call id is a UUIDv7 assigned at request start, so a retried batch inserts nothing twice (the adapter is idempotent).
-- In-flight calls appear only in the live tail; the persisted log shows finished calls.
-- Multi-replica live tail (a `LiveFeed` port) is a later item (D8).
+- The live tail shows finished calls only. There is no `Started` event and no in-flight row.
+- Multi-replica live tail (a `LiveFeed` port) is a later item ([backend.md, Later versions](../architecture/backend.md#storage-and-scale)).
 
 ## Work required
 
-- Implement `recorder.New(CallWriter, opts)` with `Started(...)` and `Finished(...)` methods that never block.
+- Implement `recorder.New(CallWriter, opts)` with a `Finished(...)` method that never blocks.
 - Implement `Subscribe(filter)` returning an event channel and an unsubscribe function, with per-subscriber bounded buffers and drop counting.
 - Implement the bounded queue and batch writer with the 500/500 ms constants, retry with capped exponential backoff and jitter, and a `Close(ctx)` that stops intake and flushes the remainder within a deadline (default 30 s), counting records still queued afterwards as dropped and logging their number.
 - Declare the metrics in this package: `llm_proxy_call_queue_depth`, `llm_proxy_calls_dropped_total{reason}`, `llm_proxy_writer_errors_total`, `llm_proxy_live_events_dropped_total`.

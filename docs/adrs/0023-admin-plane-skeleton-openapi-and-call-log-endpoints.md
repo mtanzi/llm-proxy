@@ -12,10 +12,10 @@ The `api` package serves the admin plane on the loopback listener. Handlers read
 
 - JSON over HTTP under `/admin/`, described by `api/openapi.yaml` (OpenAPI 3.1) and served at `/admin/openapi.json`.
 - `api` owns the wire format, including the opaque cursor (base64 of `ts` and `id`). The port takes typed `core.Cursor` values.
-- List conventions: filters are query parameters, repeated for multiple values (`model=a&model=b`, `status=429`, `latency_ms_gte=60000`, `tool=Bash&tool_error=true`); keyset pagination, forward only; responses carry `next_cursor`, `count` and `count_capped` (exact up to 10,001 rows, shown as "10,000+"); every list query is time-bounded, default last 24 hours.
+- List conventions: filters are query parameters, repeated for multiple values (`model=a&model=b`, `status=429`, `latency_ms_gte=60000`, `tool=Bash&tool_error=true`, `endpoint=/v1/messages`, `streamed=true`); keyset pagination, forward only; responses carry `next_cursor`, `count` and `count_capped` (exact up to 10,001 rows, shown as "10,000+"); every list query is time-bounded, default last 24 hours.
 - API errors carry a stable `type` the UI maps to inline messages.
 - No endpoint returns prompt, response or tool content.
-- This ADR delivers: `GET /admin/requests`, `GET /admin/requests/{id}`, `GET /admin/config` (providers, pricing, key names with `disabled`, never a hash or a credential), and `GET /admin/openapi.json`.
+- This ADR delivers: `GET /admin/calls`, `GET /admin/calls/{id}`, `GET /admin/config` (providers, pricing, key names with `disabled`, never a hash or a credential), and `GET /admin/openapi.json`.
 - No CORS headers are sent, so other pages cannot read the API from a browser.
 
 ## Consequences
@@ -40,4 +40,4 @@ The `api` package serves the admin plane on the loopback listener. Handlers read
 
 - architecture/backend.md, "Admin and query API".
 - architecture/frontend.md, "State and data fetching", "Admin API access".
-- llm-proxy-design.md, section 6.1.
+- architecture/backend.md, "Ports" (`CallFilter`).

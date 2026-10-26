@@ -15,7 +15,7 @@ The proxy must learn usage, timings, stop reason, error type and tool-use blocks
 - Buffers are bounded: 1 MiB for one SSE event, a fixed bound for a non-streaming body. Past a bound the tap stops reading that part, keeps forwarding, and sets `extraction_partial = true`. Fields it could not read stay null.
 - `Close` is the "exchange finished" hook. `ReverseProxy` closes the upstream body on success, upstream error and client abort.
 - Timings: time to first byte, TTFT (first content event), total duration, end timestamp.
-- The idle-between-chunks watchdog uses the provider's `idle_timeout`.
+- The idle-between-chunks watchdog uses the provider's `idle_timeout`. Before the response headers it cancels the upstream request and the proxy sends its own 504. After the headers the status line has already gone, so the stream ends and the record gets `error_class = timeout`; the proxy sends no 504.
 - No body is written to disk or to the store.
 
 ## Consequences
@@ -28,8 +28,8 @@ The proxy must learn usage, timings, stop reason, error type and tool-use blocks
 
 - Implement the SSE event splitter and the Anthropic event interpreter in `family/anthropic` as pure code over byte chunks (no `net/http` server types).
 - Implement the tap `io.ReadCloser` in `proxy`: chunk pass-through, scanner calls, bounds, `Close` hook that hands the collected facts to the extractor.
-- Implement the idle watchdog: on silence past `idle_timeout`, cancel the upstream request and mark the outcome `timeout`.
-- Tests: golden SSE fixtures (normal, thinking pauses with `ping`, tool use, error event mid-stream, truncated stream), events split across chunk boundaries at every byte offset, oversize event sets `extraction_partial`, client abort still fires `Close`.
+- Implement the idle watchdog: on silence past `idle_timeout`, cancel the upstream request and mark the outcome `timeout`. Generate the 504 only before response headers; after headers, end the stream.
+- Tests: golden SSE fixtures (normal, thinking pauses with `ping`, tool use, error event mid-stream, truncated stream), events split across chunk boundaries at every byte offset, oversize event sets `extraction_partial`, client abort still fires `Close`, an idle timeout before headers gives a 504, an idle timeout after headers ends the stream with `error_class = timeout`.
 - Fuzz the event splitter with random chunking.
 
 ## Depends on

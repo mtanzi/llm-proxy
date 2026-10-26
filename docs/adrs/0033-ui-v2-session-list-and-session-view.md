@@ -13,14 +13,14 @@ Sessions are the natural unit for agent work. The hierarchy is session, prompt (
 - **Session list** at `/ui/sessions`: one row per session with start, duration, client, key, prompts, calls, tool calls, cost, cache hit and errors.
 - **Session view** at `/ui/sessions/:key`: **Tree mode** nests prompt, agent, call and tool call; a sub-agent nests under its parent agent from the parent-agent header. **Time mode** is a waterfall sorted by start time with one lane per agent.
 - **Idle-gap compression** in both modes: gaps wider than 5% of the session collapse to a fixed marker.
-- Each tree row shows duration, tokens, cost and an error badge. Compaction points are drawn as markers where the cache prefix resets. Collapsed by default past the latest prompts; virtualised beyond a few hundred rows.
+- Each tree row shows duration, tokens, cost and an error badge. Compaction points (the `context_compacted` flag) are drawn as markers where the cache prefix resets. Collapsed by default past the latest prompts; virtualised beyond a few hundred rows.
 - The tree follows agent-prism's model (a flattened, virtualised list with waterfall bars on a shared compressed axis). Use its components if they fit, or reimplement the pattern.
 - Nesting under the exact `Task` call is a later item.
 
 ## Consequences
 
 - The agent tree is computed from the session's call rows when the page loads.
-- Sessions with derived keys from header-less clients can merge.
+- A call without a session header has no session, so it appears in no session row or tree.
 
 ## Work required
 

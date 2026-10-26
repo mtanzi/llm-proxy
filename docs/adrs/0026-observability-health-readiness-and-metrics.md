@@ -21,6 +21,7 @@ The proxy's own health is visible through `/healthz`, `/readyz` and `/metrics` (
   - `llm_proxy_call_queue_depth`, `llm_proxy_calls_dropped_total{reason}`
   - `llm_proxy_writer_errors_total`, `llm_proxy_live_events_dropped_total`
   - `llm_proxy_config_reloads_total{result}`
+  - `llm_proxy_retention_deleted_total`, `llm_proxy_retention_last_run_timestamp_seconds`
 - Logs: `log/slog` JSON to stdout, one line per request with the call id. `traceparent` is propagated.
 
 ## Consequences

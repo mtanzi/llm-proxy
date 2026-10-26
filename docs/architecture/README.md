@@ -1,7 +1,7 @@
 # llm-proxy architecture
 
 Status: draft, 2026-10-20.
-Companion to [`../llm-proxy-design.md`](../llm-proxy-design.md), which states the requirements (R1 to R8) and the first data model. These documents describe how the system is built and run. Where they differ from the design doc, these documents are newer, and the difference is named.
+Companion to [`../llm-proxy-design.md`](../llm-proxy-design.md), which states the requirements (R1 to R8) and the firstmate integration. These documents describe how the system is built and run. For a conflict between sources, see [Source precedence](#source-precedence).
 
 The goal: a self-hosted Go proxy that logs every LLM call and every tool call as metadata, so that both can be analysed later. Request and response bodies are never stored.
 
@@ -39,7 +39,7 @@ flowchart LR
 
     cc -->|ANTHROPIC_BASE_URL| dp
     dp <-->|bytes unchanged| up
-    dp -->|Started, Finished| rec
+    dp -->|Finished| rec
     rec -->|bounded queue| ports
     br --> adm
     adm --> ports
@@ -61,7 +61,18 @@ Taken by the captain:
 - **Body search: withdrawn.** The earlier choice, Postgres `tsvector` plus `pg_trgm` over call text with 14-day retention (UI design report, section 10, Q2 option a), no longer applies, because bodies are not stored.
 - **Language:** the proxy is written in Go.
 
-Taken from the reports' recommendations, and still open (see below): a transparent same-protocol reverse proxy with an in-memory tap, and harness-header correlation. Tool-call records are paired at read time.
+Taken from the reports' recommendations: a transparent same-protocol reverse proxy with an in-memory tap, and harness-header correlation. Tool-call records are paired at read time.
+
+## Source precedence
+
+One rule settles every disagreement between sources, in this order:
+
+1. Landed code.
+2. Completed ADRs (Status: Completed).
+3. These architecture documents, for work not yet built.
+4. ADRs not yet built (Accepted or Proposed).
+
+The order ranks sources as descriptions of current behaviour. A lower source that disagrees with a higher one needs a fix. An Accepted ADR that amends landed code (ADR 0047, ADR 0048) records the planned target: its decision wins over the code until its Work required lands, after which code and ADR agree. Stale sketches in these documents follow the code: for example, `core` defines its own `ID` and `MicroUSD` types in place of `uuid.UUID` and `decimal.Decimal`. A change to a Completed ADR is a new ADR that names the Completed one it amends; a Completed ADR is never edited ([ADR README](../adrs/README.md#status-meanings)).
 
 ## Sources
 
@@ -75,11 +86,11 @@ The documents cite them as "gap review", "approaches report" and "UI report", wi
 
 ## Resolved decisions
 
-D1, D2 and D6 were open in earlier drafts. The captain decided that bodies are never stored, and that subscription passthrough is supported as an opt-in. See [backend.md, Shape](backend.md#shape). D14 records the storage boundary, and D15 moves virtual keys from the store into the config file. C1 to C4 are the answers to the simplification review of the backend design; they resolve D3, D4 and D7 and revise D14, D9 and D10.
+D1, D2 and D6 were open in earlier drafts. The captain decided that bodies are never stored, and that subscription passthrough is supported as an opt-in. See [backend.md, Shape](backend.md#shape). D14 records the storage boundary, and D15 moves virtual keys from the store into the config file. C1 to C4 are the answers to the simplification review of the backend design; they resolve D3, D4 and D7 and revise D14, D9 and D10. D5 and D9 to D13 were the last open decisions; the captain accepted their recommended options (rows below). C8 records the coherence review.
 
 | # | Decision | Resolution |
 |---|---|---|
-| D1 | **Body-capture default** (approaches report Q1, UI report Q3, gap G12) | **Resolved: no bodies.** Request and response bodies are never stored, by default or by option. The tap extracts facts in memory and discards the bytes. Per call the store keeps who (key, client, session, agent, sub-agent, prompt), model, provider and route, tokens (including cache read, cache write and reasoning) and cost, timings (TTFT, duration), status, error type and stop reason, and the hash-only cache diagnosis. Tool calls are kept as records: tool name, call id, requesting call, duration, success or error, argument size. No argument text, results or prompts |
+| D1 | **Body-capture default** (approaches report Q1, UI report Q3, gap G12) | **Resolved: no bodies.** Request and response bodies are never stored, by default or by option. The tap extracts facts in memory and discards the bytes. Per call the store keeps who (key, client, session, agent, parent agent, prompt), model and provider, tokens (including cache read, cache write and reasoning) and cost, timings (TTFT, duration), status, error type and stop reason. Tool calls are kept as records: tool name, call id, requesting call, duration, success or error, argument size. No argument text, results or prompts |
 | D2 | **Journal-first storage** (approaches report Q2) | **Resolved: direct database rows.** Call records go through a bounded in-memory queue and a batch writer straight into the store (the `store/postgres` adapter in v1). There is no journal, no projector and no reprojection. A full queue drops the record and counts it; the call is never affected |
 | C1 | **v1 scope** (simplification review, option a) | **Resolved: v1 is an observe-only logging proxy.** Fallback and retries, circuit breakers, budgets, rate limits, key restrictions, alerts and OTel export are deferred, as are partitioning and rollups. Each has a trigger for adding it back in [backend.md, Later versions](backend.md#later-versions) |
 | C2 | **In-memory store adapter** (revises D14, option a) | **Resolved: no `store/memory`.** The storage ports and the contract suite stay. The contract suite and the `CallReader` tests run against a real Postgres, in a container per test run. Unit tests use small fakes of the narrow ports: `CallWriter` as a slice |
@@ -93,7 +104,14 @@ D1, D2 and D6 were open in earlier drafts. The captain decided that bodies are n
 | D7 | **Provider and credential config location** (gap B8) | **Resolved by C3: providers, credential references and pricing in the config file.** Virtual keys were in the store in this resolution; D15 moves them into the config file |
 | D14 | **Storage boundary** (firstmate proposal, then captain's request; revised by C2) | **Resolved: storage behind two ports; Postgres adapter for v1; SQLite adapter deferred.** Ports are defined by use case (`CallWriter`, `CallReader`), not generic CRUD. Virtual keys are not a storage concern since D15. The adapter owns its SQL and migrations; no shared SQL, no ORM. v1 ships `store/postgres` only, with hand-written `pgx` queries and goose migrations applied by `serve` at start. One contract suite runs against it on a real Postgres, and the suite is written so a later adapter can reuse it. Only `cmd` wiring imports `store/postgres`. A `store/sqlite` adapter for single-machine use is possible later and is not v1 scope. See [backend.md](backend.md#storage-ports-and-adapters) |
 | D15 | **Where virtual keys live** (revises D7 and D14, captain's decision) | **Resolved: the config file.** The `keys` section lists each virtual key as a `name`, the `sha256` of the key and an optional `disabled` flag; the plaintext is never stored. Keys are generated outside the database (`openssl`, or `llm-proxy keygen --name <name>`). The key map is built from the config snapshot and swapped atomically on `SIGHUP`. Add, revoke and rotate are config edits plus `SIGHUP`. Call records store the key name. This removes the `KeyStore` port, the `virtual_keys` table, the key create and revoke endpoints, the key-management UI page and the write-through logic. Accepted costs: no self-service key creation in the UI, key names must stay stable for attribution, per-key usage comes from the call log grouped by key name. See [backend.md, Auth](backend.md#auth-virtual-keys) and [deployment.md, Secrets](deployment.md#secrets) |
-| D6 | **Claude subscription passthrough** (captain's decision, taking the recommendation) | **Resolved: supported, opt-in, off by default.** `client_passthrough` is a per-provider `auth_mode`; `proxy_key` stays the default. It is documented as the personal local setup: one person's own Claude login, one login per person, never shared, the proxy bound to `127.0.0.1`, the virtual key sent in `x-llm-proxy-key` and checked against the `keys` section of the config file. `proxy_key` with an API key is the route for heavy or shared use. The must and must-not rules, usage-limit and terms notes stay. See [upstream-connection.md](upstream-connection.md#claude-code-with-a-claude-subscription) and the worked example in [deployment.md](deployment.md#personal-local-setup-subscription-passthrough) |
+| D6 | **Claude subscription passthrough** (captain's decision, taking the recommendation) | **Resolved: supported, opt-in, off by default.** `client_passthrough` is a per-provider `auth_mode`, fixed for the provider (there is no mode that accepts both); `proxy_key` stays the default. It is documented as the personal local setup: one person's own Claude login, one login per person, never shared, the proxy bound to `127.0.0.1`, the virtual key sent in `x-llm-proxy-key` and checked against the `keys` section of the config file. `proxy_key` with an API key is the route for heavy or shared use. The must and must-not rules, usage-limit and terms notes stay. See [upstream-connection.md](upstream-connection.md#claude-code-with-a-claude-subscription) and the worked example in [deployment.md](deployment.md#personal-local-setup-subscription-passthrough) |
+| D5 | **Claude Code hint headers for firstmate crewmates** (approaches report Q5; [ADR 0042](../adrs/0042-claude-code-hint-headers-for-crewmates.md)) | **Resolved: on for crewmates.** Crewmates set `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`, so the proxy receives request class, agent type, prompt id, compaction flags and tool run times. The proxy parses the hint headers whenever they are present. Leaving them off was the rejected alternative: no agent type, no prompt id, no compaction markers, estimated tool durations. See [backend.md, Correlation](backend.md#correlation) |
+| D9 | **Other blocking gaps** (gap review B1, B3 to B8, B10; [ADR 0046](../adrs/0046-adopt-gap-review-defaults.md)) | **Resolved: the gap review's suggestions,** as adjusted by C1 to C4 and listed in [backend.md, "Defaults taken for open gaps"](backend.md#defaults-taken-for-open-gaps): plain unpartitioned tables (B1), Anthropic-only passthrough (B2), model names forwarded as sent (B3), fallback (B4) and budgets (B7) deferred, `include_usage` in v2 (B6), config-file providers (B8). Each gap's own alternatives were rejected |
+| D10 | **Rework and risk gaps** (gap review R1 to R17; [ADR 0046](../adrs/0046-adopt-gap-review-defaults.md)) | **Resolved: the gap review's suggestions** where these docs touch them, as adjusted by C1: key format with a SHA-256 hash in the config file and no pepper (R1), no admin auth with a loopback-only admin listener (R8), alerts deferred (R9), retention by batched `DELETE` (R10), one replica (R14), targets (R15), self-observability through `/metrics` (R16). Each gap's own alternatives were rejected |
+| D11 | **Short tool snippets** (follow-up to D1; [ADR 0043](../adrs/0043-short-tool-snippets.md)) | **Resolved: keep nothing.** No tool argument text, no tool result text, no error snippet. Tool calls carry name, ids, sizes, duration and success or error only. Short snippets, for example the first 200 bytes of tool arguments and of error output, were rejected: they may hold secrets, paths or prompt text |
+| D12 | **Provider error message text** (follow-up to D1; [ADR 0044](../adrs/0044-provider-error-message-text.md)) | **Resolved: error type and HTTP status only.** The message text is dropped. Keeping it was rejected: it helps debugging but may echo prompt content |
+| D13 | **Opt-in per-key body capture** (follow-up to D1; [ADR 0045](../adrs/0045-opt-in-per-key-body-capture.md)) | **Resolved: no capture switch exists,** off or on. A per-key switch was rejected: it would need a body store, retention, encryption and admin sign-in again, which D1 and D2 removed |
+| C8 | **Coherence review** (docs review; [ADR 0047](../adrs/0047-credential-modes-one-fixed-auth-mode-per-provider.md), [0048](../adrs/0048-call-record-and-filter-changes.md), [0049](../adrs/0049-source-precedence-and-corrections-to-completed-adrs.md)) | **Resolved:** one fixed `auth_mode` per provider (no `both`); the call record stores the mode used; no `billing_mode`; a wrong-place credential is rejected with `401`; `context_compacted` on the call record; `Endpoints` and `Streamed` on `CallFilter`; `/admin/calls` replaces `/admin/requests`; no derived session keys (a call without a session header has no session); the live tail shows finished calls only; `pricing_version` is the matched entry's `from` date; per-task key injection (ADR 0041) leaves v1; the source precedence rule above |
 
 The search choice taken earlier (Postgres `tsvector` and `pg_trgm`, option 2a) is **withdrawn**: there is no stored text to search.
 
@@ -105,19 +123,5 @@ Consequences accepted with this change:
 - A process crash loses the call records still in the queue; there is no durable buffer.
 
 Consequences of D14: there is one more layer between consumers and SQL, and the contract suite becomes the definition of correct storage behaviour. In return, `recorder`, `proxy` and `api` are testable without a database, using small fakes of the narrow ports, and a second adapter needs no consumer changes. The read-side tests need Docker or a local Postgres.
-
-## Open decisions
-
-Every section that depends on one of these follows the recommended option and says so with a **Pending decision** note. Changing a decision changes only the sections that link here.
-
-| # | Decision | Recommended (used in these docs) | Alternatives | Affects |
-|---|---|---|---|---|
-| D5 | **Claude Code hint headers for firstmate crewmates** (approaches report Q5) | Set `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`, so the proxy receives request class, agent type, prompt id and tool run times | Leave them off and derive less | [backend](backend.md#correlation), [upstream](upstream-connection.md#claude-code-with-a-proxy-held-api-key) |
-| D8 | **Multi-replica live tail** (UI report 8.4). Not v1: v1 runs one replica | When the multi-replica tier is built, a `LiveFeed` port delivers committed calls (`store/postgres`: `NOTIFY` after each commit) and every replica's admin plane relays it. In-flight calls show only on the replica that serves them | The UI subscribes to every replica's stream | [backend](backend.md#storage-and-scale), [deployment](deployment.md#later-multi-replica-tier) |
-| D9 | **Other blocking gaps** (gap review B1, B3 to B8, B10) | The gap review's suggestions, as adjusted by C1 to C4 and listed in [backend.md, "Defaults taken for open gaps"](backend.md#defaults-taken-for-open-gaps): plain unpartitioned tables (B1), Anthropic-only passthrough (B2), model names forwarded as sent (B3), fallback (B4) and budgets (B7) deferred, `include_usage` in v2 (B6), config-file providers (B8) | Each gap's own alternatives in the gap review | backend, upstream, deployment |
-| D10 | **Rework and risk gaps** (gap review R1 to R17) | The gap review's suggestions where these docs touch them, as adjusted by C1: key format with a SHA-256 hash in the config file and no pepper (R1), no admin auth with a loopback-only admin listener (R8), alerts deferred (R9), retention by batched `DELETE` (R10), one replica (R14), targets (R15), self-observability through `/metrics` (R16) | Each gap's own alternatives | backend, frontend, deployment |
-| D11 | **Short tool snippets** (follow-up to D1) | Keep nothing: no tool argument text, no tool result text, no error snippet. Tool calls carry name, ids, sizes, duration and success or error only (strict default) | Keep a short snippet, for example the first 200 bytes of tool arguments and of error output, so the tool explorer can show what ran | [backend](backend.md#extractor), [frontend](frontend.md#v4-tool-call-explorer) |
-| D12 | **Provider error message text** (follow-up to D1) | Keep error type and HTTP status only; drop the message text (strict default) | Keep the provider's error message, which helps debugging but may echo prompt content | [backend](backend.md#extractor), [frontend](frontend.md#v3-call-detail) |
-| D13 | **Opt-in per-key body capture** (follow-up to D1) | None: no capture switch exists, off or on (strict default) | A per-key switch, off by default, that writes bodies for chosen keys. It would need a store, retention and encryption again, which this change removes | [backend](backend.md#extractor), [deployment](deployment.md#storage-retention-and-sizing) |
 
 Build-or-adopt (gap B9) is treated as settled: the approaches report recommends building on the Go standard library, and these documents assume that.

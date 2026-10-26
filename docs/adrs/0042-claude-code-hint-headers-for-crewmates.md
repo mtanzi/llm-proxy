@@ -1,6 +1,6 @@
 # ADR 0042: Claude Code hint headers for firstmate crewmates (D5)
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-10-21
 
@@ -10,23 +10,21 @@ Behind a custom base URL, Claude Code sends the session and agent ids always, bu
 
 ## Decision
 
-Open (D5). The documents use the recommended option.
+Accepted (D5), with the recommended option: set `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1` for firstmate crewmates, so the proxy receives request class, agent type, prompt id, compaction flags and tool run times.
 
-- **Recommended:** set `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1` for firstmate crewmates, so the proxy receives request class, agent type, prompt id and tool run times.
-- **Alternative:** leave the hint headers off and derive less: no agent type, no prompt id, estimated tool durations, no compaction markers.
+Rejected option: leave the hint headers off. The session tree would have no agent types, no prompt ids, no compaction markers and only estimated tool durations.
 
 The proxy parses the hint headers whenever present (ADR 0010), so the decision changes client configuration only.
 
 ## Consequences
 
-- With the hint headers: richer sessions, header-sourced tool durations, compaction markers.
-- Without them: V2 and V4 show less, and per-prompt cost is not available.
+- Richer sessions, header-sourced tool durations and compaction markers for crewmates.
+- A client that does not set the variable still works: the proxy parses the hint headers whenever present, and V2 and V4 show less for it.
 
 ## Work required
 
 - Confirm by a capture test (ADR 0038) that the hint headers arrive with the pinned Claude Code version and record the header names.
-- Set the variable in the documented client settings (ADR 0012, ADR 0037) and in the firstmate dispatch environment (ADR 0041).
-- Update this ADR to Accepted with the outcome, and remove the pending note from the architecture documents.
+- Set the variable in the documented client settings (ADR 0012, ADR 0037) and in the firstmate crewmate launch environment, which the operator sets by hand in v1 (ADR 0040).
 
 ## Depends on
 
@@ -34,6 +32,6 @@ The proxy parses the hint headers whenever present (ADR 0010), so the decision c
 
 ## References
 
-- architecture/README.md, "Open decisions" (D5).
+- architecture/README.md, "Resolved decisions" (D5).
 - architecture/backend.md, "Correlation".
 - architecture/upstream-connection.md, "Claude Code with a proxy-held API key".
