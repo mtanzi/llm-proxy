@@ -1,6 +1,6 @@
 # Upstream connection
 
-Part of the [architecture set](README.md). v1 serves the Anthropic family only; the OpenAI family is a v2 item, collected under [Later: OpenAI family (v2)](#later-openai-family-v2). This document covers how the proxy reaches provider APIs, how clients are pointed at the proxy, and what Anthropic documents about routing a Claude subscription through a gateway. The proxy internals it refers to (route resolver, `Rewrite`, the extractor) are in [backend.md](backend.md).
+Part of the [architecture set](README.md). v1 serves the Anthropic family only; the OpenAI family is a v2 item, collected under [Later: OpenAI family (v2)](#later-openai-family-v2). This document covers how the proxy reaches provider APIs, how clients are pointed at the proxy, and what Anthropic documents about routing a Claude subscription through a gateway. The proxy internals it refers to (`Rewrite`, the extractor) are in [backend.md](backend.md).
 
 Sources were fetched on 2026-10-20 and are listed at the [end](#sources). Statements about Anthropic's behavior and terms quote or paraphrase those pages; nothing here describes an auth flow those pages do not document.
 
@@ -30,7 +30,7 @@ providers:
   - name: anthropic
     kind: anthropic
     base_url: https://api.anthropic.com
-    auth_mode: proxy_key              # proxy_key | client_passthrough | both
+    auth_mode: proxy_key              # proxy_key | client_passthrough, one per provider
     credential:
       file: /run/secrets/anthropic_api_key
     idle_timeout: 120s                # idle-between-chunks watchdog
@@ -43,7 +43,7 @@ providers:
 
 ## Credential modes
 
-The proxy has two ways to authenticate upstream. A provider enables one or both with `auth_mode`.
+The proxy has two ways to authenticate upstream. Each provider has one fixed `auth_mode`: `proxy_key` or `client_passthrough`. There is no mode that accepts both on one provider. The call record stores the mode used for the request, under the same two names.
 
 ```mermaid
 flowchart LR
@@ -66,7 +66,9 @@ flowchart LR
 | Cost | Computed from pricing; the owner of the provider key pays | Computed as an API-equivalent figure for analysis; the plan bills the person |
 | Main use | API-key access for every harness | A person routing their own Claude subscription through their own proxy |
 
-In both modes the proxy requires a virtual key. Without one, the proxy would be an open relay for anyone's credentials, and calls could not be attributed.
+In both modes the proxy requires a virtual key. Without one, the proxy would be an open relay for anyone's credentials, and calls could not be attributed. A presented `lp_` key is never forwarded upstream.
+
+A request that carries a credential in the wrong place for the provider's mode is rejected with `401`, so a virtual key cannot leak upstream by accident. For a `client_passthrough` provider that means an `lp_` value in `Authorization` or `x-api-key`. For a `proxy_key` provider it means an `x-llm-proxy-key` header.
 
 ## Header handling
 
@@ -74,8 +76,8 @@ For the Anthropic family. "Forward" means unchanged, byte for byte.
 
 | Header | Request handling |
 |---|---|
-| `Authorization`, `x-api-key` | `proxy_key`: consumed as the virtual key, removed, and replaced by `x-api-key: <provider key>`. `client_passthrough`: forwarded, never logged, never stored |
-| `x-llm-proxy-key` | Consumed as the virtual key, never forwarded |
+| `Authorization`, `x-api-key` | `proxy_key`: consumed as the virtual key, removed, and replaced by `x-api-key: <provider key>`. `client_passthrough`: forwarded, never logged, never stored; a value that starts with `lp_` is rejected with `401` |
+| `x-llm-proxy-key` | `client_passthrough`: consumed as the virtual key, never forwarded. `proxy_key`: rejected with `401` |
 | `anthropic-version`, `anthropic-beta`, every other `anthropic-*` | Forwarded. Treated as open lists, never allowlisted, as Anthropic's guide requires |
 | `x-claude-code-*` | Read for correlation ([backend.md](backend.md#correlation)) and forwarded |
 | `traceparent` | Recorded and forwarded |
@@ -109,12 +111,12 @@ Client configuration, in the shell or in the `env` block of `~/.claude/settings.
 ```
 
 - `ANTHROPIC_AUTH_TOKEN` sends the virtual key as `Authorization: Bearer`. `ANTHROPIC_API_KEY` would send it as `x-api-key`, and an `apiKeyHelper` sends it in both. The proxy accepts all three.
-- `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1` turns on the hint headers that the session tree and tool durations use. They are off by default behind a custom base URL. **Pending decision D5.**
+- `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1` turns on the hint headers that the session tree and tool durations use. They are off by default behind a custom base URL. Firstmate crewmates set it (resolved decision D5, [ADR 0042](../adrs/0042-claude-code-hint-headers-for-crewmates.md)).
 - The documentation warns against putting the credential in a project's committed `.claude/settings.json`.
 - Billing: "While a gateway credential variable or `apiKeyHelper` is active, requests carry that credential in place of a developer's claude.ai subscription login, and the subscription's usage limits don't apply to them." The traffic is billed per token to the owner of the key the proxy forwards, for example an Anthropic Console account.
 - A saved claude.ai login stays on the machine but is not sent while the gateway credential is set. `/status` in Claude Code shows which credential is active.
 - Virtual keys come from the proxy's config file, not from the UI: the operator generates one (`llm-proxy keygen --name <name>`, see [deployment.md](deployment.md#secrets)), adds its name and hash to `keys:`, sends `SIGHUP`, and gives the plaintext to the client. The key's name is what the call log shows.
-- For firstmate, each crewmate gets its own virtual key named `fm:<task-id>` (design doc 8.3 a, gap review N7). That means one config entry per key and a `SIGHUP`; names must stay stable, because history is grouped by name.
+- For firstmate, each crewmate gets its own virtual key named `fm:<task-id>` (gap review N7). The v1 firstmate route is `proxy_key` with a Console API key held by the proxy. The operator issues the keys by hand: one config entry per key and a `SIGHUP`. Names must stay stable, because history is grouped by name. Injecting a key into each crewmate at launch is a later item ([backend.md, Later versions](backend.md#storage-and-scale)). `client_passthrough` stays for one person's own interactive Claude Code.
 
 Optional client settings that help behind a proxy:
 
@@ -185,7 +187,7 @@ The proxy **must**:
 
 The proxy **must not**:
 
-- store the OAuth token anywhere: not in the store, not in logs, not as a hash. The call record holds `auth = oauth_passthrough` and nothing else ([backend.md](backend.md#extractor));
+- store the OAuth token anywhere: not in the store, not in logs, not as a hash. The call record holds `auth_mode = client_passthrough` and nothing else about the credential ([backend.md](backend.md#extractor));
 - hold a subscription token of its own, or inject one into requests;
 - offer a sign-in flow, or capture a token from one;
 - share one person's subscription among several people or agents of other people, or present it as a team service;
@@ -194,7 +196,7 @@ The proxy **must not**:
 ### Technical limits in this mode
 
 - **Usage limits.** The subscription's limits apply. A fleet of parallel Claude Code sessions on one Max login consumes them fast, and the terms assume ordinary, individual use.
-- **No billed cost.** Calls are billed by plan, not per token. The proxy still computes an API-equivalent cost for analysis and labels it `billing_mode = subscription`. v1 enforces no budget or rate limit in any mode.
+- **No billed cost.** Calls are billed by plan, not per token. The proxy still computes an API-equivalent cost for analysis. The UI shows the "API-equivalent" cost label when `auth_mode = client_passthrough`. v1 enforces no budget or rate limit in any mode.
 - **Features tied to the claude.ai identity:** Remote Control is disabled while `ANTHROPIC_BASE_URL` points at a non-Anthropic host, even with a claude.ai login.
 - **Compliance:** sessions that go through a gateway are not eligible for Anthropic's HIPAA configuration.
 - **Team or multi-user deployments** should use `proxy_key` mode with an organization API key under the Commercial Terms. Anthropic's rollout guidance issues each developer a gateway credential and gives the gateway the provider credential. Passthrough in a shared deployment is acceptable only when every request carries the requester's own login, which the proxy cannot verify. The default configuration therefore disables passthrough.

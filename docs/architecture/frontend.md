@@ -43,12 +43,12 @@ session → prompt (user turn) → agent (main or sub-agent) → LLM call → to
 
 | View | Route | Purpose | Main API calls |
 |---|---|---|---|
-| V1 Call log (home) | `/ui/calls` | Paginated, filterable list of every LLM call, with a volume chart and a summary strip | `GET /admin/requests`, `GET /admin/usage`, `GET /admin/stream` |
+| V1 Call log (home) | `/ui/calls` | Paginated, filterable list of every LLM call, with a volume chart and a summary strip | `GET /admin/calls`, `GET /admin/usage`, `GET /admin/stream` |
 | V2 Session list | `/ui/sessions` | One row per session: start, duration, client, key, prompts, calls, tool calls, cost, cache hit, errors, labelled by key, client and start time (no prompt text is stored) | `GET /admin/sessions` |
 | V2 Session view | `/ui/sessions/:key` | Tree and waterfall of prompts, agents, calls and tool calls | `GET /admin/sessions/{key}`, `GET /admin/tool-calls?session=` |
-| V3 Call detail | `/ui/calls/:id` | Who and route, timings, usage and cost, outcome, tools requested and resolved. No content | `GET /admin/requests/{id}` |
+| V3 Call detail | `/ui/calls/:id` | Who, timings, usage and cost, outcome, tools requested and resolved. No content | `GET /admin/calls/{id}` |
 | V4 Tool-call explorer | `/ui/tools` | Per-tool summary and a list of tool calls with filters on name, error, duration and sizes | `GET /admin/tool-calls/summary`, `GET /admin/tool-calls` |
-| V5 Cost and cache | `/ui/cost` | Cost by key, model, client and session; cache hit ratio over time | `GET /admin/usage`, `GET /admin/requests` |
+| V5 Cost and cache | `/ui/cost` | Cost by key, model, client and session; cache hit ratio over time | `GET /admin/usage`, `GET /admin/calls` |
 | Admin | `/ui/admin/config` | View providers, pricing and key names (with `disabled`), read-only, because they live in the config file and change with `SIGHUP`. No key management: keys are added, disabled and rotated in the config file | `GET /admin/config` |
 
 The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that show message text, tool arguments or tool results are dropped. Behavior that matters for the architecture:
@@ -57,7 +57,7 @@ The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that
 
 - Columns: time, session and prompt, agent, client, model, status, latency, tokens in and out, cost, number of tool calls requested.
 - A row click opens V3. A session cell opens V2.
-- The filter menu covers every logged criterion: time, session, prompt, agent, agent type, request class, client, key name, provider, model, endpoint, status, error class, streamed, latency, TTFT, tokens, cost, cache hit, tool name, tool error.
+- The filter menu covers every logged criterion: time, session, prompt, agent, agent type, request class, client, key name, provider, model, endpoint, status, error class, streamed, latency, cost, tool name, tool error. TTFT, tokens and cache hit are columns and chart values, not filters.
 - "Group by session" folds consecutive calls of a session into one row with "N turns" (Bifrost pattern), kept in the URL.
 - Counts are exact up to 10,000 and show "10,000+" above that (UI report 6.3). A 24-hour window holds at most about 50,000 rows.
 - A **Live** toggle prepends new calls from the SSE stream. See [Live tail](#live-tail).
@@ -68,25 +68,27 @@ The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that
 - **Time mode** is a waterfall sorted by start time, with one lane per agent, so parallel sub-agents and parallel tool calls show as concurrent bars.
 - **Idle-gap compression** in both modes: gaps wider than 5% of the session collapse to a fixed marker (Langfuse's port of Sentry's approach). Agent sessions are mostly idle time, so a linear axis would hide the work.
 - Each tree row shows duration, tokens, cost and an error badge.
-- Compaction points (from `x-claude-code-compaction`) are drawn as a marker where the cache prefix resets.
+- A call without a session header has no session, so it shows in V1 and V3 but in no session row or tree.
+- Compaction points (the `context_compacted` flag, from `x-claude-code-context-compacted`) are drawn as a marker where the cache prefix resets.
 - Collapsed by default past the latest prompts; virtualized beyond a few hundred rows.
 
 ### V3 Call detail
 
 Tabs: Overview, Tools, Usage and cost. All of them show stored numbers, names and hashes. The page never shows what the prompt or the response said.
 
-- **Overview** shows who made the call (key, client, session, agent, sub-agent, prompt id), model, provider and route, upstream request id, status, error type, stop reason, TTFT and duration. The provider's error message text is not shown, because it is not stored (**pending decision D12**).
+- **Overview** shows who made the call (key, client, session, agent, sub-agent, prompt id), model, provider, upstream request id, status, error type, stop reason, TTFT and duration. The provider's error message text is not shown, because it is not stored (resolved decision D12, [ADR 0044](../adrs/0044-provider-error-message-text.md)).
 - **Tools** lists each tool requested in this call, beside the call that resolved it, with name, call id, argument size, result size, duration, and success or error. Each row links to the other call. There is no argument or result text.
 
 ### V4 Tool-call explorer
 
 - Summary table per tool: count, error rate, p50 and p95 duration, total time, split by agent type.
-- List: time, session and agent, tool name, argument size, result size, success or error, duration. Duration shows whether it came from the header or was estimated. Argument and result content is not shown (**pending decision D11**).
+- List: time, session and agent, tool name, argument size, result size, success or error, duration. Duration shows whether it came from the header or was estimated. Argument and result content is not shown (resolved decision D11, [ADR 0043](../adrs/0043-short-tool-snippets.md)).
 - Unmatched halves (a use with no result, a result with no use) are their own filter.
 
 ### V5 Cost and cache
 
-- In-app: top sessions by cost, cost per prompt, cost per firstmate task (key label `fm:<task-id>`), and the cache hit ratio over time.
+- In-app: top sessions by cost, cost per prompt, cost per firstmate task (key name `fm:<task-id>`), and the cache hit ratio over time.
+- Calls with `auth_mode = client_passthrough` show an "API-equivalent" cost label, because the plan bills the person, not per token.
 - Usage numbers are computed from raw call rows, so very long ranges (months) can take seconds. Rollup tables and Grafana dashboards over them are later items ([backend.md](backend.md#storage-and-scale)).
 
 ## Routing and URL state
@@ -117,11 +119,11 @@ Every payload is a small JSON object of numbers, names, ids and hashes, so there
 ## Live tail
 
 - The V1 **Live** toggle opens an `EventSource` on `/admin/stream` with the same filter parameters as the list.
-- `call.started` events insert an in-flight row (spinner, elapsed time); `call.finished` replaces it with the final values.
+- `call.finished` events insert the finished call at the top of the list. The stream carries finished calls only, so the UI has no in-flight rows and no spinner.
 - The client keeps at most 500 live rows and drops the oldest. Older rows remain reachable through the paginated list.
 - **On reconnect the UI refetches the first page of the list** (TanStack Query does this when the stream reopens) and de-duplicates live rows by call id. The server does not replay missed events, because the call id orders calls by start time, not finish time ([backend.md](backend.md#live-tail)).
 - The stream is one-way, so SSE is enough; no WebSocket.
-- v1 runs one replica, so the stream carries every call. The multi-replica live tail (pending decision D8) is a later item ([deployment.md](deployment.md#later-multi-replica-tier)).
+- v1 runs one replica, so the stream carries every call. The multi-replica live tail is a later item ([backend.md](backend.md#storage-and-scale), [deployment.md](deployment.md#later-multi-replica-tier)).
 
 ## Admin API access
 

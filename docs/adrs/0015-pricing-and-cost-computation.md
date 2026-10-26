@@ -11,10 +11,11 @@ Cost per call must stay stable when prices change, and prices live in the config
 ## Decision
 
 - `pricing` entries in the config file are versioned by effective date: `provider`, `model`, `from`, and per-million-token prices for `input`, `output`, `cache_read`, `cache_write_5m`, `cache_write_1h`.
-- Cost is computed once, when the call finishes, from the pricing snapshot in effect: the sum of each disjoint usage column times its price. The result is stored as `cost_usd` with the `pricing_version` that was used.
+- Cost is computed once, when the call finishes, from the pricing snapshot in effect: the sum of each disjoint usage column times its price. The result is stored as `cost_usd` with the `pricing_version` that was used (the matched entry's `from` date).
 - Cost is not recomputed for old rows when prices change.
+- `pricing_version` is the `from` date of the matched pricing entry (for example `2026-10-01`). There is no separate pricing id.
 - A model with no matching pricing entry gets a null cost, not zero. The UI shows unknown, not zero.
-- In subscription passthrough the record is labelled `billing_mode = subscription` and the cost is an API-equivalent figure.
+- In subscription passthrough the cost is an API-equivalent figure. The record carries no billing label; the UI shows the "API-equivalent" cost label when `auth_mode = client_passthrough`.
 - The `Cost` function lives in `core` and is pure.
 - The UI page for pricing is read-only; editing pricing is a config edit plus `SIGHUP`.
 
@@ -28,7 +29,7 @@ Cost per call must stay stable when prices change, and prices live in the config
 - Add the pricing schema and validation to config (ADR 0004): no overlapping effective ranges for one model, non-negative prices.
 - Implement the pure `Cost(usage, price)` and the price selection by provider, model and `ts` in `core`.
 - Compute `cost_usd` and `pricing_version` in the `proxy` finish step after extraction (ADR 0014).
-- Handle `billing_mode` and null cost cases.
+- Handle the null cost case (no matching pricing entry).
 - Tests: table tests for each usage mix (cache reads, 5m and 1h writes, reasoning not double counted), a price change between two calls, an unknown model, exactness of decimal arithmetic.
 - Expose the pricing list read-only through `GET /admin/config` (ADR 0023).
 

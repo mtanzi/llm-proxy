@@ -53,11 +53,10 @@ Not built in v1. The process keeps the property that makes it possible: it is st
 | State | v1 (one replica) | Needed for several replicas |
 |---|---|---|
 | Key map | In process, built from the config snapshot on start and on `SIGHUP` | Nothing: every replica reads the same config file and reloads it on `SIGHUP` |
-| Live tail | In-process fan-out in `recorder` | A `LiveFeed` port: `store/postgres` sends `NOTIFY` after each commit, relayed by every replica (**pending decision D8**). In-flight calls show only on the replica that serves them |
+| Live tail | In-process fan-out in `recorder` | A `LiveFeed` port: `store/postgres` sends `NOTIFY` after each commit, relayed by every replica (see [backend.md, Later versions](backend.md#storage-and-scale)) |
 | Retention job | One process runs it | Any replica; a Postgres advisory lock keeps it single-writer |
 | Migrations | `serve` applies them at start under goose's session lock | A migration job (`--migrate=off` on replicas) when change control is strict |
 | Tool-call pairing | At read time from append-only halves | Nothing: the halves are plain inserts, so either order and any replica is fine |
-| Derived sessions | A pure hash, no idle state | Nothing: every replica derives the same key |
 | Budgets, rate limits, circuit breakers | Deferred ([backend.md](backend.md#later-versions)) | Shared counter row, per-replica limit shares, per-replica breakers |
 
 A load balancer in front of replicas must not buffer responses, must keep idle connections open longer than the longest expected stream, and needs no session affinity. The admin plane would need admin sign-in first ([backend.md](backend.md#gateway-features-decision-c1)), then a separate ingress behind SSO or a VPN.
@@ -93,7 +92,7 @@ providers:                      # resolved decision D7; see upstream-connection.
   - name: anthropic
     kind: anthropic
     base_url: https://api.anthropic.com
-    auth_mode: proxy_key        # proxy_key | client_passthrough | both
+    auth_mode: proxy_key        # proxy_key | client_passthrough, one per provider
     credential: { file: /run/secrets/anthropic_api_key }
     idle_timeout: 120s          # idle-between-chunks watchdog
 
@@ -184,7 +183,7 @@ Claude Code, in `~/.claude/settings.json` (not a committed project file):
 }
 ```
 
-Do not set `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or `apiKeyHelper`; sign in with `/login`. The proxy stores no token, and the call record carries `auth_mode = oauth_passthrough` only. A call without a valid `x-llm-proxy-key` gets `401`.
+Do not set `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or `apiKeyHelper`; sign in with `/login`. The proxy stores no token, and the call record carries `auth_mode = client_passthrough` only. A call without a valid `x-llm-proxy-key` gets `401`, and so does a call that carries an `lp_` value in `Authorization` or `x-api-key`.
 
 ## Migrations
 
@@ -253,6 +252,9 @@ Prometheus metrics at `/metrics` on the admin listener. This is a minimal set; e
 | `llm_proxy_call_queue_depth`, `llm_proxy_calls_dropped_total{reason}` | Lost log records (should be zero) |
 | `llm_proxy_writer_errors_total` | Store writes (Postgres in v1) failing |
 | `llm_proxy_live_events_dropped_total` | Slow UI subscribers |
+| `llm_proxy_config_reloads_total{result}` | `SIGHUP` reloads that failed, so the proxy kept the previous snapshot |
+| `llm_proxy_retention_deleted_total` | Rows the retention job deleted |
+| `llm_proxy_retention_last_run_timestamp_seconds` | Retention job not running: the timestamp stops moving |
 
 - Logs: `log/slog` JSON to stdout, one line per request with the call id. Logs never contain bodies or credentials.
 - Dropped calls and writer errors are visible only in `/metrics` in v1. There is no alert feed; see [backend.md](backend.md#later-versions).

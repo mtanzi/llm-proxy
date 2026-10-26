@@ -10,10 +10,10 @@ The cost view answers who spent what and how well the cache works. The config pa
 
 ## Decision
 
-- **Cost and cache** at `/ui/cost`: cost by key, model, client and session; top sessions by cost; cost per prompt; cost per firstmate task (key name `fm:<task-id>`); cache hit ratio over time. Numbers come from `GET /admin/usage` and `GET /admin/requests`. Long ranges can take seconds.
+- **Cost and cache** at `/ui/cost`: cost by key, model, client and session; top sessions by cost; cost per prompt; cost per firstmate task (key name `fm:<task-id>`); cache hit ratio over time. Numbers come from `GET /admin/usage` and `GET /admin/calls`. Long ranges can take seconds.
 - The cache-miss view (cache strip, cache tab, misses with cause) is deferred.
 - **Config page** at `/ui/admin/config`: providers, pricing and key names with `disabled`, from `GET /admin/config`. No hashes, no credentials. No key management and no editing; the page explains how to change keys (config edit and `SIGHUP`).
-- Unknown cost (no pricing entry) shows as unknown, not zero; subscription calls show an API-equivalent label.
+- Unknown cost (no pricing entry) shows as unknown, not zero; calls with `auth_mode = client_passthrough` show an "API-equivalent" cost label.
 
 ## Consequences
 

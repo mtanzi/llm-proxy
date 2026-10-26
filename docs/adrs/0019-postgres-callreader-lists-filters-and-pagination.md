@@ -13,6 +13,7 @@ The call log (view V1) and call detail (V3) read through `CallReader`. Lists nee
 - **Filter builder:** one dynamic `WHERE` builder in `store/postgres` maps `core.CallFilter` fields to SQL. Every query is time-bounded by `From` and `To` (half-open `[From, To)`).
 - **Keyset pagination, forward only,** on `(ts, id)`, ordered `ts DESC, id DESC`: `WHERE (ts, id) < ($ts, $id) ORDER BY ts DESC, id DESC LIMIT $n`. The adapter clamps `Limit` to a maximum. No offset, no backward cursor.
 - **Capped exact counts:** `CountCalls(ctx, f, max)` is exact up to `max` (10,001 in the API) and reports `capped` above it.
+- **Filters:** `Endpoints` and `Streamed` are filter fields beside the existing ones (ADR 0048).
 - **Tool filters:** `Tools` and `ToolError` match calls that contain a tool call with that name or error, through `tool_events`.
 - **Detail:** `GetCall` returns the call row and its tool halves. Numbers and names only.
 - Percentiles and aggregates are separate (ADR 0021).

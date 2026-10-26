@@ -2,16 +2,16 @@
 
 This folder breaks the v1 work of llm-proxy into architecture decision records (ADRs). Each ADR is one reviewable implementation unit: a decision that is already taken, or an open question that needs a decision before the related work is built. Together, the "Work required" lists of the ADRs cover all of v1.
 
-The architecture documents stay canonical: [llm-proxy-design.md](../llm-proxy-design.md), [backend.md](../architecture/backend.md), [frontend.md](../architecture/frontend.md), [upstream-connection.md](../architecture/upstream-connection.md) and [deployment.md](../architecture/deployment.md), with the decision list in [architecture/README.md](../architecture/README.md). An ADR summarizes a decision, lists the work it needs, and points to the document sections for detail. If an ADR and a document disagree, the document wins, and the ADR needs a fix.
+The architecture documents describe the design: [llm-proxy-design.md](../llm-proxy-design.md), [backend.md](../architecture/backend.md), [frontend.md](../architecture/frontend.md), [upstream-connection.md](../architecture/upstream-connection.md) and [deployment.md](../architecture/deployment.md), with the decision list in [architecture/README.md](../architecture/README.md). An ADR summarizes a decision, lists the work it needs, and points to the document sections for detail. When sources disagree, one rule decides: landed code wins, then Completed ADRs, then the architecture documents for work not yet built, then ADRs not yet built. The lower source needs a fix. A Completed ADR is never edited; a change to one is a new ADR that names the Completed ADR it amends ([ADR 0049](0049-source-precedence-and-corrections-to-completed-adrs.md)).
 
-Format: Michael Nygard style, one Markdown file per ADR, named `NNNN-kebab-title.md`. Numbers follow a logical build order: repository and core, configuration, the data plane (auth, correlation, passthrough, tap, extractor, recorder), storage, the admin API, the UI, deployment and tests, then firstmate integration, then the open decisions.
+Format: Michael Nygard style, one Markdown file per ADR, named `NNNN-kebab-title.md`. Numbers follow a logical build order: repository and core, configuration, the data plane (auth, correlation, passthrough, tap, extractor, recorder), storage, the admin API, the UI, deployment and tests, then firstmate integration, then the accepted decisions, then the amendments to Completed ADRs.
 
 ## Template
 
 ```markdown
 # ADR NNNN: Title
 
-Status: Accepted | Proposed | Completed | Superseded by ADR NNNN
+Status: Accepted | Proposed | Completed | Deferred | Superseded by ADR NNNN
 
 Date: YYYY-MM-DD
 
@@ -41,9 +41,10 @@ Document sections (file and section name), not restated detail.
 | Accepted | The documents state this as decided. |
 | Completed | The ADR's implementation work has landed on main. |
 | Proposed | An open question or gap. The ADR lists the recommended option where the documents give one, and the alternatives. A gap with no recommendation stays Proposed with its options. |
+| Deferred | Out of v1 and kept for the record. The ADR names its trigger for being picked up, in [backend.md, Later versions](../architecture/backend.md#later-versions). No v1 work depends on it. |
 | Superseded | Replaced by a later ADR (none yet). |
 
-An ADR changes status when a decision is made. Record the outcome in the ADR and in the canonical document. An ADR moves to Completed in the same change that lands its implementation work.
+An ADR changes status when a decision is made. Record the outcome in the ADR and in the architecture document it touches. A Completed ADR is never edited: where a decision changes one, write a new ADR whose Context names the Completed ADR it amends and whose "Work required" lists the code change. An ADR moves to Completed in the same change that lands its implementation work.
 
 ## Index
 
@@ -60,7 +61,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0007](0007-anthropic-error-classes-and-error-bodies.md) | Error classes and protocol-correct error bodies | Completed | 0003 |
 | [0008](0008-virtual-key-auth-and-keyring.md) | Virtual-key auth and the keyring | Completed | 0003, 0005, 0007 |
 | [0009](0009-cli-keygen-and-version.md) | CLI subcommands: `keygen` and `version` | Completed | 0001, 0004, 0008 |
-| [0010](0010-correlation-headers-and-session-derivation.md) | Correlation headers and session derivation | Accepted | 0003, 0006 |
+| [0010](0010-correlation-headers.md) | Correlation headers | Accepted | 0003, 0006 |
 | [0011](0011-proxy-passthrough-and-streaming.md) | Proxy passthrough and streaming | Accepted | 0005, 0006, 0007, 0008, 0010 |
 | [0012](0012-client-passthrough-and-subscription-setup.md) | Client passthrough mode and subscription setup | Accepted | 0004, 0008, 0011 |
 | [0013](0013-tap-incremental-response-scanner.md) | Tap: incremental response scanner | Accepted | 0011 |
@@ -91,37 +92,43 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0038](0038-test-fixtures-fake-upstream-and-end-to-end-tests.md) | Test fixtures, fake upstream and end-to-end tests | Accepted | 0011, 0013, 0014, 0016, 0017, 0028 |
 | [0039](0039-performance-targets-and-load-verification.md) | Performance targets and load verification | Accepted | 0011, 0013, 0038 |
 | [0040](0040-firstmate-integration-claude-code-routing-and-ledger-reporter.md) | Firstmate integration: Claude Code routing and the ledger-join reporter | Accepted | 0008, 0009, 0037, 0024 |
-| [0041](0041-per-task-key-injection-into-crewmates.md) | Per-task key injection into firstmate crewmates | Proposed | 0040 |
-| [0042](0042-claude-code-hint-headers-for-crewmates.md) | Claude Code hint headers for firstmate crewmates (D5) | Proposed | 0010, 0040 |
-| [0043](0043-short-tool-snippets.md) | Short tool snippets (D11) | Proposed | 0014, 0034 |
-| [0044](0044-provider-error-message-text.md) | Provider error message text (D12) | Proposed | 0014, 0032 |
-| [0045](0045-opt-in-per-key-body-capture.md) | Opt-in per-key body capture (D13) | Proposed | 0002, 0014 |
-| [0046](0046-adopt-gap-review-defaults.md) | Adopt the gap-review defaults (D9 and D10) | Proposed | 0002 |
+| [0041](0041-per-task-key-injection-into-crewmates.md) | Per-task key injection into firstmate crewmates | Deferred | 0040 |
+| [0042](0042-claude-code-hint-headers-for-crewmates.md) | Claude Code hint headers for firstmate crewmates (D5) | Accepted | 0010, 0040 |
+| [0043](0043-short-tool-snippets.md) | Short tool snippets (D11) | Accepted | 0014, 0034 |
+| [0044](0044-provider-error-message-text.md) | Provider error message text (D12) | Accepted | 0014, 0032 |
+| [0045](0045-opt-in-per-key-body-capture.md) | Opt-in per-key body capture (D13) | Accepted | 0002, 0014 |
+| [0046](0046-adopt-gap-review-defaults.md) | Adopt the gap-review defaults (D9 and D10) | Accepted | 0002 |
+| [0047](0047-credential-modes-one-fixed-auth-mode-per-provider.md) | Credential modes: one fixed auth mode per provider | Accepted | 0004, 0008, 0012 |
+| [0048](0048-call-record-and-filter-changes.md) | Call record and filter changes | Accepted | 0003, 0010, 0014, 0017 |
+| [0049](0049-source-precedence-and-corrections-to-completed-adrs.md) | Source precedence and corrections to Completed ADRs | Accepted | 0001, 0003, 0004 |
 
 ## Suggested implementation order
 
-Phases follow the design document's plan (llm-proxy-design.md, section 9). Items inside a phase can run in parallel where "Depends on" allows.
+The phase numbers below are the v1 plan, with these meanings: 1 proxy core, 2 cost and tool events, 3 admin API and UI, 5 firstmate routing. Phase 4 (cache diagnosis), 6 (alerts), 7 (per-task key injection, ADR 0041) and 8 (MCP gateway) are out of v1. Items inside a phase can run in parallel where "Depends on" allows.
 
 1. **Foundations:** 0001, 0002, 0003, then 0004 and 0005 (config and reload), 0006 (listeners).
-2. **Proxy core (design phase 1):** 0007 (error bodies), 0008 (auth), 0009 (keygen), 0010 (correlation), 0011 (passthrough and streaming). In parallel, the storage track: 0017 (schema and write path) and 0018 (contract suite and harness).
+2. **Proxy core (phase 1):** 0007 (error bodies), 0008 (auth), 0009 (keygen), 0010 (correlation), 0011 (passthrough and streaming). In parallel, the storage track: 0017 (schema and write path) and 0018 (contract suite and harness).
 3. **Recording (phases 1 and 2):** 0013 (tap), 0014 (extractor), 0015 (pricing), 0016 (recorder). Then 0012 (client passthrough, needed for the personal setup), 0026 (health and metrics), 0027 (graceful shutdown), 0028 (composition root). The first end-to-end run is possible here.
 4. **Read side (phase 3):** 0019, 0020, 0021 (readers), 0022 (retention), then 0023, 0024, 0025 (admin API and live tail).
 5. **UI (phase 3):** 0029, 0030, then 0031 to 0035 (views, mostly in parallel).
 6. **Ship and verify:** 0036 (image), 0037 (deployment guide), 0038 (e2e tests and fixtures), 0039 (performance).
-7. **Firstmate (phases 5 and 7):** 0040 (routing and ledger reporter), 0041 (key injection, Proposed).
-8. **Open decisions:** 0042 to 0046 are Proposed. Decide 0042 (D5) when 0040 first routes Claude Code through the proxy. 0043 to 0045 (D11 to D13) must be decided before 0014 and the UI views are finalised; the recommended answer in each is the strict default already assumed by those ADRs. 0046 (D9, D10) is a review of defaults already in use.
+7. **Firstmate (phase 5):** 0040 (routing and ledger reporter), with keys issued by hand. v1 ends at 0040.
+8. **Accepted decisions:** 0042 to 0046 are Accepted with their recommended options: hint headers on for crewmates (0042, D5), no tool snippets (0043, D11), no provider error text (0044, D12), no per-key body capture (0045, D13), and the gap-review defaults (0046, D9, D10). They need no phase: the ADRs they touch already assume them. Set the hint-header variable when 0040 first routes Claude Code through the proxy.
+9. **Amendments to Completed ADRs:** 0047 (credential modes), 0048 (call record and filter changes) and 0049 (precedence and corrections) change code that already landed. Their "Work required" lists land with, or just before, the ADRs they edit in place: 0047 with 0012, 0048 with 0010, 0014, 0016, 0019 and 0025.
+10. **Deferred:** 0041 (per-task key injection) is out of v1. Its trigger is "manual key issuing becomes the bottleneck".
 
 The test harness of 0018 and the fixtures of 0038 are used by most other ADRs, so start them early.
 
 ## Out of v1 scope
 
-These items are deferred and have no ADR. Each has a trigger for adding it back in [backend.md, Later versions](../architecture/backend.md#later-versions); the v1 design leaves room for all of them.
+These items are deferred and have no ADR, except per-task key injection (Deferred ADR 0041). Each has a trigger for adding it back in [backend.md, Later versions](../architecture/backend.md#later-versions); the v1 design leaves room for all of them.
 
 - Gateway features: fallback, retries and circuit breakers with `request_attempts`; model aliases and request rewriting (C6); budgets, rate limits, concurrency limits and key expiry; alerts, `/admin/alerts` and the firstmate alert adapter.
 - Admin sign-in, admin scopes and OIDC (C7). The admin plane stays loopback-only.
 - OTel span export.
 - Cache-miss diagnosis: segment hashing, `call_segments`, `CacheDiff`, the cache-analysis endpoint and the UI cache view (C5).
-- Storage and scale: rollup tables, daily partitioning, `CopyFrom` staging, a materialised tool-call pairing table, `sync.Pool` buffers in the tap, the multi-replica tier with a `LiveFeed` port (D8), `Last-Event-ID` catch-up, backward paging and exact counts above 10,000, the sub-agent link to the spawning `Task` call.
+- Storage and scale: rollup tables, daily partitioning, `CopyFrom` staging, a materialised tool-call pairing table, `sync.Pool` buffers in the tap, the multi-replica tier with a `LiveFeed` port, `Last-Event-ID` catch-up, backward paging and exact counts above 10,000, the sub-agent link to the spawning `Task` call.
 - `store/sqlite`, the MCP gateway (`source = mcp`) and OIDC.
 - The OpenAI family (v2): `family/openai`, `include_usage` handling, Codex CLI and OpenCode setup and their session headers (C4, D3, D4).
+- Derived session keys for clients without a session header, live-tail rows for in-flight calls (`call.started`), and per-task key injection into crewmates (ADR 0041).
 - Saved views, annotations and scores, editing pricing in the UI, static HTML export of a session.

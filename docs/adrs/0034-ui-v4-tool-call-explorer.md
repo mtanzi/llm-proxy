@@ -14,7 +14,7 @@ A proxy sees tool requests and results as metadata only. The explorer shows whic
 - **Summary table** per tool: count, error rate, p50 and p95 duration, total time, split by agent type.
 - **List:** time, session and agent, tool name, argument size, result size, success or error, duration with its source (header or estimated).
 - Filters: name, error, duration, sizes, session and unmatched halves (`use_only`, `result_only`) as their own filter.
-- Argument and result content is not shown (decision D11 is Proposed in ADR 0043).
+- Argument and result content is not shown (decision D11, Accepted ADR 0043).
 
 ## Consequences
 

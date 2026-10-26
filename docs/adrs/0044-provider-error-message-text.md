@@ -1,6 +1,6 @@
 # ADR 0044: Provider error message text (D12)
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-10-21
 
@@ -10,21 +10,18 @@ When the provider returns an error, the body carries a message string. It helps 
 
 ## Decision
 
-Open (D12). The documents use the recommended option.
+Accepted (D12), with the strict default: keep error type and HTTP status only; drop the message text.
 
-- **Recommended (strict default):** keep error type and HTTP status only; drop the message text.
-- **Alternative:** keep the provider's error message. It is useful for debugging but can contain fragments of the request, so it would need a length bound, redaction and a retention decision.
+Rejected option: keep the provider's error message. It is useful for debugging but can contain fragments of the request, so it would need a length bound, redaction and a retention decision.
 
 ## Consequences
 
-- Strict: call detail shows `error_type` and status. Unusual errors need the client's own logs.
-- Keeping the text: new column, privacy review, UI display in V3.
+- Call detail shows `error_type` and status. Unusual errors need the client's own logs.
 
 ## Work required
 
-- Decide and update this ADR with the outcome.
-- If kept: add a bounded column by migration (ADR 0017), extract it in ADR 0014, update the no-bodies tests, the API schema and V3 (ADR 0032).
-- If strict is confirmed: mark Accepted and remove the pending note from the architecture documents.
+- Store `error_type` and the status, never the message text (ADR 0014), and keep that in the no-bodies tests (ADR 0018, ADR 0038).
+- Show `error_type` and status in V3 (ADR 0032), with no message field.
 
 ## Depends on
 
@@ -32,6 +29,6 @@ Open (D12). The documents use the recommended option.
 
 ## References
 
-- architecture/README.md, "Open decisions" (D12).
+- architecture/README.md, "Resolved decisions" (D12).
 - architecture/backend.md, "Extractor".
 - architecture/frontend.md, "V3 Call detail".

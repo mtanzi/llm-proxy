@@ -12,11 +12,11 @@ One Go module, one static binary, `llm-proxy`, with three subcommands:
 | `keygen --name <name>` | Generates a virtual key, prints the plaintext once and the config entry with its SHA-256. Touches no config file and no database; see [Auth](#auth-virtual-keys) |
 | `version` | Prints the build version |
 
-**Storage model.** The proxy never stores request or response bodies. The tap reads each exchange in memory, the extractor keeps a small set of facts (who, route, tokens, cost, timings, outcome, tool-call metadata), and the recorder inserts them as append-only rows through the `CallWriter` store port, implemented in v1 by the `store/postgres` adapter. There is no capture journal and no body table. Consequences: no search over prompt or response text, call detail shows numbers and tool names but not content, and a wrong parsing rule cannot be recomputed for past rows; a fix applies to new calls only. This resolves decisions D1 and D2 ([README](README.md#resolved-decisions)).
+**Storage model.** The proxy never stores request or response bodies. The tap reads each exchange in memory, the extractor keeps a small set of facts (who, provider, tokens, cost, timings, outcome, tool-call metadata), and the recorder inserts them as append-only rows through the `CallWriter` store port, implemented in v1 by the `store/postgres` adapter. There is no capture journal and no body table. Consequences: no search over prompt or response text, call detail shows numbers and tool names but not content, and a wrong parsing rule cannot be recomputed for past rows; a fix applies to new calls only. This resolves decisions D1 and D2 ([README](README.md#resolved-decisions)).
 
 **Write facts, derive views.** The database receives only inserts. Tool-call pairing, sessions, agent trees and statistics are computed by `CallReader` when asked, not maintained when written. This is what keeps the write path and the schema small.
 
-The binary has two listeners, so the data plane and the admin plane can be exposed separately (design doc 6.1):
+The binary has two listeners, so the data plane and the admin plane can be exposed separately (see [Listener and router](#listener-and-router)):
 
 | Listener | Default address | Serves |
 |---|---|---|
@@ -64,7 +64,7 @@ flowchart TB
     br --> api
     proxy --> keyring
     proxy --> fam
-    proxy -->|Started, Finished| recorder
+    proxy -->|Finished| recorder
     proxy --> rt --> up
     api --> recorder
     api -->|CallReader| core
@@ -119,10 +119,11 @@ The hot path is one flow, so it is one package with one file per concern: auth, 
 #### Auth (virtual keys)
 
 - **Virtual keys** look like `lp_<base62 of 32 random bytes>`. They live in the `keys` section of the config file, one entry per key: a `name`, the `sha256` (hex) of the key, and an optional `disabled` flag. The file never holds the plaintext (gap review R1). Keys are 256 bits of randomness, so a plain hash cannot be brute-forced and no server pepper is needed.
-- **Key names** are unique and stay stable: the call record stores the name, so renaming a key splits its history. `fm:<task-id>` is a valid name. A name is the only per-key label; there is no display prefix.
+- **Key names** are unique and stay stable: the call record stores the name, so renaming a key splits its history. `fm:<task-id>` is a valid name. A name is the only per-key identifier; there is no display prefix.
 - **Generating a key** happens outside the proxy. `llm-proxy keygen --name <name>` draws 32 bytes from the system random source, prints the plaintext key once, and prints the config entry to paste (`name` and `sha256`). The proxy keeps nothing. Without the helper, `openssl rand -hex 32` behind an `lp_` prefix gives an equally strong key, and `sha256sum` gives its hash; the proxy treats the presented key as an opaque string and hashes it. [deployment.md](deployment.md#secrets) has the exact commands.
 - **Changing keys** is a config edit plus `SIGHUP`. Add: append an entry. Revoke: set `disabled: true` or delete the entry. Rotate: add the new entry, switch the client, then disable the old one. There is no key API.
-- **Where the key is read from.** In the default `proxy_key` mode the client sends its virtual key as its API credential: `Authorization: Bearer lp_…` or `x-api-key: lp_…`. In `client_passthrough` mode the client's own credential occupies `Authorization`, so the virtual key travels in a separate `x-llm-proxy-key` header. [upstream-connection.md](upstream-connection.md#credential-modes) explains both modes. The proxy consumes `x-llm-proxy-key` and never forwards it.
+- **Where the key is read from.** Each provider has one fixed `auth_mode`. For a `proxy_key` provider (the default) the client sends its virtual key as its API credential: `Authorization: Bearer lp_…` or `x-api-key: lp_…`. For a `client_passthrough` provider the client's own credential occupies `Authorization`, so the virtual key travels in a separate `x-llm-proxy-key` header. [upstream-connection.md](upstream-connection.md#credential-modes) explains both modes.
+- **One header check.** A presented `lp_` virtual key is never forwarded upstream. A request that carries a credential in the wrong place for the provider's mode is rejected with `401`: for a `client_passthrough` provider, an `lp_` value in `Authorization` or `x-api-key`; for a `proxy_key` provider, an `x-llm-proxy-key` header.
 - **Lookup** is an in-memory map from SHA-256 to key record, owned by `keyring`. `keyring` builds it from the keys of a config snapshot, and the map travels with that snapshot: `SIGHUP` builds a new snapshot and swaps it atomically, and a request in flight keeps the map it started with. The handler hashes the presented key and looks the hash up. The config loader rejects a snapshot with a duplicate name, a duplicate hash or a malformed hash, and the proxy keeps the previous snapshot and logs the error. Nothing about keys touches the store.
 - **Checks:** the key exists and is not disabled. A failure returns a protocol-correct Anthropic error body with a stable `type` per error class (gap review R3). Expiry, request-rate and concurrency limits and budgets are deferred ([Later versions](#later-versions)).
 - **Admin plane** has no auth in v1. The admin listener is loopback-only and `serve` refuses to start otherwise (see [Shape](#shape)). Admin sign-in is a later item ([Later versions](#later-versions)).
@@ -133,19 +134,19 @@ The correlation step reads harness headers into the call record. It never parses
 
 | Field | Source |
 |---|---|
-| `session_key` | `x-claude-code-session-id`; otherwise empty, and the proxy derives one (see below) |
+| `session_key` | `x-claude-code-session-id`; a call without it has no session (`session_key` is null) |
 | `agent_id`, `parent_agent_id` | `x-claude-code-agent-id`, `x-claude-code-parent-agent-id` |
 | `agent_type` | `x-claude-code-agent-type` (hint header) |
 | `prompt_id` | `x-claude-code-prompt-id` (hint header) |
 | `request_class` | `x-claude-code-request-class`: `main`, `subagent`, `workflow`, `compaction`, `auxiliary` (hint header) |
-| `compaction`, `context_compacted` | `x-claude-code-compaction`, `x-claude-code-context-compacted` (hint headers) |
+| `compaction`, `context_compacted` | `x-claude-code-compaction`, `x-claude-code-context-compacted` (hint headers). Both are stored as booleans; the UI compaction marker uses `context_compacted` |
 | `prev_tool_durations` | `x-claude-code-prev-tool-durations`, raw value, stored on the call row (hint header) |
 | `trace_id` | W3C `traceparent` |
 | `client`, `client_raw` | `User-Agent` normalized to its product token (`claude-cli/2.1.290` becomes `claude-cli`), raw value kept (gap review R17) |
 
-- The Claude Code header names and semantics come from Anthropic's [gateway compatibility guide](https://code.claude.com/docs/en/llm-gateway-protocol). The session and agent IDs are always sent. The rows marked "hint header" arrive behind a custom base URL only when the client sets `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`. **Pending decision D5** in the [README](README.md#open-decisions): set it for firstmate crewmates (recommended).
+- The Claude Code header names and semantics come from Anthropic's [gateway compatibility guide](https://code.claude.com/docs/en/llm-gateway-protocol). The session and agent IDs are always sent. The rows marked "hint header" arrive behind a custom base URL only when the client sets `CLAUDE_CODE_GATEWAY_HINT_HEADERS=1`. Firstmate crewmates set it (resolved decision D5, [ADR 0042](../adrs/0042-claude-code-hint-headers-for-crewmates.md)).
 - Correlation headers are forwarded upstream unchanged, so the proxy stays transparent.
-- **Session derivation** is a fallback for a request without a session header. It is a pure function in `core`: a hash of (key, client, hash of tools and system prompt, hash of the first user message). It keeps no idle state and has no timeout, so it needs no per-key memory and gives the same key on every replica. Only hashes are used; no message text is kept. Header-less clients with identical openings merge into one session; that is the accepted cost.
+- **No session derivation in v1.** Claude Code always sends `x-claude-code-session-id`. A call without it has no session: `session_key` is null, and the call shows in the call log but in no session. The extractor hashes no tools, system prompt or message.
 - Session headers of other harnesses (Codex, OpenCode) are a v2 item ([Later versions](#later-versions)).
 
 #### Forwarding and the config snapshot
@@ -182,14 +183,14 @@ The only code that understands provider formats, in package `family/anthropic`. 
 
 A call record holds:
 
-- **Who:** key name, client, session key, agent and parent agent, agent type, prompt id (all from headers, see [Correlation](#correlation)).
-- **What ran:** provider, model (as the client sent it), and `upstream_request_id`. There is one attempt per call in v1.
-- **Usage and cost:** tokens normalized into disjoint columns (input, cache read, cache write, output, reasoning), the raw provider usage JSON (gap review B6), and cost from the versioned pricing in the config snapshot, with the pricing version. `usage_raw` is the only thing that lets a normalization fix be applied to old rows.
+- **Who:** key name, client, session key (null without the header), agent and parent agent, agent type, prompt id, and the compaction flags `compaction` and `context_compacted` (all from headers, see [Correlation](#correlation)).
+- **What ran:** provider, model (as the client sent it), `upstream_request_id`, and `auth_mode`, the credential mode actually used for the request (`proxy_key` or `client_passthrough`, the config names). There is one attempt per call in v1.
+- **Usage and cost:** tokens normalized into disjoint columns (input, cache read, cache write, output, reasoning), the raw provider usage JSON (gap review B6), and cost from the versioned pricing in the config snapshot, with the pricing version. `pricing_version` is the `from` date of the matched pricing entry (for example `2026-10-01`); there is no separate pricing id. `usage_raw` is the only thing that lets a normalization fix be applied to old rows.
 - **Timings:** time to first byte, TTFT, total duration, and the end timestamp.
 - **Outcome:** HTTP status, `error_class`, the provider's error `type` (for example `overloaded_error`), stop reason, `streamed`, `usage_estimated`, `extraction_partial`. The provider's error message text is not kept.
 - **Tool halves:** for each `tool_use` block in the response: the provider call id, tool name and argument size in bytes. For each `tool_result` block in the request: the call id it answers, `is_error` and the result size in bytes. Argument text and result text are read to measure them and are not kept. No snippet, no prompt text and no header value other than the correlation fields above is stored; credentials are never read into the record. In `client_passthrough` mode the client's OAuth token is never written anywhere; see [upstream-connection.md](upstream-connection.md#what-the-proxy-must-and-must-not-do-in-passthrough-mode).
 
-**Pending decisions D11 to D13** ([README](README.md#open-decisions)) would relax the strict reading: short tool argument and error snippets (D11), provider error message text (D12), and an opt-in per-key body capture switch (D13). The default is the strict option for all three: none of that is kept.
+Resolved decisions D11 to D13 ([README](README.md#resolved-decisions)) keep the strict reading: no short tool argument or error snippets (D11, [ADR 0043](../adrs/0043-short-tool-snippets.md)), no provider error message text (D12, [ADR 0044](../adrs/0044-provider-error-message-text.md)), and no per-key body capture switch (D13, [ADR 0045](../adrs/0045-opt-in-per-key-body-capture.md)).
 
 After building the record, the proxy computes cost from the pricing snapshot, drops the request bytes, and sends `Finished(record)` to the recorder.
 
@@ -201,17 +202,17 @@ After building the record, the proxy computes cost from the pricing snapshot, dr
 |---|---|---|---|
 | `rate_limited` | Upstream 429 | none (v1 enforces no rate limit) | none |
 | `upstream_5xx` | Upstream 5xx (including 529), or upstream unreachable | 502 | `api_error` |
-| `timeout` | Upstream 408 or 504, dial or header timeout, idle-between-chunks watchdog | 504 | `timeout_error` |
+| `timeout` | Upstream 408 or 504, dial or header timeout, idle-between-chunks watchdog | 504 before response headers; none after headers, because the stream just ends | `timeout_error` |
 | `auth` | Upstream 401 or 403, or a missing, invalid or disabled virtual key | 401 | `authentication_error` |
 | `client_abort` | The client went away before the call finished | none (nobody is listening) | none |
 | `invalid_request` | Any other upstream 4xx, or a request the proxy rejects | 400 malformed, 413 oversize body | `invalid_request_error`, `request_too_large` |
 | `internal` | A failure inside the proxy | 500 | `api_error` |
 
-The `type` column applies to bodies the proxy builds in `family/anthropic` (pure functions returning status, headers and body). Upstream error bodies are never rebuilt: they reach the client unchanged with `x-request-id` added, and the provider's own `type` (for example `overloaded_error`) is stored as `error_type`. The body shape is `{"type":"error","error":{"type":"<type>","message":"<text>"},"request_id":"<call id>"}`.
+The idle watchdog can fire before or after the response headers. Before headers the proxy builds the 504. After headers the status line has gone to the client, so the proxy ends the stream and the record gets `error_class = timeout`. The `type` column applies to bodies the proxy builds in `family/anthropic` (pure functions returning status, headers and body). Upstream error bodies are never rebuilt: they reach the client unchanged with `x-request-id` added, and the provider's own `type` (for example `overloaded_error`) is stored as `error_type`. The body shape is `{"type":"error","error":{"type":"<type>","message":"<text>"},"request_id":"<call id>"}`.
 
 ### Recorder (`recorder` package)
 
-The one "finished call" use case. It receives `Started` and `Finished` events from the proxy and does three things, none of them blocking:
+The one "finished call" use case. It receives `Finished` events from the proxy and does three things, none of them blocking:
 
 1. **Live fan-out.** Each subscriber of the live tail (the SSE handler in `api`) gets a bounded channel. A slow subscriber loses events, and the loss is counted (`llm_proxy_live_events_dropped_total`).
 2. **Bounded queue.** `Finished` goes to the queue with a non-blocking `select`. When the queue is full the recorder drops the record and increments `llm_proxy_calls_dropped_total` with a `reason` label (`queue_full`, `shutdown`).
@@ -230,13 +231,13 @@ Writer details:
 A proxy never sees a tool run. It sees the model request the tool in response N, and the client return the result in request N+1, linked by the tool-call id (approaches report section 3). v1 stores each half as its own append-only row and pairs them when read.
 
 - A `tool_use` half is a `tool_events` row with `kind = use`: tool name, provider call id, argument size, the carrying call. A `tool_result` half is a row with `kind = result`: provider call id, `is_error`, result size.
-- **Pairing:** `CallReader` joins a use to the result with the same `tool_call_id`, within a time window. Provider tool-call ids (`toolu_…`) are random and unique on their own, so the join does not need the session key, and a session split across replicas cannot break it. An optional `tool_calls` view captures the join in one place.
+- **Pairing:** `CallReader` joins a use to the result with the same `tool_call_id`. The window for results reaches up to 24 hours past the query's `To` bound, so a use near the end of the range still finds its result. Provider tool-call ids (`toolu_…`) are random and unique on their own, so the join does not need the session key, and a session split across replicas cannot break it. An optional `tool_calls` view captures the join in one place.
 - **Duration:** the `prev_tool_durations` header value on the resolving call when present (`duration_source = header`), otherwise the gap between the use row and the result row (`duration_source = estimated`). Parallel tool calls each get their own reported time.
-- **Unmatched halves** are derived: a use with no result and older than the idle threshold is `use_only`; a result with no use is `result_only`. Nothing sets these at write time, so there is no idle-close job.
+- **Unmatched halves** are derived: a use with no result after 1 hour is `use_only`; a result with no use is `result_only`. The 1 hour and the 24 hours are the only two constants. Nothing sets these at write time, so there is no idle-close job.
 - **Why this is safe:** every write is a plain insert, so a retried batch, out-of-order arrival, or two replicas writing the halves cannot corrupt anything.
-- **Sessions** are `GROUP BY session_key` over `calls` in the time range. The **agent tree** is the distinct `(agent_id, parent_agent_id, agent_type)` set of a session. There are no `sessions` or `agents` tables.
+- **Sessions** are `GROUP BY session_key` over `calls` in the time range. Calls with a null `session_key` belong to no session. The **agent tree** is the distinct `(agent_id, parent_agent_id, agent_type)` set of a session. There are no `sessions` or `agents` tables.
 - **Server-side tools** (Anthropic web search, code execution) appear complete inside one response and are recorded with `source = server`.
-- The inferred link from a sub-agent to the `Task` tool call that spawned it is deferred; a sub-agent nests under its parent agent, from headers. `source = mcp` arrives with the MCP gateway (design doc 3.6, phase 8).
+- The inferred link from a sub-agent to the `Task` tool call that spawned it is deferred; a sub-agent nests under its parent agent, from headers. `source = mcp` arrives with the MCP gateway, a later item ([Later versions](#storage-and-scale)).
 
 ### Admin and query API
 
@@ -244,19 +245,19 @@ Served on the admin listener under `/admin/`, implemented by the `api` package. 
 
 | Method and path | Purpose | Gap |
 |---|---|---|
-| `GET /admin/requests` | Call log: filters, keyset cursor, `limit` | G1, G8, G9 |
-| `GET /admin/requests/{id}` | One call's metadata and tool calls. Numbers and names only, no content | G4 |
+| `GET /admin/calls` | Call log: filters, keyset cursor, `limit` | G1, G8, G9 |
+| `GET /admin/calls/{id}` | One call's metadata and tool calls. Numbers and names only, no content | G4 |
 | `GET /admin/sessions` | Session list with the same filters and cursor, computed from call rows | G3 |
 | `GET /admin/sessions/{key}` | Summary, prompts, agents and calls (metadata only) | G2, G3 |
 | `GET /admin/tool-calls` | Tool-call explorer list; `?session=` filters to one session | G6 |
 | `GET /admin/tool-calls/summary` | Per-tool count, error rate, p50 and p95 duration | G6 |
 | `GET /admin/usage` | Time series computed from raw rows, `group_by` and `grain` | G7 |
-| `GET /admin/stream` | SSE live tail with the call-log filters | G13 |
+| `GET /admin/stream` | SSE live tail of finished calls, with the call-log filters | G13 |
 | `GET /admin/config` | Read-only view of providers and pricing from the config file, and the key names with their `disabled` flag (never a hash) | |
 
 List conventions:
 
-- **Filters** are query parameters, repeated for multiple values: `model=a&model=b`, `status=429`, `latency_ms_gte=60000`, `tool=Bash&tool_error=true`. The full filter list is the one in UI report 5.1, without its text-search filters, which are withdrawn.
+- **Filters** are query parameters, repeated for multiple values: `model=a&model=b`, `status=429`, `latency_ms_gte=60000`, `tool=Bash&tool_error=true`. The full filter list is the one in UI report 5.1, without its text-search filters (withdrawn) and without TTFT, tokens and cache hit, which the v1 call-log filter menu drops.
 - **Keyset pagination, forward only,** on `(ts, id)`: the port takes a `Cursor{TS, ID}` and a limit, and orders by `ts DESC, id DESC`. The `store/postgres` adapter runs `WHERE (ts, id) < ($ts, $id) ORDER BY ts DESC, id DESC LIMIT $n`. The cursor is opaque on the wire (base64 of `ts` and `id`, encoded in `api` only). Responses carry `next_cursor`. There is no backward cursor and no offset pagination (UI report 6.3); to see newer calls the UI reloads page one, and the live tail covers the rest.
 - **Capped exact counts.** Responses carry `count` and `count_capped`. The count is exact up to 10,001 rows; above that the UI shows "10,000+". A 24-hour window at the stated volume holds at most about 50,000 rows.
 - Every list query is bounded by a time range (default last 24 hours).
@@ -265,11 +266,11 @@ There is no endpoint that returns prompt, response or tool content, because none
 
 ### Live tail
 
-- The proxy publishes `Started` and `Finished` events to the recorder, which fans them out in process.
+- The proxy publishes `Finished` events to the recorder, which fans them out in process. There is no `Started` event: the live tail shows finished calls only.
 - `GET /admin/stream` subscribes to the recorder, applies `core.CallFilter.Match` to each event, and writes SSE. Each event has an `id` (the call's UUIDv7) for the UI's own de-duplication.
 - **No `Last-Event-ID` catch-up.** The call id orders calls by their start time, but calls finish out of order, and `Finished` is published before the batch commits. A "finished after id" query would miss long streams that began earlier and could replay or skip events. On reconnect the UI refetches the first page of the list (TanStack Query does this on its own). If an exact catch-up is ever needed it requires a commit sequence number, not the call id.
-- In-flight calls appear only in the live tail; the persisted log shows finished calls.
-- The live tail works on one replica only; see [Later versions](#later-versions).
+- The UI has no in-flight rows: a call appears when it finishes, in the live tail and in the persisted log alike.
+- The live tail works on one replica only; see [Later versions](#storage-and-scale).
 
 ### Metrics
 
@@ -318,7 +319,7 @@ type CallWriter interface {
 type CallReader interface {
 	ListCalls(ctx context.Context, f CallFilter, p Page) ([]CallSummary, *Cursor, error)
 	CountCalls(ctx context.Context, f CallFilter, max int) (n int, capped bool, err error)
-	GetCall(ctx context.Context, id uuid.UUID) (CallDetail, error) // with its tool halves
+	GetCall(ctx context.Context, id ID) (CallDetail, error) // with its tool halves
 	ListSessions(ctx context.Context, f SessionFilter, p Page) ([]SessionSummary, *Cursor, error)
 	GetSession(ctx context.Context, key string) (SessionDetail, error) // agents, prompts, calls
 	ListToolCalls(ctx context.Context, f ToolCallFilter, p Page) ([]ToolCall, *Cursor, error)
@@ -334,8 +335,10 @@ type CallFilter struct {
 	Clients        []string
 	Providers      []string
 	Models         []string
+	Endpoints      []string
 	Statuses       []int
 	ErrorClasses   []string
+	Streamed       *bool
 	SessionKey     string
 	AgentID        string
 	AgentTypes     []string
@@ -344,7 +347,7 @@ type CallFilter struct {
 	Tools          []string // calls that contain a tool call with this name
 	ToolError      *bool
 	MinLatency     time.Duration
-	MinCost        decimal.Decimal
+	MinCost        MicroUSD
 }
 
 // SessionFilter and ToolCallFilter follow the same pattern: an explicit
@@ -359,9 +362,11 @@ type Page struct {
 
 type Cursor struct {
 	TS time.Time
-	ID uuid.UUID
+	ID ID
 }
 ```
+
+`ID` is the 16-byte UUIDv7 and `MicroUSD` the exact `int64` count of millionths of a dollar, both defined in `core` because the standard-library-only rule excludes `uuid.UUID` and `decimal.Decimal`.
 
 Lifecycle is on the concrete adapter, not an interface: `postgres.Open(cfg)`, `(*Store).Migrate`, `(*Store).Ping` (backs `/readyz`), `(*Store).DeleteBefore(table, cutoff)` and `(*Store).Close`. `cmd` calls them directly.
 
@@ -401,7 +406,7 @@ One suite, `internal/store/storetest`, is the definition of correct behaviour: `
 The suite covers:
 
 - **Write.** A batch inserts exactly once; replaying a batch inserts nothing; a failed batch leaves nothing visible; halves arriving in any order produce the same read result.
-- **Tool-call pairing at read.** A use then its result resolves; a result before its use resolves once the use arrives; a use with no result older than the idle threshold reads as `use_only`; a result with no use reads as `result_only`.
+- **Tool-call pairing at read.** A use then its result resolves; a result before its use resolves once the use arrives; a use with no result after 1 hour reads as `use_only`; a result with no use reads as `result_only`; a result up to 24 hours past the query's `To` bound still pairs.
 - **Sessions and agents.** `ListSessions` and `GetSession` group by session key; the agent tree is the same parent and child structure from the call rows.
 - **Pagination.** Ordering by `(ts, id)` is total, including calls with equal `ts`; cursors return no duplicates and no gaps while rows are inserted; the time bound is honoured; counts cap at the stated maximum.
 - **Filters.** Each `CallFilter` field, alone and combined.
@@ -429,7 +434,6 @@ sequenceDiagram
     P->>K: Lookup(sha256(virtual key))
     K-->>P: key or 401 in the client's protocol shape
     P->>P: correlation from headers
-    P->>R: Started(id, key, model, session, agent) (non-blocking)
     P->>U: ReverseProxy: credential applied, x-llm-proxy-key removed
     U-->>P: status, headers
     P-->>C: same status and headers, plus x-request-id
@@ -476,9 +480,9 @@ If the store is down, `WriteBatch` fails, the writer retries with backoff and th
 
 ## Data model
 
-This section describes the schema of the `store/postgres` adapter. It is the adapter's private detail: nothing outside `internal/store/postgres` knows these table names, and another adapter may lay data out differently as long as it passes the [contract suite](#contract-test-suite). It replaces the design doc's section 4. Column lists are indicative; the migrations are the source of truth once they exist.
+This section describes the schema of the `store/postgres` adapter. It is the adapter's private detail: nothing outside `internal/store/postgres` knows these table names, and another adapter may lay data out differently as long as it passes the [contract suite](#contract-test-suite). Column lists are indicative; the migrations are the source of truth once they exist.
 
-Three plain tables, unpartitioned, all written by insert only:
+Two plain tables, unpartitioned, both written by insert only:
 
 ```sql
 -- One row per LLM call. Append-only.
@@ -487,13 +491,14 @@ CREATE TABLE calls (
   ts                  timestamptz NOT NULL,    -- request start
   key_name            text NOT NULL,           -- name from the config keys section
   client              text, client_raw text, client_request_id text,
-  session_key         text,                    -- header, else pure derived hash
+  session_key         text,                    -- x-claude-code-session-id; null without it
   agent_id            text, parent_agent_id text, agent_type text,
-  prompt_id           text, request_class text, compaction boolean,
+  prompt_id           text, request_class text,
+  compaction          boolean, context_compacted boolean,
   trace_id            text,
   family              text NOT NULL,           -- 'anthropic' in v1
   endpoint            text NOT NULL,
-  auth_mode           text NOT NULL,           -- 'proxy_key' | 'oauth_passthrough'
+  auth_mode           text NOT NULL,           -- mode used for the request: 'proxy_key' | 'client_passthrough'
   provider            text NOT NULL, model text,
   upstream_request_id text,
   status              smallint, error_class text, error_type text, stop_reason text,
@@ -504,7 +509,8 @@ CREATE TABLE calls (
   usage_raw           jsonb,
   usage_estimated     boolean NOT NULL DEFAULT false,
   extraction_partial  boolean NOT NULL DEFAULT false,
-  cost_usd            numeric(12,6), pricing_version text,
+  cost_usd            numeric(12,6),
+  pricing_version     text,                    -- 'from' date of the matched pricing entry, e.g. '2026-10-01'
   prev_tool_durations text                     -- raw header value
 );
 CREATE INDEX ON calls (ts DESC, id DESC);
@@ -529,8 +535,6 @@ CREATE TABLE tool_events (
 CREATE INDEX ON tool_events (tool_call_id);
 CREATE INDEX ON tool_events (ts DESC);
 CREATE INDEX ON tool_events (tool_name, ts DESC) WHERE kind = 'use';
-
-);
 ```
 
 Notes:
@@ -540,7 +544,7 @@ Notes:
 - **Tool calls at read time.** A tool call is a `use` row joined to the `result` row with the same `tool_call_id`, as described in [Tool calls, sessions and agents at read time](#tool-calls-sessions-and-agents-at-read-time).
 - **Keys are not in the database.** `calls.key_name` holds the name from the config file at the time of the call. There is no key table and no foreign key, so removing a key from the config leaves its history readable under the old name. Per-key usage is `GROUP BY key_name` over `calls` (`GET /admin/usage?group_by=key`).
 - **Retention defaults:** `calls` and `tool_events` 400 days. Deployment sizing is in [deployment.md](deployment.md#storage-retention-and-sizing).
-- **Removed against the design doc:** `request_attempts`, `tool_calls` as a table, `sessions`, `agents`, `usage_rollups`, `alerts`, `admin_tokens`, `virtual_keys`, `pricing`, `budget_counters`, the `providers` view and all partitioning.
+- **Not in the v1 model:** `request_attempts`, `tool_calls` as a table, `sessions`, `agents`, `usage_rollups`, `alerts`, `admin_tokens`, `virtual_keys`, `pricing`, `budget_counters`, the `providers` view and all partitioning.
 
 ## Package layout
 
@@ -550,8 +554,9 @@ llm-proxy/
 │   └── llm-proxy/          main: flags, config load, migrations at start, wiring, serve, version
 ├── internal/
 │   ├── core/               entities (CallRecord, ToolUse, ToolResult, Usage, Key), pure rules
-│   │                       (Cost, SessionKey, Filter.Match), port interfaces
-│   │                       (CallWriter, CallReader), filter, cursor and page types.
+│   │                       (Cost, Filter.Match), port interfaces
+│   │                       (CallWriter, CallReader), filter, cursor and page types,
+│   │                       ID and MicroUSD.
 │   │                       Standard library only.
 │   ├── family/
 │   │   └── anthropic/      request facts (tool_results), SSE scanner, usage,
@@ -562,7 +567,7 @@ llm-proxy/
 │   ├── httpmw/             request-lifecycle steps both listeners share: recover, request id,
 │   │                       access log with header redaction, request-size limit
 │   ├── keyring/            immutable key map (SHA-256 to key) built from a config snapshot; lookup
-│   ├── recorder/           Started and Finished events: live fan-out, bounded queue,
+│   ├── recorder/           Finished events: live fan-out, bounded queue,
 │   │                       batch writer, retry, drop counting, shutdown flush
 │   ├── api/                admin JSON handlers, SSE stream, cursor wire format,
 │   │                       OpenAPI document
@@ -596,7 +601,7 @@ Dependency rules:
 - `recorder` is the only caller of `CallWriter`. Nothing else writes call or tool records.
 - An import check in CI (a `depguard` rule or `go list -deps`) enforces the rules above.
 
-Later executables from design doc 9 (the firstmate ledger reporter) go under `cmd/` in the same module (gap review N9).
+Later executables (the firstmate ledger reporter, [ADR 0040](../adrs/0040-firstmate-integration-claude-code-routing-and-ledger-reporter.md)) go under `cmd/` in the same module (gap review N9).
 
 ## Libraries
 
@@ -636,9 +641,12 @@ Everything below is out of v1. Each item has a trigger for adding it back. The v
 | `CopyFrom` staging for batch writes | None at the expected volume | Writer lag grows under measured load (well above 100 calls per second) |
 | Materialized tool-call pairing table | Tool views do a join at read; at very large volumes the explorer gets slower | Tool explorer p95 above about 1 s. A background job fills the table; the port does not change |
 | `sync.Pool` buffers in the tap | Slightly more GC work | A profile shows allocation pressure |
-| Multi-replica tier: `LiveFeed` port with `NOTIFY`, advisory locks, migration job | One replica; live tail works on that replica only | A team or production deployment. Then add `LiveFeed` back as a port. Keys need nothing: each replica reads the same config file. See [deployment.md](deployment.md#later-multi-replica-tier) |
+| Multi-replica tier: `LiveFeed` port with `NOTIFY`, advisory locks, migration job | One replica; live tail works on that replica only | A team or production deployment. Then add `LiveFeed` back as a port: `store/postgres` sends `NOTIFY` after each commit and every replica's admin plane relays it, so the live tail carries every replica's calls. The alternative is a UI that subscribes to every replica's stream. Keys need nothing: each replica reads the same config file. See [deployment.md](deployment.md#later-multi-replica-tier) |
 | `Last-Event-ID` catch-up | A reconnecting browser refetches the first page | Never in its current form. If needed, add a commit sequence number |
 | Backward paging, exact counts above 10,000 | No "newer page" button; counts above 10,000 show as "10,000+" | The UI needs backward paging deep in history |
+| Derived session keys for clients without a session header | A call without `x-claude-code-session-id` has no session | A harness without a session header is routed through the proxy (the OpenAI family in v2). The earlier design: a pure hash of (key, client, hash of tools and system prompt, hash of the first user message), with no idle state |
+| Live tail rows for in-flight calls (`call.started`) | The live tail shows finished calls only | The UI needs to show running calls. It needs a `Started` event from the proxy and a second event type on the stream |
+| Per-task key injection into firstmate crewmates ([ADR 0041](../adrs/0041-per-task-key-injection-into-crewmates.md)) | The operator issues keys by hand: one config entry and a `SIGHUP` per key | Manual key issuing becomes the bottleneck |
 | Sub-agent link to the spawning `Task` call | A sub-agent nests under its parent agent, not under the exact `Task` call | The UI needs Task-level nesting |
 | `store/sqlite`, MCP gateway (`source = mcp`), OIDC | Not available | After the items above, in that order |
 
@@ -662,12 +670,12 @@ v1 serves the Anthropic family only. The OpenAI family is planned for v2:
 - `family/openai` for chat completions and the Responses API, with its own SSE scanner and usage mapping (golden-tested like `family/anthropic`).
 - Plain passthrough first. Codex uses the Responses API, which reports usage in its final event, so no stream edit is needed.
 - `include_usage` handling for chat-completions streaming clients that do not ask for usage: inject `stream_options.include_usage=true` and strip the extra usage chunk from the client stream (gap review B6, LiteLLM precedent). This is the only hot-path stream edit and it is optional. Without it such clients are logged without tokens or cost, flagged `usage_estimated`. Add it when such a client is in use and its cost matters.
-- `openai_compatible` provider kind, the `/v1/chat/completions` and `/v1/responses` endpoints, Codex CLI and OpenCode client setup, and their session headers (`session-id`, `x-session-affinity`, `x-session-id`, `thread-id`, `conversation_id`). These header names are known only from Bifrost's source and need a capture test each (decision D4). Header-less harnesses are the case where the derived session key matters.
+- `openai_compatible` provider kind, the `/v1/chat/completions` and `/v1/responses` endpoints, Codex CLI and OpenCode client setup, and their session headers (`session-id`, `x-session-affinity`, `x-session-id`, `thread-id`, `conversation_id`). These header names are known only from Bifrost's source and need a capture test each (decision D4). Harnesses that send no session header would need a derived session key, which is also a later item ([Later versions](#storage-and-scale)).
 - Details are in [upstream-connection.md](upstream-connection.md#later-openai-family-v2).
 
 ## Defaults taken for open gaps
 
-These follow the gap review's suggestions, adjusted by decisions C1 to C4. All are part of **pending decisions D9 and D10** in the [README](README.md#open-decisions).
+These follow the gap review's suggestions, adjusted by decisions C1 to C4. All are resolved decisions D9 and D10 in the [README](README.md#resolved-decisions) ([ADR 0046](../adrs/0046-adopt-gap-review-defaults.md)).
 
 | Gap | Default used here |
 |---|---|

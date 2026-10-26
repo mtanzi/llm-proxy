@@ -7,7 +7,7 @@ An observe-only logging proxy for LLM APIs. See [CONTRIBUTING.md](CONTRIBUTING.m
 In v1:
 
 - Forwards, records and shows calls for the Anthropic family, with Claude Code as the day-one harness.
-- Stores facts about each call: who, route, tokens, cost, timings, outcome and tool-call metadata (name, ids, sizes, duration, success or error).
+- Stores facts about each call: who, provider, tokens, cost, timings, outcome and tool-call metadata (name, ids, sizes, duration, success or error).
 - Inserts call records only. Tool-call pairing, sessions, agent trees and statistics are derived when read.
 - Virtual-key auth on the data plane. The admin plane and UI are loopback-only.
 

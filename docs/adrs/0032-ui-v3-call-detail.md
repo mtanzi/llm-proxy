@@ -11,7 +11,7 @@ Call detail shows what is stored for one call: numbers, names and hashes. It nev
 ## Decision
 
 - Route `/ui/calls/:id` with tabs **Overview**, **Tools** and **Usage and cost**; the active tab is a search parameter.
-- **Overview:** who made the call (key, client, session, agent, sub-agent, prompt id), model, provider and route, upstream request id, status, error type, stop reason, TTFT and duration. No provider error message text.
+- **Overview:** who made the call (key, client, session, agent, sub-agent, prompt id), model, provider, upstream request id, status, error type, stop reason, TTFT and duration. No provider error message text.
 - **Tools:** each tool requested in this call beside the call that resolved it: name, call id, argument size, result size, duration (header or estimated) and success or error. Each row links to the other call. No argument or result text.
 - **Usage and cost:** disjoint token columns, cost with pricing version, and the raw usage JSON in a plain collapsible block.
 - No conversation tab, no raw tab, no headers. "Content is not stored" appears once.
@@ -20,7 +20,7 @@ Call detail shows what is stored for one call: numbers, names and hashes. It nev
 ## Consequences
 
 - The cache-miss tab is deferred with cache-miss diagnosis.
-- If decision D12 or D11 changes (ADRs 0043, 0044) this page gains fields.
+- Decisions D11 and D12 (Accepted ADRs 0043 and 0044) keep content fields off this page.
 
 ## Work required
 

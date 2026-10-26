@@ -1,4 +1,4 @@
-# ADR 0010: Correlation headers and session derivation
+# ADR 0010: Correlation headers
 
 Status: Accepted
 
@@ -12,18 +12,18 @@ Sessions, agent trees and per-prompt cost depend on correlation fields. Claude C
 
 One table-driven function reads headers into the call record:
 
-- `session_key` from `x-claude-code-session-id`; `agent_id` and `parent_agent_id` from `x-claude-code-agent-id` and `x-claude-code-parent-agent-id`.
-- Hint headers: `agent_type`, `prompt_id`, `request_class` (`main`, `subagent`, `workflow`, `compaction`, `auxiliary`), `compaction`, `context_compacted`, and `prev_tool_durations` (raw value).
+- `session_key` from `x-claude-code-session-id`. A call without that header has no session: `session_key` is null. `agent_id` and `parent_agent_id` from `x-claude-code-agent-id` and `x-claude-code-parent-agent-id`.
+- Hint headers: `agent_type`, `prompt_id`, `request_class` (`main`, `subagent`, `workflow`, `compaction`, `auxiliary`), `compaction`, `context_compacted` (both booleans; the UI compaction marker uses `context_compacted`), and `prev_tool_durations` (raw value).
 - `trace_id` from W3C `traceparent`.
 - `client` is the `User-Agent` normalised to its product token (`claude-cli/2.1.290` becomes `claude-cli`); `client_raw` keeps the raw value.
 - Correlation headers are forwarded upstream unchanged.
-- **Session derivation** is the fallback when no session header exists: a pure function in `core` over (key, client, hash of tools and system prompt, hash of the first user message). It keeps no idle state and no timeout, and gives the same result on every replica. Only hashes are used.
+- There is no session derivation in v1. The extractor hashes no tools, system prompt or first user message.
 
-Whether to ask crewmates to set the hint-header variable is Proposed ADR 0042 (D5). This ADR parses the hint headers whenever they are present.
+Crewmates set the hint-header variable (Accepted ADR 0042, D5). This ADR parses the hint headers whenever they are present.
 
 ## Consequences
 
-- Header-less clients with identical openings merge into one session. That is the accepted cost.
+- A call without a session header shows in the call log and in call detail but in no session.
 - Session headers of other harnesses (Codex, OpenCode) are v2.
 - The sub-agent to `Task` call link is not inferred in v1.
 
@@ -31,8 +31,7 @@ Whether to ask crewmates to set the hint-header variable is Proposed ADR 0042 (D
 
 - Implement the header table and the extraction function in `proxy`, with unknown or malformed values stored as null rather than failing the request.
 - Implement `User-Agent` normalisation with table tests (including odd and empty values).
-- Implement the pure `SessionKey` derivation in `core`. The extractor supplies the two body hashes (ADR 0014); the hashing happens on the in-memory request bytes and the bytes are not kept.
-- Test that correlation never reads or logs credentials and that the same inputs always give the same derived key.
+- Test that correlation never reads or logs credentials, and that a request without `x-claude-code-session-id` gets a null `session_key`.
 - Capture a real Claude Code request with and without hint headers and store the header set as a test fixture (ADR 0038).
 
 ## Depends on
@@ -43,4 +42,4 @@ Whether to ask crewmates to set the hint-header variable is Proposed ADR 0042 (D
 
 - architecture/backend.md, "Correlation".
 - architecture/upstream-connection.md, "Header handling".
-- architecture/README.md, D5.
+- architecture/README.md, D5 and C8.
