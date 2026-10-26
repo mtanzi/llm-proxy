@@ -19,7 +19,7 @@ One precedence rule replaces the README rule. When sources disagree, the first s
 3. The architecture documents, for work not yet built.
 4. ADRs not yet built (Accepted or Proposed).
 
-A source lower in the list that disagrees with a higher one gets a fix. A Completed ADR is never edited; a change to one is a new ADR that names it. The design document (`llm-proxy-design.md`) holds only the requirements, the firstmate integration and the sources.
+The order ranks sources as descriptions of current behaviour. A source lower in the list that disagrees with a higher one gets a fix. One exception: an Accepted ADR that amends landed code (for example ADR 0047 and ADR 0048) records the planned target. Its decision wins over the code until its Work required lands; after that, code and ADR agree. A Completed ADR is never edited; a change to one is a new ADR that names it. The design document (`llm-proxy-design.md`) holds only the requirements, the firstmate integration and the sources.
 
 Corrections to Completed ADRs. Each states what the code does today.
 

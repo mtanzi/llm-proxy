@@ -2,7 +2,7 @@
 
 Part of the [architecture set](README.md). The components named here are described in [backend.md](backend.md). Provider credentials and client setup are in [upstream-connection.md](upstream-connection.md).
 
-The design doc (7.1) names two tiers: one container plus Postgres for a home lab or small team, and stateless replicas behind a load balancer for a team or production. v1 builds the first tier (gap review R14). The second is described under [Later: multi-replica tier](#later-multi-replica-tier) so that v1 choices do not block it, but v1 builds none of its mechanisms.
+There are two deployment tiers: one container plus Postgres for a home lab or small team, and stateless replicas behind a load balancer for a team or production. v1 builds the first tier (gap review R14). The second is described under [Later: multi-replica tier](#later-multi-replica-tier) so that v1 choices do not block it, but v1 builds none of its mechanisms.
 
 ## What runs
 
@@ -43,7 +43,7 @@ flowchart LR
 
 - One `llm-proxy` container runs everything: data plane, admin plane, recorder and the retention job.
 - Postgres runs beside it with its own volume.
-- The data plane binds to a private address. The admin plane has no sign-in, so it binds to loopback, and `serve` refuses to start if `listen.admin` is not a loopback address. Remote access to the data plane goes through a tunnel such as WireGuard or Tailscale (design doc 7.1).
+- The data plane binds to a private address. The admin plane has no sign-in, so it binds to loopback, and `serve` refuses to start if `listen.admin` is not a loopback address. Remote access to the data plane goes through a tunnel such as WireGuard or Tailscale.
 - Sized for about 12,000 to 50,000 calls per day (UI report 6.1 estimates); see [Sizing](#sizing).
 
 ## Later: multi-replica tier
