@@ -82,11 +82,26 @@ linters:
           list-mode: strict
           files:
             - "**/internal/store/postgres/**"
+            - "!$test"
+            - "!**/internal/store/postgres/pgtest/**"
           allow:
             - $gostd
             - github.com/mtanzi/llm-proxy/internal/core
             - github.com/jackc/pgx
             - github.com/pressly/goose
+        postgres-test:
+          list-mode: strict
+          files:
+            - "**/internal/store/postgres/*_test.go"
+            - "**/internal/store/postgres/**/*_test.go"
+            - "**/internal/store/postgres/pgtest/**"
+          allow:
+            - $gostd
+            - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/llm-proxy/internal/store/postgres
+            - github.com/jackc/pgx
+            - github.com/pressly/goose
+            - github.com/testcontainers/testcontainers-go
         proxy:
           files:
             - "**/internal/proxy/**"

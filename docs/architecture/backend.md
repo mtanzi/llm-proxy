@@ -368,7 +368,7 @@ type Cursor struct {
 
 `ID` is the 16-byte UUIDv7 and `MicroUSD` the exact `int64` count of millionths of a dollar, both defined in `core` because the standard-library-only rule excludes `uuid.UUID` and `decimal.Decimal`.
 
-Lifecycle is on the concrete adapter, not an interface: `postgres.Open(cfg)`, `(*Store).Migrate`, `(*Store).Ping` (backs `/readyz`), `(*Store).DeleteBefore(table, cutoff)` and `(*Store).Close`. `cmd` calls them directly.
+Lifecycle is on the concrete adapter, not an interface: `postgres.Open(ctx, cfg)`, `(*Store).Migrate`, `(*Store).Ping` (backs `/readyz`), `(*Store).DeleteBefore(table, cutoff)` and `(*Store).Close`. `cmd` calls them directly.
 
 Notes on the shapes:
 
@@ -480,7 +480,7 @@ If the store is down, `WriteBatch` fails, the writer retries with backoff and th
 
 ## Data model
 
-This section describes the schema of the `store/postgres` adapter. It is the adapter's private detail: nothing outside `internal/store/postgres` knows these table names, and another adapter may lay data out differently as long as it passes the [contract suite](#contract-test-suite). Column lists are indicative; the migrations are the source of truth once they exist.
+This section describes the schema of the `store/postgres` adapter. It is the adapter's private detail: nothing outside `internal/store/postgres` knows these table names, and another adapter may lay data out differently as long as it passes the [contract suite](#contract-test-suite). Column lists are indicative; the migrations in `internal/store/postgres/migrations/` are the source of truth.
 
 Two plain tables, unpartitioned, both written by insert only:
 
@@ -521,7 +521,7 @@ CREATE INDEX ON calls (ts DESC) WHERE error_class IS NOT NULL;
 -- One row per tool-call half. Append-only. Pairing happens at read time.
 CREATE TABLE tool_events (
   call_id       uuid NOT NULL,                 -- the call that carried this half
-  idx           smallint NOT NULL,             -- position within that call
+  idx           integer NOT NULL,              -- position within that call
   ts            timestamptz NOT NULL,          -- use: response end; result: request start
   kind          text NOT NULL,                 -- 'use' | 'result'
   source        text NOT NULL,                 -- 'client' | 'server'
