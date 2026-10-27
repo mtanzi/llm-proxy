@@ -1,6 +1,6 @@
 # ADR 0010: Correlation headers
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
