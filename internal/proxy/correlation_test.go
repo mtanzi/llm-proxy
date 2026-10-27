@@ -161,6 +161,16 @@ func TestCorrelateKeepsRawUserAgent(t *testing.T) {
 	}
 }
 
+func TestCorrelateOversizeUserAgentIsNull(t *testing.T) {
+	h := http.Header{}
+	h.Set("User-Agent", "claude-cli/"+strings.Repeat("1", maxCorrelationValue))
+	rec := core.CallRecord{Client: "stale", ClientRaw: "stale"}
+	Correlate(h, &rec)
+	if rec.Client != "" || rec.ClientRaw != "" {
+		t.Errorf("oversize User-Agent: Client %q ClientRaw %q, want empty", rec.Client, rec.ClientRaw)
+	}
+}
+
 // credentialHeaders hold secrets. Correlation must neither read them into the
 // record nor log them, and must leave them in place for the forwarder.
 var credentialHeaders = []string{"Authorization", "X-Api-Key", "X-Llm-Proxy-Key", "Proxy-Authorization", "Cookie"}

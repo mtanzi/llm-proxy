@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/mtanzi/llm-proxy/internal/core"
@@ -49,8 +48,12 @@ func Correlate(h http.Header, rec *core.CallRecord) {
 		}
 		f.set(rec, v)
 	}
-	rec.ClientRaw = h.Get("User-Agent")
-	rec.Client = ClientName(rec.ClientRaw)
+	ua := h.Get("User-Agent")
+	if len(ua) > maxCorrelationValue {
+		ua = ""
+	}
+	rec.ClientRaw = ua
+	rec.Client = ClientName(ua)
 }
 
 // ClientName reduces a User-Agent value to its product token: the text before
@@ -68,8 +71,7 @@ func ClientName(userAgent string) string {
 }
 
 func isBool(v string) bool {
-	_, err := strconv.ParseBool(v)
-	return err == nil && (v == "true" || v == "false")
+	return v == "true" || v == "false"
 }
 
 // isTraceparent reports whether v is a W3C traceparent: 00-<32 hex>-<16 hex>-<2 hex>,
