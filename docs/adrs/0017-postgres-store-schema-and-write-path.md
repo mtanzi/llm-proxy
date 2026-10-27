@@ -13,7 +13,7 @@ Date: 2026-10-21
 - **Tables:** `calls` (one row per LLM call, `PRIMARY KEY (id)`, `id` a UUIDv7) and `tool_events` (one row per tool-call half, `PRIMARY KEY (call_id, idx)`, `kind` `use` or `result`, `source` `client` or `server`). Column lists follow backend.md, "Data model", including `context_compacted`; the migrations become the source of truth.
 - **Indexes:** `calls (ts DESC, id DESC)`, `calls (session_key, ts)`, `calls (key_name, ts DESC)`, partial `calls (ts DESC) WHERE error_class IS NOT NULL`; `tool_events (tool_call_id)`, `(ts DESC)`, partial `(tool_name, ts DESC) WHERE kind = 'use'`.
 - **Write path:** one transaction per batch with multi-row `INSERT … ON CONFLICT DO NOTHING` into both tables. The port contract is "idempotent on call id and atomic per batch".
-- **Lifecycle on the concrete adapter:** `postgres.Open(cfg)`, `(*Store).Migrate`, `(*Store).Ping`, `(*Store).DeleteBefore(table, cutoff)` (ADR 0022), `(*Store).Close`.
+- **Lifecycle on the concrete adapter:** `postgres.Open(ctx, cfg)`, `(*Store).Migrate`, `(*Store).Ping`, `(*Store).DeleteBefore(table, cutoff)` (ADR 0022), `(*Store).Close`.
 - **Migrations:** goose SQL files in `internal/store/postgres/migrations/`, embedded with `go:embed`, applied by `serve` at start under goose's session lock, before the listeners open. Every migration is expand then contract, so a one-version rollback needs no restore.
 - Postgres 16 or later. Pool size from `database.max_conns`.
 

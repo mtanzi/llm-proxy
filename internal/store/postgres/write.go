@@ -1,12 +1,15 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -97,10 +100,10 @@ func insert(ctx context.Context, tx pgx.Tx, table string, cols []string, rows []
 func callRow(c *core.CallRecord) []any {
 	u := c.Usage
 	return []any{
-		uuid(c.ID), c.TS, c.KeyName, text(c.Client), text(c.ClientRaw), text(c.ClientRequestID),
+		uuid(c.ID), c.TS, clean(c.KeyName), text(c.Client), text(c.ClientRaw), text(c.ClientRequestID),
 		text(c.SessionKey), text(c.AgentID), text(c.ParentAgentID), text(c.AgentType), text(c.PromptID), text(c.RequestClass),
 		c.Compaction, c.ContextCompacted, text(c.TraceID),
-		c.Family, c.Endpoint, c.AuthMode, c.Provider, text(c.Model), text(c.UpstreamRequestID),
+		clean(c.Family), clean(c.Endpoint), clean(c.AuthMode), clean(c.Provider), text(c.Model), text(c.UpstreamRequestID),
 		status(c.Status), text(c.ErrorClass), text(c.ErrorType), text(c.StopReason), c.Streamed,
 		millis(c.TTFB), millis(c.TTFT), millis(c.Duration), timestamp(c.EndedAt),
 		u.InputUncached, u.CacheRead, u.CacheWrite5m, u.CacheWrite1h, u.Output, u.Reasoning,
@@ -123,14 +126,14 @@ func appendToolRows(rows [][]any, c *core.CallRecord) [][]any {
 	idx := 0
 	for _, r := range c.ToolResults {
 		rows = append(rows, []any{
-			id, idx, c.TS, "result", string(r.Source), r.ToolCallID, nil, r.ResultBytes, r.IsError,
+			id, idx, c.TS, "result", clean(string(r.Source)), clean(r.ToolCallID), nil, r.ResultBytes, r.IsError,
 			session, agent,
 		})
 		idx++
 	}
 	for _, u := range c.ToolUses {
 		rows = append(rows, []any{
-			id, idx, useTS, "use", string(u.Source), u.ToolCallID, text(u.Name), u.ArgBytes, nil,
+			id, idx, useTS, "use", clean(string(u.Source)), clean(u.ToolCallID), text(u.Name), u.ArgBytes, nil,
 			session, agent,
 		})
 		idx++
@@ -140,9 +143,15 @@ func appendToolRows(rows [][]any, c *core.CallRecord) [][]any {
 
 func uuid(id core.ID) pgtype.UUID { return pgtype.UUID{Bytes: id, Valid: true} }
 
+// clean makes s storable in a Postgres text column: NUL bytes are dropped and
+// invalid UTF-8 is replaced with U+FFFD.
+func clean(s string) string {
+	return strings.ToValidUTF8(strings.ReplaceAll(s, "\x00", ""), "\uFFFD")
+}
+
 // text maps the empty string, which means "not known", to NULL.
 func text(s string) any {
-	if s == "" {
+	if s = clean(s); s == "" {
 		return nil
 	}
 	return s
@@ -169,8 +178,10 @@ func timestamp(t time.Time) any {
 	return t
 }
 
+// usageRaw maps a usage object that jsonb would reject to NULL: empty, not
+// valid JSON, not valid UTF-8, or holding a \u0000 escape.
 func usageRaw(raw []byte) any {
-	if len(raw) == 0 {
+	if len(raw) == 0 || !json.Valid(raw) || !utf8.Valid(raw) || bytes.Contains(raw, []byte(`\u0000`)) {
 		return nil
 	}
 	return raw

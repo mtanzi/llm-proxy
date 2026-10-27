@@ -349,12 +349,15 @@ func TestWriteBatchReplayInsertsNothing(t *testing.T) {
 func TestWriteBatchFailedBatchLeavesNothing(t *testing.T) {
 	s, conn := newStore(t)
 	ctx := context.Background()
+	if _, err := conn.Exec(ctx, "ALTER TABLE calls ADD CONSTRAINT reject CHECK (key_name <> 'reject')"); err != nil {
+		t.Fatal(err)
+	}
 	// Enough calls to span several statements, so the failing row is in a
 	// later statement than rows that were already inserted.
 	batch := manyCalls(3000)
-	batch[len(batch)-1].UsageRaw = json.RawMessage(`{"not json`)
+	batch[len(batch)-1].KeyName = "reject"
 	if err := s.WriteBatch(ctx, batch); err == nil {
-		t.Fatal("WriteBatch accepted invalid usage_raw")
+		t.Fatal("WriteBatch accepted a row the constraint rejects")
 	}
 	if n := count(t, conn, "calls"); n != 0 {
 		t.Fatalf("calls = %d after a failed batch, want 0", n)
@@ -364,12 +367,69 @@ func TestWriteBatchFailedBatchLeavesNothing(t *testing.T) {
 	}
 
 	// The same batch, fixed, is written in full.
-	batch[len(batch)-1].UsageRaw = nil
+	batch[len(batch)-1].KeyName = "alice"
 	if err := s.WriteBatch(ctx, batch); err != nil {
 		t.Fatal(err)
 	}
 	if n := count(t, conn, "calls"); n != len(batch) {
 		t.Fatalf("calls = %d, want %d", n, len(batch))
+	}
+}
+
+func TestWriteBatchSanitizesText(t *testing.T) {
+	s, conn := newStore(t)
+	ctx := context.Background()
+	c := fullCall()
+	c.KeyName = "ali\x00ce"
+	c.Provider = "anthro\xffpic"
+	c.ClientRaw = "claude-cli/2.1.0 \xe9t\xe9"
+	c.SessionKey = "sess\x00-1"
+	c.AgentID = "\x00"
+	c.ToolUses = []core.ToolUse{{Source: core.ToolSourceClient, ToolCallID: "tool\x00u_b", Name: "Ba\xffsh"}}
+	c.ToolResults = nil
+	if err := s.WriteBatch(ctx, []core.CallRecord{c}); err != nil {
+		t.Fatal(err)
+	}
+	var keyName, provider, clientRaw, session string
+	var agent *string
+	if err := conn.QueryRow(ctx,
+		"SELECT key_name, provider, client_raw, session_key, agent_id FROM calls").
+		Scan(&keyName, &provider, &clientRaw, &session, &agent); err != nil {
+		t.Fatal(err)
+	}
+	if keyName != "alice" || provider != "anthro\uFFFDpic" || clientRaw != "claude-cli/2.1.0 \uFFFDt\uFFFD" ||
+		session != "sess-1" || agent != nil {
+		t.Errorf("calls row = %q %q %q %q %v", keyName, provider, clientRaw, session, agent)
+	}
+	var toolCall, name, toolSession string
+	if err := conn.QueryRow(ctx, "SELECT tool_call_id, tool_name, session_key FROM tool_events").
+		Scan(&toolCall, &name, &toolSession); err != nil {
+		t.Fatal(err)
+	}
+	if toolCall != "toolu_b" || name != "Ba\uFFFDsh" || toolSession != "sess-1" {
+		t.Errorf("tool event = %q %q %q", toolCall, name, toolSession)
+	}
+}
+
+func TestWriteBatchStoresUnstorableUsageRawAsNull(t *testing.T) {
+	s, conn := newStore(t)
+	ctx := context.Background()
+	var batch []core.CallRecord
+	for i, raw := range []string{`{"not json`, "{\"a\":\"\xff\"}", `{"a":"\u0000"}`} {
+		c := fullCall()
+		c.ID = core.NewIDAt(t0.Add(time.Duration(i) * time.Second))
+		c.UsageRaw = json.RawMessage(raw)
+		batch = append(batch, c)
+	}
+	if err := s.WriteBatch(ctx, batch); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := conn.QueryRow(ctx, "SELECT count(*) FROM calls WHERE usage_raw IS NULL").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != len(batch) {
+		t.Fatalf("calls with NULL usage_raw = %d, want %d", n, len(batch))
 	}
 }
 
