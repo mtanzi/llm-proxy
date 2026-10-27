@@ -1,6 +1,6 @@
 # ADR 0017: Postgres store: schema, migrations and write path
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

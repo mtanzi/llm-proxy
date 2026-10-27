@@ -190,6 +190,7 @@ Do not set `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or `apiKeyHelper`; sign i
 - Migrations belong to the store adapter. The `store/postgres` SQL migrations live in `internal/store/postgres/migrations/` and are embedded in the binary.
 - `serve` applies them with goose at start, under goose's session lock, before it opens the listeners. There is no separate migrate command or container.
 - Every migration is **expand then contract**: a release adds columns, tables or indexes in a backward-compatible way; a later release removes what is no longer used. This keeps one-version rollbacks safe.
+- A shipped migration is never edited. A change is a new numbered migration file.
 - Tables are not partitioned, so there is no partition creation at runtime and no per-partition index build.
 
 ## Storage, retention and sizing
