@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -126,7 +127,7 @@ func TestMigrateFromEmptyIsIdempotent(t *testing.T) {
 		"calls.cost_usd":          "numeric(12,6)",
 		"calls.context_compacted": "boolean",
 		"tool_events.call_id":     "uuid",
-		"tool_events.idx":         "smallint",
+		"tool_events.idx":         "integer",
 	} {
 		if types[col] != want {
 			t.Errorf("%s type = %q, want %q", col, types[col], want)
@@ -411,11 +412,33 @@ func TestWriteBatchSanitizesText(t *testing.T) {
 	}
 }
 
+func TestWriteBatchManyHalvesInOneCall(t *testing.T) {
+	s, conn := newStore(t)
+	c := fullCall()
+	c.ToolResults = nil
+	c.ToolUses = make([]core.ToolUse, 40000)
+	for i := range c.ToolUses {
+		c.ToolUses[i] = core.ToolUse{Source: core.ToolSourceClient, ToolCallID: "toolu_" + strconv.Itoa(i), Name: "Bash"}
+	}
+	if err := s.WriteBatch(context.Background(), []core.CallRecord{c}); err != nil {
+		t.Fatal(err)
+	}
+	var n, maxIdx int
+	if err := conn.QueryRow(context.Background(), "SELECT count(*), max(idx) FROM tool_events").Scan(&n, &maxIdx); err != nil {
+		t.Fatal(err)
+	}
+	if n != len(c.ToolUses) || maxIdx != len(c.ToolUses)-1 {
+		t.Fatalf("tool events = %d, max idx = %d, want %d, %d", n, maxIdx, len(c.ToolUses), len(c.ToolUses)-1)
+	}
+}
+
 func TestWriteBatchStoresUnstorableUsageRawAsNull(t *testing.T) {
 	s, conn := newStore(t)
 	ctx := context.Background()
 	var batch []core.CallRecord
-	for i, raw := range []string{`{"not json`, "{\"a\":\"\xff\"}", `{"a":"\u0000"}`} {
+	for i, raw := range []string{
+		`{"not json`, "{\"a\":\"\xff\"}", `{"a":"\u0000"}`, `{"a":"\ud800"}`, `{"a":"\uDC00x"}`,
+	} {
 		c := fullCall()
 		c.ID = core.NewIDAt(t0.Add(time.Duration(i) * time.Second))
 		c.UsageRaw = json.RawMessage(raw)

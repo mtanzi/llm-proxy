@@ -1,11 +1,11 @@
 package postgres
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -178,10 +178,14 @@ func timestamp(t time.Time) any {
 	return t
 }
 
+// unstorableEscape matches the escapes jsonb may reject: \u0000, and the
+// surrogate escapes, which it rejects when unpaired.
+var unstorableEscape = regexp.MustCompile(`\\u(0000|[dD][89a-fA-F])`)
+
 // usageRaw maps a usage object that jsonb would reject to NULL: empty, not
-// valid JSON, not valid UTF-8, or holding a \u0000 escape.
+// valid JSON, not valid UTF-8, or holding an unstorable escape.
 func usageRaw(raw []byte) any {
-	if len(raw) == 0 || !json.Valid(raw) || !utf8.Valid(raw) || bytes.Contains(raw, []byte(`\u0000`)) {
+	if len(raw) == 0 || !json.Valid(raw) || !utf8.Valid(raw) || unstorableEscape.Match(raw) {
 		return nil
 	}
 	return raw

@@ -521,7 +521,7 @@ CREATE INDEX ON calls (ts DESC) WHERE error_class IS NOT NULL;
 -- One row per tool-call half. Append-only. Pairing happens at read time.
 CREATE TABLE tool_events (
   call_id       uuid NOT NULL,                 -- the call that carried this half
-  idx           smallint NOT NULL,             -- position within that call
+  idx           integer NOT NULL,              -- position within that call
   ts            timestamptz NOT NULL,          -- use: response end; result: request start
   kind          text NOT NULL,                 -- 'use' | 'result'
   source        text NOT NULL,                 -- 'client' | 'server'
