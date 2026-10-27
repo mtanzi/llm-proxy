@@ -480,7 +480,7 @@ If the store is down, `WriteBatch` fails, the writer retries with backoff and th
 
 ## Data model
 
-This section describes the schema of the `store/postgres` adapter. It is the adapter's private detail: nothing outside `internal/store/postgres` knows these table names, and another adapter may lay data out differently as long as it passes the [contract suite](#contract-test-suite). Column lists are indicative; the migrations are the source of truth once they exist.
+This section describes the schema of the `store/postgres` adapter. It is the adapter's private detail: nothing outside `internal/store/postgres` knows these table names, and another adapter may lay data out differently as long as it passes the [contract suite](#contract-test-suite). Column lists are indicative; the migrations in `internal/store/postgres/migrations/` are the source of truth.
 
 Two plain tables, unpartitioned, both written by insert only:
 

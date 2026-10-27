@@ -55,7 +55,7 @@ type CallRecord struct {
 
 	Family            string
 	Endpoint          string
-	AuthMode          string // proxy_key or oauth_passthrough
+	AuthMode          string // proxy_key or client_passthrough
 	Provider          string
 	Model             string // as the client asked for it
 	UpstreamRequestID string
