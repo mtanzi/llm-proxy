@@ -19,6 +19,8 @@ type CallFilter struct {
 	Clients        []string
 	Providers      []string
 	Models         []string
+	Endpoints      []string
+	Streamed       *bool
 	Statuses       []int
 	ErrorClasses   []string
 	SessionKey     string
@@ -55,6 +57,7 @@ func (f CallFilter) Match(c CallRecord, tools []ToolCall) bool {
 		!in(f.Clients, c.Client),
 		!in(f.Providers, c.Provider),
 		!in(f.Models, c.Model),
+		!in(f.Endpoints, c.Endpoint),
 		!in(f.Statuses, c.Status),
 		!in(f.ErrorClasses, c.ErrorClass),
 		!in(f.AgentTypes, c.AgentType),
@@ -63,6 +66,9 @@ func (f CallFilter) Match(c CallRecord, tools []ToolCall) bool {
 	case f.SessionKey != "" && f.SessionKey != c.SessionKey,
 		f.AgentID != "" && f.AgentID != c.AgentID,
 		f.PromptID != "" && f.PromptID != c.PromptID:
+		return false
+	}
+	if f.Streamed != nil && *f.Streamed != c.Streamed {
 		return false
 	}
 	if len(f.Tools) > 0 || f.ToolError != nil {

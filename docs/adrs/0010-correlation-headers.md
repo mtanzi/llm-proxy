@@ -1,6 +1,6 @@
 # ADR 0010: Correlation headers
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
@@ -32,7 +32,7 @@ Crewmates set the hint-header variable (Accepted ADR 0042, D5). This ADR parses 
 - Implement the header table and the extraction function in `proxy`, with unknown or malformed values stored as null rather than failing the request.
 - Implement `User-Agent` normalisation with table tests (including odd and empty values).
 - Test that correlation never reads or logs credentials, and that a request without `x-claude-code-session-id` gets a null `session_key`.
-- Capture a real Claude Code request with and without hint headers and store the header set as a test fixture (ADR 0038).
+- Store a Claude Code header set with and without hint headers as a test fixture (ADR 0038). The fixture is written from the header names in Anthropic's gateway compatibility guide. The real Claude Code capture, with and without hint headers, is done under ADR 0040's end-to-end verification and replaces this fixture under ADR 0038.
 
 ## Depends on
 

@@ -1,0 +1,25 @@
+{
+  "_note": "Written from the header names in Anthropic's gateway compatibility guide (https://code.claude.com/docs/en/llm-gateway-protocol), not captured from a live client. A real capture replaces it under ADR 0038. Credential values are placeholders.",
+  "without_hint_headers": {
+    "User-Agent": "claude-cli/2.1.290 (external, cli)",
+    "Authorization": "Bearer lp_placeholder",
+    "Anthropic-Version": "2023-06-01",
+    "X-Claude-Code-Session-Id": "6f1c2d3e-8a4b-4c5d-9e0f-1a2b3c4d5e6f",
+    "X-Claude-Code-Agent-Id": "agent-0001"
+  },
+  "with_hint_headers": {
+    "User-Agent": "claude-cli/2.1.290 (external, cli)",
+    "Authorization": "Bearer lp_placeholder",
+    "Anthropic-Version": "2023-06-01",
+    "X-Claude-Code-Session-Id": "6f1c2d3e-8a4b-4c5d-9e0f-1a2b3c4d5e6f",
+    "X-Claude-Code-Agent-Id": "agent-0002",
+    "X-Claude-Code-Parent-Agent-Id": "agent-0001",
+    "X-Claude-Code-Agent-Type": "Explore",
+    "X-Claude-Code-Prompt-Id": "prompt-0042",
+    "X-Claude-Code-Request-Class": "subagent",
+    "X-Claude-Code-Compaction": "false",
+    "X-Claude-Code-Context-Compacted": "true",
+    "X-Claude-Code-Prev-Tool-Durations": "{\"Bash\":1200,\"Read\":35}",
+    "Traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+  }
+}

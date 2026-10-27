@@ -43,14 +43,15 @@ type CallRecord struct {
 	ClientRaw       string
 	ClientRequestID string
 
-	SessionKey    string
-	AgentID       string
-	ParentAgentID string
-	AgentType     string
-	PromptID      string
-	RequestClass  string
-	Compaction    bool
-	TraceID       string
+	SessionKey       string
+	AgentID          string
+	ParentAgentID    string
+	AgentType        string
+	PromptID         string
+	RequestClass     string
+	Compaction       bool
+	ContextCompacted bool
+	TraceID          string
 
 	Family            string
 	Endpoint          string
