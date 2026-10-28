@@ -1,0 +1,32 @@
+{
+  "Usage": {
+    "InputTokens": 10,
+    "OutputTokens": 20,
+    "CacheReadInputTokens": 7,
+    "CacheCreationInputTokens": 5,
+    "Ephemeral5mInputTokens": 5,
+    "Ephemeral1hInputTokens": 0
+  },
+  "UsageRaw": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 5,
+    "cache_read_input_tokens": 7,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 5,
+      "ephemeral_1h_input_tokens": 0
+    },
+    "output_tokens": 20
+  },
+  "StopReason": "tool_use",
+  "ErrorType": "",
+  "ToolUses": [
+    {
+      "Source": "client",
+      "ToolCallID": "toolu_01A",
+      "Name": "Read",
+      "ArgBytes": 26
+    }
+  ],
+  "Complete": true,
+  "Partial": false
+}

@@ -70,11 +70,18 @@ type env struct {
 	baseURL  string
 	authMode string
 	logger   *slog.Logger // nil discards
+
+	idle      string    // provider idle_timeout; empty keeps the default
+	extractor Extractor // nil keeps no response facts
 }
 
 func (e *env) yaml() string {
 	e.cfgMu.Lock()
 	defer e.cfgMu.Unlock()
+	idleLine := ""
+	if e.idle != "" {
+		idleLine = "\n    idle_timeout: " + e.idle
+	}
 	return fmt.Sprintf(`
 database: { url: { env: DB } }
 providers:
@@ -82,11 +89,11 @@ providers:
     kind: anthropic
     base_url: %s
     auth_mode: %s
-    credential: { env: PROVKEY }
+    credential: { env: PROVKEY }%s
 keys:
   - name: alice
     sha256: %s
-`, e.baseURL, e.authMode, hashOf(clientKey))
+`, e.baseURL, e.authMode, idleLine, hashOf(clientKey))
 }
 
 // setBaseURL changes the upstream the next Reload points at.
@@ -96,11 +103,11 @@ func (e *env) setBaseURL(u string) {
 	e.cfgMu.Unlock()
 }
 
-func newEnv(t *testing.T, upstream http.Handler, tap Tap) *env {
+func newEnv(t *testing.T, upstream http.Handler, tap Tap, opts ...func(*env)) *env {
 	t.Helper()
 	up := httptest.NewServer(upstream)
 	t.Cleanup(up.Close)
-	return newEnvURL(t, up.URL, tap)
+	return newEnvURL(t, up.URL, tap, opts...)
 }
 
 // newEnvMode is newEnv for a provider with the given auth_mode. A non-nil
@@ -123,9 +130,13 @@ func newEnvModeTap(t *testing.T, mode string, logger *slog.Logger, tap Tap) *env
 	return startEnv(t, &env{baseURL: up.URL, authMode: mode, rec: newFakeRecorder(), logger: logger}, tap)
 }
 
-func newEnvURL(t *testing.T, upstreamURL string, tap Tap) *env {
+func newEnvURL(t *testing.T, upstreamURL string, tap Tap, opts ...func(*env)) *env {
 	t.Helper()
-	return startEnv(t, &env{baseURL: upstreamURL, authMode: config.AuthProxyKey, rec: newFakeRecorder()}, tap)
+	e := &env{baseURL: upstreamURL, authMode: config.AuthProxyKey, rec: newFakeRecorder()}
+	for _, o := range opts {
+		o(e)
+	}
+	return startEnv(t, e, tap)
 }
 
 func startEnv(t *testing.T, e *env, tap Tap) *env {
@@ -156,7 +167,7 @@ func (e *env) start(t *testing.T, tap Tap, mw func(http.Handler) http.Handler) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	h := NewHandler(e.holder, Options{Recorder: e.rec, Tap: tap, Logger: logger})
+	h := NewHandler(e.holder, Options{Recorder: e.rec, Extractor: e.extractor, Tap: tap, Logger: logger})
 	var root http.Handler = NewMux(h)
 	if mw != nil {
 		root = mw(root)

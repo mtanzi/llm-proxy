@@ -38,8 +38,9 @@ type Recorder interface {
 	Finished(core.CallRecord)
 }
 
-// Tap is the ModifyResponse hook of ADR 0013. It runs once per upstream
-// response, before the response reaches the client. It may replace resp.Body
+// Tap is an extra ModifyResponse hook. It runs once per upstream response,
+// before the response reaches the client, after the built-in tap (ADR 0013)
+// has wrapped resp.Body. It may replace resp.Body
 // with a reader that scans the stream and passes every byte on unchanged, and
 // it may fill rec as the exchange proceeds. request is the one read of the
 // request body. The handler finishes rec only after the response body is
@@ -48,9 +49,10 @@ type Tap func(rec *core.CallRecord, request []byte, resp *http.Response)
 
 // Options configures a Handler. The zero value forwards and records nothing.
 type Options struct {
-	Recorder Recorder // nil drops finished calls
-	Tap      Tap      // nil installs no tap
-	Logger   *slog.Logger
+	Recorder  Recorder  // nil drops finished calls
+	Extractor Extractor // nil keeps no response facts
+	Tap       Tap       // nil adds no hook after the built-in tap
+	Logger    *slog.Logger
 }
 
 // Handler forwards the Anthropic data-plane endpoints to the configured
@@ -60,13 +62,14 @@ type Handler struct {
 	snaps      Snapshots
 	transports *Transports
 	recorder   Recorder
+	extractor  Extractor
 	tap        Tap
 	log        *slog.Logger
 }
 
 // NewHandler returns a Handler that reads its providers and keys from snaps.
 func NewHandler(snaps Snapshots, o Options) *Handler {
-	h := &Handler{snaps: snaps, transports: NewTransports(), recorder: o.Recorder, tap: o.Tap, log: o.Logger}
+	h := &Handler{snaps: snaps, transports: NewTransports(), recorder: o.Recorder, extractor: o.Extractor, tap: o.Tap, log: o.Logger}
 	if h.log == nil {
 		h.log = slog.New(slog.DiscardHandler)
 	}
@@ -169,6 +172,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// A stream outlasts any fixed write deadline.
 	_ = httpmw.ClearWriteDeadline(w)
 
+	// The idle watchdog cancels the upstream request through this context.
+	// The client's own context stays on r, so a client abort is still told
+	// apart from a timeout.
+	upstreamCtx, cancel := context.WithCancelCause(r.Context())
+	defer cancel(nil)
+	f.wd = newWatchdog(provider.IdleTimeout.Std(), cancel)
+	defer f.wd.Disarm()
+
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))
 	rp := &httputil.ReverseProxy{
@@ -178,7 +189,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ModifyResponse: f.modifyResponse,
 		ErrorHandler:   f.errorHandler,
 	}
-	rp.ServeHTTP(w, r)
+	rp.ServeHTTP(w, r.WithContext(upstreamCtx))
 }
 
 // pickProvider returns the one Anthropic provider of v1.
@@ -224,11 +235,13 @@ type flight struct {
 	body  []byte
 	start time.Time
 	reqID string
+	wd    *watchdog
 
 	failure core.FailureKind
 }
 
-// modifyResponse records the upstream facts and installs the tap. Response
+// modifyResponse records the upstream facts and installs the tap. The headers
+// have arrived, so the watchdog rests until the tap reads. Response
 // headers otherwise pass through. The proxy's call id replaces any
 // x-request-id the upstream sent; the upstream's own id is kept as
 // upstream_request_id.
@@ -238,6 +251,8 @@ func (f *flight) modifyResponse(resp *http.Response) error {
 	f.rec.UpstreamRequestID = resp.Header.Get(headerUpstreamRequest)
 	f.rec.Streamed = strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")
 	resp.Header.Del(httpmw.HeaderRequestID)
+	f.wd.Disarm()
+	resp.Body = newTap(f, resp)
 	if f.h.tap != nil {
 		f.h.tap(f.rec, f.body, resp)
 	}
@@ -249,6 +264,10 @@ func (f *flight) modifyResponse(resp *http.Response) error {
 // call is still logged.
 func (f *flight) errorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case f.wd.Fired():
+		f.failure = core.FailureIdleTimeout
+		f.rec.Status = http.StatusGatewayTimeout
+		httpmw.WriteError(w, anthropic.UpstreamTimeoutError(f.reqID))
 	case r.Context().Err() != nil:
 		f.failure = core.FailureClientAbort
 		f.rec.Status = 499

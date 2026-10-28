@@ -1,6 +1,6 @@
 # ADR 0013: Tap: incremental response scanner
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

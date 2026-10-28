@@ -1,0 +1,26 @@
+{
+  "Usage": {
+    "InputTokens": 25,
+    "OutputTokens": 12,
+    "CacheReadInputTokens": 100,
+    "CacheCreationInputTokens": 40,
+    "Ephemeral5mInputTokens": 40,
+    "Ephemeral1hInputTokens": 0
+  },
+  "UsageRaw": {
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 40,
+      "ephemeral_1h_input_tokens": 0
+    },
+    "cache_creation_input_tokens": 40,
+    "cache_read_input_tokens": 100,
+    "input_tokens": 25,
+    "output_tokens": 12,
+    "service_tier": "standard"
+  },
+  "StopReason": "end_turn",
+  "ErrorType": "",
+  "ToolUses": null,
+  "Complete": true,
+  "Partial": false
+}
