@@ -267,3 +267,13 @@ func (c *Config) resolve(o Options) []error {
 	}
 	return errs
 }
+
+// PriceVersions returns the pricing entries as core.PriceVersion, the type
+// core.SelectPrice and core.CostAt take.
+func (c *Config) PriceVersions() []core.PriceVersion {
+	vs := make([]core.PriceVersion, len(c.Pricing))
+	for i, p := range c.Pricing {
+		vs[i] = core.PriceVersion{Provider: p.Provider, Model: p.Model, From: p.From.Time(), Price: p.Price()}
+	}
+	return vs
+}

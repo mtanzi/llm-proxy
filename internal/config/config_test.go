@@ -426,3 +426,17 @@ func TestViewListsNamesNotHashes(t *testing.T) {
 		}
 	}
 }
+
+func TestPriceVersions(t *testing.T) {
+	cfg, err := loadFile(t, "testdata/valid.yaml", validOpts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	vs := cfg.PriceVersions()
+	if len(vs) != len(cfg.Pricing) || len(vs) == 0 {
+		t.Fatalf("price versions = %d, pricing = %d", len(vs), len(cfg.Pricing))
+	}
+	if got := vs[0]; got.Provider != cfg.Pricing[0].Provider || got.Version() != cfg.Pricing[0].From.String() || got.Price != cfg.Pricing[0].Price() {
+		t.Errorf("price version = %+v", got)
+	}
+}
