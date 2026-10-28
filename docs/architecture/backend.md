@@ -210,6 +210,8 @@ After building the record, the proxy computes cost from the pricing snapshot, dr
 
 The idle watchdog can fire before or after the response headers. Before headers the proxy builds the 504. After headers the status line has gone to the client, so the proxy ends the stream and the record gets `error_class = timeout`. The `type` column applies to bodies the proxy builds in `family/anthropic` (pure functions returning status, headers and body). Upstream error bodies are never rebuilt: they reach the client unchanged with `x-request-id` added, and the provider's own `type` (for example `overloaded_error`) is stored as `error_type`. The body shape is `{"type":"error","error":{"type":"<type>","message":"<text>"},"request_id":"<call id>"}`.
 
+A path or method the data plane does not serve gets a proxy-generated 404 with `type` `not_found_error`. It is not a call, so it has no `error_class` and no call record.
+
 ### Recorder (`recorder` package)
 
 The one "finished call" use case. It receives `Finished` events from the proxy and does three things, none of them blocking:

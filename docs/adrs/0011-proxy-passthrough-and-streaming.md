@@ -1,6 +1,6 @@
 # ADR 0011: Proxy passthrough and streaming
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

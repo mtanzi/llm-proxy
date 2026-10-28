@@ -2,15 +2,16 @@ package proxy
 
 import "net/http"
 
-// NewMux returns the data-plane mux: the routes of ADR 0006. The handlers are
-// placeholders until the ADRs that own them land: forwarding (ADR 0011) and
-// health (ADR 0026).
-func NewMux() *http.ServeMux {
+// NewMux returns the data-plane mux: the routes of ADR 0006. Forwarding is
+// ADR 0011; health is a placeholder until ADR 0026. Every other path gets the
+// protocol 404.
+func NewMux(h *Handler) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/", notImplemented)
-	mux.HandleFunc("HEAD /api/hello", notImplemented)
+	mux.Handle("/v1/", h)
+	mux.HandleFunc("HEAD /api/hello", Hello)
 	mux.HandleFunc("/healthz", notImplemented)
 	mux.HandleFunc("/readyz", notImplemented)
+	mux.HandleFunc("/", NotFound)
 	return mux
 }
 

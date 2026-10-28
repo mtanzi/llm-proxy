@@ -10,6 +10,7 @@ import (
 const (
 	ErrTypeAuthentication  = "authentication_error"
 	ErrTypeInvalidRequest  = "invalid_request_error"
+	ErrTypeNotFound        = "not_found_error"
 	ErrTypeRequestTooLarge = "request_too_large"
 	ErrTypeAPI             = "api_error"
 	ErrTypeTimeout         = "timeout_error"
@@ -70,6 +71,11 @@ func OversizeBodyError(requestID string) ErrorResponse {
 // MalformedRequestError is the 400 for a request the proxy cannot read.
 func MalformedRequestError(requestID string) ErrorResponse {
 	return newError(http.StatusBadRequest, ErrTypeInvalidRequest, "malformed request", requestID)
+}
+
+// NotFoundError is the 404 for a path or method the proxy does not serve.
+func NotFoundError(requestID string) ErrorResponse {
+	return newError(http.StatusNotFound, ErrTypeNotFound, "not found", requestID)
 }
 
 // UpstreamUnreachableError is the 502 for an upstream the proxy cannot reach.
