@@ -38,7 +38,7 @@ providers:
 
 - `credential` resolves to an env var or a file. It is read at start and on `SIGHUP`. No API returns it, it is redacted from every log, and no call record holds it.
 - Pricing is in the same file ([deployment.md](deployment.md#configuration)). The model name in a request is forwarded as sent.
-- Per-provider timeouts other than `idle_timeout` use the `http.Transport` defaults in v1.
+- Per-provider timeouts other than `idle_timeout` are not configurable in v1. Every provider gets the same fixed dial and time-to-headers timeouts ([backend.md](backend.md#proxy-passthrough-and-streaming)).
 - One provider may later hold a pool of keys to spread upstream rate limits (gap review B8). v1 has one key per provider.
 
 ## Credential modes
