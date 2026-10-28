@@ -69,7 +69,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0015](0015-pricing-and-cost-computation.md) | Pricing and cost computation | Accepted | 0003, 0004 |
 | [0016](0016-recorder-queue-and-batch-writer.md) | Recorder: live fan-out, bounded queue and batch writer | Accepted | 0003, 0014 |
 | [0017](0017-postgres-store-schema-and-write-path.md) | Postgres store: schema, migrations and write path | Completed | 0002, 0003, 0004 |
-| [0018](0018-contract-test-suite-and-postgres-test-harness.md) | Contract test suite and Postgres test harness | Accepted | 0003, 0017 |
+| [0018](0018-contract-test-suite-and-postgres-test-harness.md) | Contract test suite and Postgres test harness | Completed | 0003, 0017 |
 | [0019](0019-postgres-callreader-lists-filters-and-pagination.md) | Postgres `CallReader`: lists, filters, pagination and call detail | Accepted | 0017, 0018 |
 | [0020](0020-postgres-read-time-derivation-tools-sessions-agents.md) | Postgres read-time derivation: tool pairing, sessions and agents | Accepted | 0019 |
 | [0021](0021-postgres-usage-aggregation.md) | Postgres usage aggregation | Accepted | 0019 |

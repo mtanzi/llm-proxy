@@ -17,9 +17,9 @@ One Go module, one static binary `llm-proxy` built from `cmd/llm-proxy`. Everyth
 | `ui` | Embedded web UI | `core`, application packages |
 | `config` | Configuration | `core`, `yaml` (`go.yaml.in/yaml/v3`) |
 | `store/postgres` | Postgres adapter | `core`, drivers (`pgx`, goose); its tests and `pgtest` also `testcontainers-go` |
-| `store/storetest` | Shared store contract tests | `core` |
+| `store/storetest` | Shared store contract tests | `core`, `store/postgres` |
 
-Only `cmd/llm-proxy` imports `store/postgres`. A new package needs a reason.
+Only `cmd/llm-proxy` and the test-only contract suite `store/storetest` import `store/postgres`. A new package needs a reason.
 
 ## Checks
 
@@ -32,6 +32,15 @@ make check-imports  # depguard rules only
 ```
 
 The store tests in `internal/store/...` need a real Postgres. They start a `postgres:16-alpine` container with testcontainers-go when Docker is running, or use the server in `LLM_PROXY_TEST_DATABASE_URL` (a URL whose user may create databases); without either they skip. Each test gets its own throwaway database.
+
+The contract suite `storetest.Run` runs against the Postgres adapter from `internal/store/postgres/storetest_test.go`. To run it alone, or all store tests against a local Postgres:
+
+```
+go test ./internal/store/postgres -run TestContract -v
+LLM_PROXY_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' go test ./internal/store/...
+```
+
+CI runs it in the `postgres` job against a Postgres service container. A new filter, port method or behaviour starts as a case in a group under `internal/store/storetest`; the suite also scans every stored text and `jsonb` value for the fake prompt, response and tool text of its record generator.
 
 The `depguard` rules in `.golangci.yml` encode the table above. CI runs build, vet and tests on the latest two Go releases, and lint and the import check once.
 
