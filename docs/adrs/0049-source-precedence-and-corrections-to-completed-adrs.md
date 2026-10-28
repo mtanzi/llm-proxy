@@ -1,6 +1,6 @@
 # ADR 0049: Source precedence and corrections to Completed ADRs
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-26
 

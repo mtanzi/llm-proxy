@@ -97,10 +97,10 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0043](0043-short-tool-snippets.md) | Short tool snippets (D11) | Accepted | 0014, 0034 |
 | [0044](0044-provider-error-message-text.md) | Provider error message text (D12) | Accepted | 0014, 0032 |
 | [0045](0045-opt-in-per-key-body-capture.md) | Opt-in per-key body capture (D13) | Accepted | 0002, 0014 |
-| [0046](0046-adopt-gap-review-defaults.md) | Adopt the gap-review defaults (D9 and D10) | Accepted | 0002 |
+| [0046](0046-adopt-gap-review-defaults.md) | Adopt the gap-review defaults (D9 and D10) | Completed | 0002 |
 | [0047](0047-credential-modes-one-fixed-auth-mode-per-provider.md) | Credential modes: one fixed auth mode per provider | Accepted | 0004, 0008, 0012 |
 | [0048](0048-call-record-and-filter-changes.md) | Call record and filter changes | Accepted | 0003, 0010, 0014, 0017 |
-| [0049](0049-source-precedence-and-corrections-to-completed-adrs.md) | Source precedence and corrections to Completed ADRs | Accepted | 0001, 0003, 0004 |
+| [0049](0049-source-precedence-and-corrections-to-completed-adrs.md) | Source precedence and corrections to Completed ADRs | Completed | 0001, 0003, 0004 |
 
 ## Suggested implementation order
 
@@ -113,7 +113,7 @@ The phase numbers below are the v1 plan, with these meanings: 1 proxy core, 2 co
 5. **UI (phase 3):** 0029, 0030, then 0031 to 0035 (views, mostly in parallel).
 6. **Ship and verify:** 0036 (image), 0037 (deployment guide), 0038 (e2e tests and fixtures), 0039 (performance).
 7. **Firstmate (phase 5):** 0040 (routing and ledger reporter), with keys issued by hand. v1 ends at 0040.
-8. **Accepted decisions:** 0042 to 0046 are Accepted with their recommended options: hint headers on for crewmates (0042, D5), no tool snippets (0043, D11), no provider error text (0044, D12), no per-key body capture (0045, D13), and the gap-review defaults (0046, D9, D10). They need no phase: the ADRs they touch already assume them. Set the hint-header variable when 0040 first routes Claude Code through the proxy.
+8. **Accepted decisions:** 0042 to 0045 are Accepted with their recommended options: hint headers on for crewmates (0042, D5), no tool snippets (0043, D11), no provider error text (0044, D12), and no per-key body capture (0045, D13). The gap-review defaults (0046, D9, D10) are Completed: their decisions are recorded in the ADR table. They need no phase: the ADRs they touch already assume them. Set the hint-header variable when 0040 first routes Claude Code through the proxy.
 9. **Amendments to Completed ADRs:** 0047 (credential modes), 0048 (call record and filter changes) and 0049 (precedence and corrections) change code that already landed. Their "Work required" lists land with, or just before, the ADRs they edit in place: 0047 with 0012, 0048 with 0010, 0014, 0016, 0019 and 0025.
 10. **Deferred:** 0041 (per-task key injection) is out of v1. Its trigger is "manual key issuing becomes the bottleneck".
 
