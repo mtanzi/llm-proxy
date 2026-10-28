@@ -69,6 +69,7 @@ type env struct {
 	cfgMu    sync.Mutex
 	baseURL  string
 	authMode string
+	logger   *slog.Logger // nil discards
 }
 
 func (e *env) yaml() string {
@@ -102,9 +103,33 @@ func newEnv(t *testing.T, upstream http.Handler, tap Tap) *env {
 	return newEnvURL(t, up.URL, tap)
 }
 
+// newEnvMode is newEnv for a provider with the given auth_mode. A non-nil
+// logger receives the handler's and the middleware's logs.
+func newEnvMode(t *testing.T, upstream http.Handler, mode string, logger *slog.Logger) *env {
+	t.Helper()
+	up := httptest.NewServer(upstream)
+	t.Cleanup(up.Close)
+	return startEnv(t, &env{baseURL: up.URL, authMode: mode, rec: newFakeRecorder(), logger: logger}, nil)
+}
+
+// newEnvModeTap is newEnvMode with a tap and a trivial upstream.
+func newEnvModeTap(t *testing.T, mode string, logger *slog.Logger, tap Tap) *env {
+	t.Helper()
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(up.Close)
+	return startEnv(t, &env{baseURL: up.URL, authMode: mode, rec: newFakeRecorder(), logger: logger}, tap)
+}
+
 func newEnvURL(t *testing.T, upstreamURL string, tap Tap) *env {
 	t.Helper()
-	e := &env{baseURL: upstreamURL, authMode: config.AuthProxyKey, rec: newFakeRecorder()}
+	return startEnv(t, &env{baseURL: upstreamURL, authMode: config.AuthProxyKey, rec: newFakeRecorder()}, tap)
+}
+
+func startEnv(t *testing.T, e *env, tap Tap) *env {
+	t.Helper()
 	e.holder = config.NewHolder("cfg.yaml", config.Options{
 		ReadFile: func(string) ([]byte, error) { return []byte(e.yaml()), nil },
 		LookupEnv: func(k string) (string, bool) {
@@ -127,12 +152,16 @@ func newEnvURL(t *testing.T, upstreamURL string, tap Tap) *env {
 
 func (e *env) start(t *testing.T, tap Tap, mw func(http.Handler) http.Handler) {
 	t.Helper()
-	h := NewHandler(e.holder, Options{Recorder: e.rec, Tap: tap})
+	logger := e.logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	h := NewHandler(e.holder, Options{Recorder: e.rec, Tap: tap, Logger: logger})
 	var root http.Handler = NewMux(h)
 	if mw != nil {
 		root = mw(root)
 	}
-	e.proxy = httptest.NewServer(httpmw.Wrap(root, httpmw.Options{Logger: slog.New(slog.DiscardHandler), MaxRequestBytes: 64 << 10}))
+	e.proxy = httptest.NewServer(httpmw.Wrap(root, httpmw.Options{Logger: logger, MaxRequestBytes: 64 << 10}))
 	t.Cleanup(e.proxy.Close)
 }
 
@@ -248,7 +277,6 @@ func TestVirtualKeyNeverReachesUpstream(t *testing.T) {
 	resp := e.do(t, "POST", "/v1/messages", "{}",
 		"Authorization", "Bearer "+clientKey,
 		"X-Api-Key", "lp_other_key",
-		"X-Llm-Proxy-Key", "lp_third_key",
 		"Anthropic-Beta", "prompt-caching-scope-2026-01-05",
 	)
 	_ = readAll(t, resp.Body)
@@ -259,9 +287,6 @@ func TestVirtualKeyNeverReachesUpstream(t *testing.T) {
 				t.Errorf("header %s carries a virtual key: %q", k, v)
 			}
 		}
-	}
-	if up.header.Get("X-Llm-Proxy-Key") != "" {
-		t.Error("x-llm-proxy-key reached upstream")
 	}
 	if up.header.Get("Anthropic-Beta") != "prompt-caching-scope-2026-01-05" {
 		t.Errorf("anthropic-beta = %q", up.header.Get("Anthropic-Beta"))
@@ -661,31 +686,5 @@ func TestTransportSettings(t *testing.T) {
 	tr := newTransport()
 	if tr.ResponseHeaderTimeout <= 0 || tr.DialContext == nil || !tr.ForceAttemptHTTP2 || tr.Proxy != nil {
 		t.Errorf("transport %+v", tr)
-	}
-}
-
-func TestClientPassthroughProviderIsRefused(t *testing.T) {
-	hit := make(chan seen, 1)
-	up := httptest.NewServer(capture(hit, nil))
-	t.Cleanup(up.Close)
-	e := &env{baseURL: up.URL, authMode: config.AuthClientPassthrough, rec: newFakeRecorder()}
-	e.holder = config.NewHolder("cfg.yaml", config.Options{
-		ReadFile:  func(string) ([]byte, error) { return []byte(e.yaml()), nil },
-		LookupEnv: func(k string) (string, bool) { return "v", k == "DB" || k == "PROVKEY" },
-		BuildKeys: func(keys []core.Key) (config.KeyIndex, error) { return keyring.New(keys) },
-	}, nil)
-	if err := e.holder.Load(); err != nil {
-		t.Fatal(err)
-	}
-	e.start(t, nil, nil)
-	resp := e.do(t, "POST", "/v1/messages", "{}", auth()...)
-	_ = readAll(t, resp.Body)
-	if resp.StatusCode != 500 {
-		t.Errorf("status %d, want 500", resp.StatusCode)
-	}
-	select {
-	case <-hit:
-		t.Error("request reached the upstream")
-	default:
 	}
 }

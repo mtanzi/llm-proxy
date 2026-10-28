@@ -1,6 +1,6 @@
 # ADR 0012: Client passthrough mode and subscription setup
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

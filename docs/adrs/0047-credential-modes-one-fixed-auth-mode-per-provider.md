@@ -1,6 +1,6 @@
 # ADR 0047: Credential modes: one fixed auth mode per provider
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-26
 
