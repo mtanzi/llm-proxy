@@ -54,6 +54,12 @@ type Scanner interface {
 	Facts() Facts
 }
 
+// RequestStreams reports whether a /v1/messages request body asks for a
+// streamed response.
+func RequestStreams(body []byte) bool {
+	return gjson.GetBytes(body, "stream").Bool()
+}
+
 // NewScanner returns a Scanner for an SSE response when streamed is true, and
 // for a single JSON body otherwise.
 func NewScanner(streamed bool) Scanner {

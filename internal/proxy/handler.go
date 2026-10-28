@@ -174,11 +174,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// The idle watchdog cancels the upstream request through this context.
 	// The client's own context stays on r, so a client abort is still told
-	// apart from a timeout.
+	// apart from a timeout. Before the headers it watches only a streaming
+	// request, whose headers come at once; a non-streaming request sends no
+	// header until the model has finished, so the transport's response-header
+	// timeout bounds that wait.
 	upstreamCtx, cancel := context.WithCancelCause(r.Context())
 	defer cancel(nil)
 	f.wd = newWatchdog(provider.IdleTimeout.Std(), cancel)
 	defer f.wd.Disarm()
+	if anthropic.RequestStreams(body) {
+		f.wd.Arm()
+	}
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength = int64(len(body))

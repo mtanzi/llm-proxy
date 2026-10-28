@@ -22,11 +22,12 @@ type watchdog struct {
 	cancel context.CancelCauseFunc
 }
 
-// newWatchdog returns an armed watchdog that cancels with errIdleTimeout after
-// idle of silence.
+// newWatchdog returns a disarmed watchdog that, once armed, cancels with
+// errIdleTimeout after idle of silence.
 func newWatchdog(idle time.Duration, cancel context.CancelCauseFunc) *watchdog {
 	w := &watchdog{idle: idle, cancel: cancel}
 	w.timer = time.AfterFunc(idle, w.fire)
+	w.timer.Stop()
 	return w
 }
 

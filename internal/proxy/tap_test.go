@@ -235,7 +235,7 @@ func TestIdleTimeoutBeforeHeadersIs504(t *testing.T) {
 	}), nil, withIdle("100ms"), withExtractor(ex))
 
 	start := time.Now()
-	resp := e.do(t, "POST", "/v1/messages", `{}`, auth()...)
+	resp := e.do(t, "POST", "/v1/messages", `{"stream":true}`, auth()...)
 	body := readAll(t, resp.Body)
 	if resp.StatusCode != http.StatusGatewayTimeout || !strings.Contains(body, "timeout_error") {
 		t.Errorf("got %d %s", resp.StatusCode, body)
@@ -254,6 +254,23 @@ func TestIdleTimeoutBeforeHeadersIs504(t *testing.T) {
 	}
 	if n, _, _ := ex.get(); n != 0 {
 		t.Errorf("extractor ran %d times for a call with no response", n)
+	}
+}
+
+func TestNonStreamingWaitForHeadersOutlastsIdleTimeout(t *testing.T) {
+	e := newEnv(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(400 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"type":"message","stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":5}}`)
+	}), nil, withIdle("100ms"))
+
+	resp := e.do(t, "POST", "/v1/messages", `{"stream":false}`, auth()...)
+	body := readAll(t, resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "end_turn") {
+		t.Errorf("got %d %s, want the upstream's 200", resp.StatusCode, body)
+	}
+	if rec := e.rec.next(t); rec.Status != http.StatusOK || rec.ErrorClass != "" {
+		t.Errorf("record %d %q, want 200 with no error", rec.Status, rec.ErrorClass)
 	}
 }
 
