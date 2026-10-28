@@ -75,15 +75,23 @@ func TestCostDecimalExactness(t *testing.T) {
 	// $0.30 per million tokens at 1 token: 0.0000003 USD rounds to 0 micro-USD.
 	// 3_333_333 tokens at $0.30 per million is 999_999.9 micro-USD, rounded to 1_000_000.
 	p := Price{CacheRead: 300_000}
+	if got := Cost(Usage{CacheRead: 1}, p); got != 0 {
+		t.Errorf("1 token = %d, want 0", got)
+	}
 	if got := Cost(Usage{CacheRead: 3_333_333}, p); got != 1_000_000 {
 		t.Errorf("3333333 tokens = %d, want 1000000", got)
 	}
 	// Ten calls of 100k tokens at $3.00 per million sum to exactly $3.00 in one call.
 	p = Price{Input: 3_000_000}
-	if got := Cost(Usage{InputUncached: 1_000_000}, p); got != 3_000_000 {
-		t.Errorf("1M tokens = %d, want 3000000", got)
+	one := Cost(Usage{InputUncached: 1_000_000}, p)
+	if one != 3_000_000 {
+		t.Errorf("1M tokens = %d, want 3000000", one)
 	}
-	if got := Cost(Usage{InputUncached: 100_000}, p); got != 300_000 {
-		t.Errorf("100k tokens = %d, want 300000", got)
+	var sum MicroUSD
+	for range 10 {
+		sum += Cost(Usage{InputUncached: 100_000}, p)
+	}
+	if sum != one {
+		t.Errorf("ten 100k-token calls = %d, want %d", sum, one)
 	}
 }
