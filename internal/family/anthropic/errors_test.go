@@ -23,6 +23,7 @@ func TestErrorBodiesGolden(t *testing.T) {
 		{"disabled_key", DisabledKeyError(testRequestID), 401, "authentication_error"},
 		{"oversize_body", OversizeBodyError(testRequestID), 413, "request_too_large"},
 		{"malformed_request", MalformedRequestError(testRequestID), 400, "invalid_request_error"},
+		{"not_found", NotFoundError(testRequestID), 404, "not_found_error"},
 		{"upstream_unreachable", UpstreamUnreachableError(testRequestID), 502, "api_error"},
 		{"upstream_timeout", UpstreamTimeoutError(testRequestID), 504, "timeout_error"},
 		{"internal", InternalError(testRequestID), 500, "api_error"},

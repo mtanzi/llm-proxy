@@ -62,7 +62,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0008](0008-virtual-key-auth-and-keyring.md) | Virtual-key auth and the keyring | Completed | 0003, 0005, 0007 |
 | [0009](0009-cli-keygen-and-version.md) | CLI subcommands: `keygen` and `version` | Completed | 0001, 0004, 0008 |
 | [0010](0010-correlation-headers.md) | Correlation headers | Completed | 0003, 0006 |
-| [0011](0011-proxy-passthrough-and-streaming.md) | Proxy passthrough and streaming | Accepted | 0005, 0006, 0007, 0008, 0010 |
+| [0011](0011-proxy-passthrough-and-streaming.md) | Proxy passthrough and streaming | Completed | 0005, 0006, 0007, 0008, 0010 |
 | [0012](0012-client-passthrough-and-subscription-setup.md) | Client passthrough mode and subscription setup | Accepted | 0004, 0008, 0011 |
 | [0013](0013-tap-incremental-response-scanner.md) | Tap: incremental response scanner | Accepted | 0011 |
 | [0014](0014-extractor-and-call-record.md) | Extractor and the call record | Accepted | 0003, 0007, 0010, 0013 |

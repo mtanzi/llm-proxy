@@ -33,14 +33,16 @@ type Servers struct {
 // BuildServers builds the data-plane and admin-plane servers from cfg, each
 // behind the request chain. It refuses a non-loopback listen.admin, so the
 // unauthenticated admin plane never leaves the host even when validation was
-// skipped.
-func BuildServers(cfg *config.Config, log *slog.Logger) (*Servers, error) {
+// skipped. The data plane reads its providers and keys from snaps, one
+// snapshot per request.
+func BuildServers(cfg *config.Config, snaps proxy.Snapshots, log *slog.Logger) (*Servers, error) {
 	if !config.IsLoopback(cfg.Listen.Admin) {
 		return nil, fmt.Errorf("listen.admin %q is not a loopback address; the admin plane must listen on 127.0.0.1, ::1 or localhost", cfg.Listen.Admin)
 	}
 	opts := httpmw.Options{Logger: log, MaxRequestBytes: int64(cfg.Server.MaxRequestBytes)}
+	handler := proxy.NewHandler(snaps, proxy.Options{Logger: log})
 	s := &Servers{
-		Data:  newServer(cfg.Listen.Data, httpmw.Wrap(proxy.NewMux(), opts), log),
+		Data:  newServer(cfg.Listen.Data, httpmw.Wrap(proxy.NewMux(handler), opts), log),
 		Admin: newServer(cfg.Listen.Admin, httpmw.Wrap(api.NewMux(), opts), log),
 		tls:   cfg.Listen.TLS,
 	}
