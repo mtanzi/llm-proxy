@@ -162,7 +162,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	Correlate(r.Header, &rec)
 
 	f := &flight{h: h, rec: &rec, body: body, start: start, reqID: reqID}
-	defer f.finish(r.Context())
+	defer func() {
+		p := recover()
+		if p == http.ErrAbortHandler && f.failure == core.FailureNone && r.Context().Err() == nil {
+			f.failure = core.FailureUpstreamUnreachable
+		}
+		f.finish(r.Context())
+		if p != nil {
+			panic(p)
+		}
+	}()
 
 	// A stream outlasts any fixed write deadline.
 	_ = httpmw.ClearWriteDeadline(w)
@@ -270,7 +279,8 @@ func isTimeout(err error) bool {
 
 // finish completes the record and hands it to the recorder. It runs when
 // ReverseProxy has returned, so the upstream body is closed and the tap is
-// done. It also runs while a panic unwinds, so an aborted stream is logged.
+// done. It also runs while a panic unwinds, so an aborted stream is logged: a
+// stream cut by the upstream after the headers counts as an upstream failure.
 func (f *flight) finish(ctx context.Context) {
 	rec := f.rec
 	now := time.Now()

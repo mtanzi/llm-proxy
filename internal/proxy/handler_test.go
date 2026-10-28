@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -425,6 +426,35 @@ func TestClientAbortCancelsUpstream(t *testing.T) {
 	rec := e.rec.next(t)
 	if rec.ErrorClass != string(core.ErrorClassClientAbort) {
 		t.Errorf("error class %q, want client_abort", rec.ErrorClass)
+	}
+}
+
+func TestUpstreamCutMidStreamIsAFailure(t *testing.T) {
+	e := newEnv(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "event: ping\ndata: {}\n\n")
+		w.(http.Flusher).Flush()
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		if tc, ok := conn.(*net.TCPConn); ok {
+			_ = tc.SetLinger(0)
+		}
+		_ = conn.Close()
+	}), nil)
+
+	resp := e.do(t, "POST", "/v1/messages", `{"stream":true}`, auth()...)
+	_, _ = io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+
+	rec := e.rec.next(t)
+	if rec.Status != http.StatusOK {
+		t.Errorf("status %d, want 200", rec.Status)
+	}
+	if rec.ErrorClass != string(core.ErrorClassUpstream5xx) {
+		t.Errorf("error class %q, want upstream_5xx", rec.ErrorClass)
 	}
 }
 
