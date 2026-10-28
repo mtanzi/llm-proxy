@@ -93,6 +93,7 @@ func (g *Gen) Calls(n int, opts ...CallOpt) []core.CallRecord {
 func (g *Gen) ID(ts time.Time) core.ID {
 	id := core.NewIDAt(ts)
 	g.seq++
+	id[6], id[7] = 0x70, 0
 	binary.BigEndian.PutUint32(id[8:12], g.seq&0x3fffffff|0x80000000) // keeps variant 10
 	return id
 }
