@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/mtanzi/llm-proxy/internal/config"
 	"github.com/mtanzi/llm-proxy/internal/core"
 	"github.com/mtanzi/llm-proxy/internal/family/anthropic"
 )
@@ -16,14 +17,38 @@ type KeyLookup interface {
 	Lookup(sha256 string) (core.Key, bool)
 }
 
-// Authenticate checks the virtual key a request presents in proxy_key mode:
-// Authorization: Bearer <key>, otherwise x-api-key. It returns the key name,
-// which the correlation step stores as key_name. On failure it returns a
-// protocol-correct 401 and ok false: a missing or unknown key is
-// MissingOrInvalidKeyError, a disabled key is DisabledKeyError. The presented
-// key is hashed at once and never logged, stored or returned.
-func Authenticate(h http.Header, keys KeyLookup, requestID string) (name string, errResp anthropic.ErrorResponse, ok bool) {
-	presented := presentedKey(h)
+// virtualKeyPrefix starts every virtual key the keygen command issues.
+const virtualKeyPrefix = "lp_"
+
+// Authenticate checks the virtual key a request presents. Where the key is
+// read from depends on the provider's auth_mode: in proxy_key mode it is
+// Authorization: Bearer <key>, otherwise x-api-key; in client_passthrough mode
+// the client's own credential occupies those headers, so the key is read from
+// x-llm-proxy-key. A credential in the wrong place for the mode is rejected
+// before any lookup, so a virtual key cannot reach the upstream by accident:
+// an x-llm-proxy-key header on a proxy_key provider, or an lp_ value in
+// Authorization or x-api-key on a client_passthrough provider.
+//
+// It returns the key name, which the correlation step stores as key_name. On
+// failure it returns a protocol-correct 401 and ok false: a missing, unknown or
+// misplaced key is MissingOrInvalidKeyError, a disabled key is
+// DisabledKeyError. The presented key is hashed at once and never logged,
+// stored or returned. The client's own credential in passthrough mode is only
+// inspected for the lp_ prefix; it is never hashed, kept or logged.
+func Authenticate(h http.Header, keys KeyLookup, mode, requestID string) (name string, errResp anthropic.ErrorResponse, ok bool) {
+	var presented string
+	switch mode {
+	case config.AuthClientPassthrough:
+		if misplacedKey(h) {
+			return "", anthropic.MissingOrInvalidKeyError(requestID), false
+		}
+		presented = strings.TrimSpace(h.Get(headerProxyKey))
+	default:
+		if len(h.Values(headerProxyKey)) > 0 {
+			return "", anthropic.MissingOrInvalidKeyError(requestID), false
+		}
+		presented = presentedKey(h)
+	}
 	if presented == "" {
 		return "", anthropic.MissingOrInvalidKeyError(requestID), false
 	}
@@ -36,6 +61,26 @@ func Authenticate(h http.Header, keys KeyLookup, requestID string) (name string,
 		return "", anthropic.DisabledKeyError(requestID), false
 	}
 	return key.Name, anthropic.ErrorResponse{}, true
+}
+
+// misplacedKey reports whether Authorization or x-api-key carries a virtual
+// key, which a client_passthrough provider would forward upstream.
+func misplacedKey(h http.Header) bool {
+	for _, v := range h.Values("Authorization") {
+		v = strings.TrimSpace(v)
+		if scheme, token, found := strings.Cut(v, " "); found && strings.EqualFold(scheme, "Bearer") {
+			v = strings.TrimSpace(token)
+		}
+		if strings.HasPrefix(v, virtualKeyPrefix) {
+			return true
+		}
+	}
+	for _, v := range h.Values("X-Api-Key") {
+		if strings.HasPrefix(strings.TrimSpace(v), virtualKeyPrefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // presentedKey returns the credential from the Authorization bearer form, or

@@ -66,7 +66,7 @@ func TestGoldenValid(t *testing.T) {
 		t.Fatalf("providers = %d", len(cfg.Providers))
 	}
 	p := cfg.Providers[0]
-	if p.AuthMode != AuthBoth || p.IdleTimeout.Std() != 90*time.Second || p.Credential.Ref.Secret().Reveal() != "sk-ant-secret" {
+	if p.AuthMode != AuthProxyKey || p.IdleTimeout.Std() != 90*time.Second || p.Credential.Ref.Secret().Reveal() != "sk-ant-secret" {
 		t.Errorf("provider[0] = %+v", p)
 	}
 	if p := cfg.Providers[1]; p.AuthMode != AuthProxyKey || p.IdleTimeout.Std() != 120*time.Second || !p.Credential.None {
@@ -192,6 +192,7 @@ func TestRejections(t *testing.T) {
 		// providers
 		{name: "unknown kind", old: "kind: anthropic", new: "kind: gemini", wantErr: `unknown kind "gemini"`},
 		{name: "unknown auth_mode", old: "auth_mode: proxy_key", new: "auth_mode: magic", wantErr: `unknown auth_mode "magic"`},
+		{name: "auth_mode both", old: "auth_mode: proxy_key", new: "auth_mode: both", wantErr: `unknown auth_mode "both"`},
 		{name: "bad base_url", old: "https://api.anthropic.com", new: "api.anthropic.com", wantErr: "base_url"},
 		{name: "base_url with credentials", old: "https://api.anthropic.com", new: "https://u:p@api.anthropic.com", wantErr: "base_url"},
 		{name: "duplicate provider", old: "keys:", new: "  - { name: anthropic, kind: anthropic, base_url: 'http://x', credential: { env: KEY } }\nkeys:", wantErr: "duplicate name"},

@@ -115,20 +115,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		httpmw.WriteError(w, anthropic.InternalError(reqID))
 		return
 	}
-	if provider.AuthMode != config.AuthProxyKey {
-		// client_passthrough belongs to ADR 0012; refuse rather than guess.
-		h.log.Error("provider auth_mode is not served yet", "call_id", reqID,
-			"provider", provider.Name, "auth_mode", provider.AuthMode)
-		httpmw.WriteError(w, anthropic.InternalError(reqID))
-		return
-	}
 	keys := snap.Keys()
 	if keys == nil {
 		h.log.Error("config snapshot has no key index", "call_id", reqID)
 		httpmw.WriteError(w, anthropic.InternalError(reqID))
 		return
 	}
-	keyName, errResp, ok := Authenticate(r.Header, keys, reqID)
+	keyName, errResp, ok := Authenticate(r.Header, keys, provider.AuthMode, reqID)
 	if !ok {
 		httpmw.WriteError(w, errResp)
 		return
@@ -205,12 +198,17 @@ func pickProvider(snap *config.Snapshot) (config.Provider, bool) {
 // credential. Every header it does not name is forwarded unchanged, so
 // anthropic-version, anthropic-beta and the other anthropic-* headers keep
 // their values. A virtual key never goes upstream: x-llm-proxy-key is removed
-// in every mode, and in proxy_key mode the client credential, which is the
-// virtual key, is replaced by the provider key.
+// in every mode. In proxy_key mode the client credential, which is the virtual
+// key, is replaced by the provider key. In client_passthrough mode the client's
+// own Authorization and x-api-key are forwarded as they came, and the proxy
+// holds and injects no credential of its own.
 func rewrite(pr *httputil.ProxyRequest, target *url.URL, p config.Provider) {
 	pr.SetURL(target)
 	out := pr.Out.Header
 	out.Del(headerProxyKey)
+	if p.AuthMode == config.AuthClientPassthrough {
+		return
+	}
 	out.Del(headerAuthorization)
 	out.Del(headerAPIKey)
 	if key := p.Credential.Ref.Secret().Reveal(); key != "" {

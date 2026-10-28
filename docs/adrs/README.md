@@ -63,7 +63,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0009](0009-cli-keygen-and-version.md) | CLI subcommands: `keygen` and `version` | Completed | 0001, 0004, 0008 |
 | [0010](0010-correlation-headers.md) | Correlation headers | Completed | 0003, 0006 |
 | [0011](0011-proxy-passthrough-and-streaming.md) | Proxy passthrough and streaming | Completed | 0005, 0006, 0007, 0008, 0010 |
-| [0012](0012-client-passthrough-and-subscription-setup.md) | Client passthrough mode and subscription setup | Accepted | 0004, 0008, 0011 |
+| [0012](0012-client-passthrough-and-subscription-setup.md) | Client passthrough mode and subscription setup | Completed | 0004, 0008, 0011 |
 | [0013](0013-tap-incremental-response-scanner.md) | Tap: incremental response scanner | Accepted | 0011 |
 | [0014](0014-extractor-and-call-record.md) | Extractor and the call record | Accepted | 0003, 0007, 0010, 0013 |
 | [0015](0015-pricing-and-cost-computation.md) | Pricing and cost computation | Accepted | 0003, 0004 |
@@ -98,7 +98,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0044](0044-provider-error-message-text.md) | Provider error message text (D12) | Accepted | 0014, 0032 |
 | [0045](0045-opt-in-per-key-body-capture.md) | Opt-in per-key body capture (D13) | Accepted | 0002, 0014 |
 | [0046](0046-adopt-gap-review-defaults.md) | Adopt the gap-review defaults (D9 and D10) | Completed | 0002 |
-| [0047](0047-credential-modes-one-fixed-auth-mode-per-provider.md) | Credential modes: one fixed auth mode per provider | Accepted | 0004, 0008, 0012 |
+| [0047](0047-credential-modes-one-fixed-auth-mode-per-provider.md) | Credential modes: one fixed auth mode per provider | Completed | 0004, 0008, 0012 |
 | [0048](0048-call-record-and-filter-changes.md) | Call record and filter changes | Accepted | 0003, 0010, 0014, 0017 |
 | [0049](0049-source-precedence-and-corrections-to-completed-adrs.md) | Source precedence and corrections to Completed ADRs | Completed | 0001, 0003, 0004 |
 

@@ -25,7 +25,6 @@ const (
 
 	AuthProxyKey          = "proxy_key"
 	AuthClientPassthrough = "client_passthrough"
-	AuthBoth              = "both"
 )
 
 // Config is the validated content of the configuration file. Load returns it

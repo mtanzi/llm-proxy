@@ -84,9 +84,9 @@ func (c *Config) validateProviders() []error {
 			add(i, "base_url must be an absolute http or https URL without credentials")
 		}
 		switch p.AuthMode {
-		case AuthProxyKey, AuthClientPassthrough, AuthBoth:
+		case AuthProxyKey, AuthClientPassthrough:
 		default:
-			add(i, "unknown auth_mode %q; want %s, %s or %s", p.AuthMode, AuthProxyKey, AuthClientPassthrough, AuthBoth)
+			add(i, "unknown auth_mode %q; want %s or %s", p.AuthMode, AuthProxyKey, AuthClientPassthrough)
 		}
 		switch {
 		case p.Credential.None && p.Kind != KindOpenAICompatible:

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mtanzi/llm-proxy/internal/config"
 	"github.com/mtanzi/llm-proxy/internal/core"
 )
 
@@ -50,7 +51,7 @@ func TestAuthenticate(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			name, resp, ok := Authenticate(c.h, keys, "req_1")
+			name, resp, ok := Authenticate(c.h, keys, config.AuthProxyKey, "req_1")
 			if c.wantMsg == "" {
 				if !ok || name != c.wantName {
 					t.Fatalf("got %q ok=%v; want %q", name, ok, c.wantName)
@@ -71,6 +72,48 @@ func TestAuthenticate(t *testing.T) {
 			}
 			if strings.Contains(string(resp.Body), "lp_") {
 				t.Errorf("body echoes a key: %s", resp.Body)
+			}
+		})
+	}
+}
+
+func TestAuthenticateModes(t *testing.T) {
+	keys := fakeKeys{
+		hashOf("lp_good"): {Name: "good"},
+		hashOf("lp_off"):  {Name: "off", Disabled: true},
+	}
+	cases := []struct {
+		name     string
+		mode     string
+		kv       []string
+		wantName string
+		wantMsg  string // empty means success
+	}{
+		{"passthrough key header", config.AuthClientPassthrough, []string{"X-Llm-Proxy-Key", "lp_good", "Authorization", "Bearer sk-ant-oat-client"}, "good", ""},
+		{"passthrough key header with client x-api-key", config.AuthClientPassthrough, []string{"X-Llm-Proxy-Key", "lp_good", "X-Api-Key", "sk-ant-api03-client"}, "good", ""},
+		{"passthrough no key header", config.AuthClientPassthrough, []string{"Authorization", "Bearer sk-ant-oat-client"}, "", "invalid x-api-key"},
+		{"passthrough disabled key", config.AuthClientPassthrough, []string{"X-Llm-Proxy-Key", "lp_off"}, "", "this API key is disabled"},
+		{"passthrough lp_ in Authorization", config.AuthClientPassthrough, []string{"X-Llm-Proxy-Key", "lp_good", "Authorization", "Bearer lp_good"}, "", "invalid x-api-key"},
+		{"passthrough lp_ in x-api-key", config.AuthClientPassthrough, []string{"X-Llm-Proxy-Key", "lp_good", "X-Api-Key", "lp_other"}, "", "invalid x-api-key"},
+		{"proxy_key with key header", config.AuthProxyKey, []string{"Authorization", "Bearer lp_good", "X-Llm-Proxy-Key", "lp_good"}, "", "invalid x-api-key"},
+		{"proxy_key with empty key header", config.AuthProxyKey, []string{"Authorization", "Bearer lp_good", "X-Llm-Proxy-Key", ""}, "", "invalid x-api-key"},
+		{"proxy_key bearer", config.AuthProxyKey, []string{"Authorization", "Bearer lp_good"}, "good", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := http.Header{}
+			for i := 0; i < len(c.kv); i += 2 {
+				h.Set(c.kv[i], c.kv[i+1])
+			}
+			name, resp, ok := Authenticate(h, keys, c.mode, "req_1")
+			if c.wantMsg == "" {
+				if !ok || name != c.wantName {
+					t.Fatalf("got %q ok=%v; want %q", name, ok, c.wantName)
+				}
+				return
+			}
+			if ok || resp.Status != http.StatusUnauthorized || !strings.Contains(string(resp.Body), c.wantMsg) {
+				t.Fatalf("ok=%v status=%d body=%s; want 401 %q", ok, resp.Status, resp.Body, c.wantMsg)
 			}
 		})
 	}
