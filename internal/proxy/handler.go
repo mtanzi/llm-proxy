@@ -48,10 +48,9 @@ type Tap func(rec *core.CallRecord, request []byte, resp *http.Response)
 
 // Options configures a Handler. The zero value forwards and records nothing.
 type Options struct {
-	Recorder   Recorder    // nil drops finished calls
-	Tap        Tap         // nil installs no tap
-	Transports *Transports // nil makes a new set
-	Logger     *slog.Logger
+	Recorder Recorder // nil drops finished calls
+	Tap      Tap      // nil installs no tap
+	Logger   *slog.Logger
 }
 
 // Handler forwards the Anthropic data-plane endpoints to the configured
@@ -67,10 +66,7 @@ type Handler struct {
 
 // NewHandler returns a Handler that reads its providers and keys from snaps.
 func NewHandler(snaps Snapshots, o Options) *Handler {
-	h := &Handler{snaps: snaps, transports: o.Transports, recorder: o.Recorder, tap: o.Tap, log: o.Logger}
-	if h.transports == nil {
-		h.transports = NewTransports()
-	}
+	h := &Handler{snaps: snaps, transports: NewTransports(), recorder: o.Recorder, tap: o.Tap, log: o.Logger}
 	if h.log == nil {
 		h.log = slog.New(slog.DiscardHandler)
 	}

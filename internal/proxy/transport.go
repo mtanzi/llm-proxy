@@ -52,23 +52,6 @@ func (t *Transports) For(p config.Provider) http.RoundTripper {
 	return rt
 }
 
-// Prune drops the transports of providers that are not in keep, and closes
-// their idle connections.
-func (t *Transports) Prune(keep []config.Provider) {
-	names := make(map[string]bool, len(keep))
-	for _, p := range keep {
-		names[p.Name] = true
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	for name, e := range t.byName {
-		if !names[name] {
-			e.rt.CloseIdleConnections()
-			delete(t.byName, name)
-		}
-	}
-}
-
 // newTransport is a plain http.Transport with the default pool and HTTP/2
 // settings, plus a dial timeout and a time-to-headers timeout. It does not read
 // proxy settings from the environment.

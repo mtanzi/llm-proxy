@@ -625,10 +625,6 @@ func TestTransportsSwapOnProviderChange(t *testing.T) {
 	if ts.For(config.Provider{Name: "other", BaseURL: "https://a.example"}) == b {
 		t.Error("two providers share a transport")
 	}
-	ts.Prune([]config.Provider{p})
-	if len(ts.byName) != 1 {
-		t.Errorf("after prune: %d transports", len(ts.byName))
-	}
 }
 
 func TestTransportSettings(t *testing.T) {
