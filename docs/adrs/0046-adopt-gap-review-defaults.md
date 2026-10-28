@@ -1,6 +1,6 @@
 # ADR 0046: Adopt the gap-review defaults (D9 and D10)
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
