@@ -17,6 +17,7 @@ linters:
             - $all
             - "!**/cmd/llm-proxy/**"
             - "!**/internal/store/postgres/**"
+            - "!**/internal/store/storetest/**"
           deny:
             - pkg: github.com/mtanzi/llm-proxy/internal/store/postgres
               desc: only cmd/llm-proxy may import store/postgres
@@ -54,11 +55,18 @@ linters:
           files:
             - "**/internal/recorder/**"
             - "**/internal/keyring/**"
-            - "**/internal/store/storetest/**"
           allow:
             - $gostd
             - github.com/mtanzi/llm-proxy/internal/core
             - github.com/mtanzi/llm-proxy/internal/core/coretest
+        storetest:
+          list-mode: strict
+          files:
+            - "**/internal/store/storetest/**"
+          allow:
+            - $gostd
+            - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/llm-proxy/internal/store/postgres
         config:
           list-mode: strict
           files:
@@ -99,6 +107,7 @@ linters:
             - $gostd
             - github.com/mtanzi/llm-proxy/internal/core
             - github.com/mtanzi/llm-proxy/internal/store/postgres
+            - github.com/mtanzi/llm-proxy/internal/store/storetest
             - github.com/jackc/pgx
             - github.com/pressly/goose
             - github.com/testcontainers/testcontainers-go

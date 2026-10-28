@@ -1,6 +1,6 @@
 # ADR 0018: Contract test suite and Postgres test harness
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
