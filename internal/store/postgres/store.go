@@ -27,7 +27,8 @@ type Config struct {
 	Retention Retention // the retention job; cmd fills Keep from the config file
 }
 
-// Store is the Postgres adapter. It implements core.CallWriter.
+// Store is the Postgres adapter. It implements core.CallWriter and the call
+// methods of core.CallReader: ListCalls, CountCalls and GetCall.
 type Store struct {
 	pool      *pgxpool.Pool
 	retention Retention

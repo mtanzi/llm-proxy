@@ -1,6 +1,6 @@
 # ADR 0019: Postgres `CallReader`: lists, filters, pagination and call detail
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
