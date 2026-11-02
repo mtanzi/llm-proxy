@@ -24,6 +24,7 @@ const (
 	headerProxyKey        = "X-Llm-Proxy-Key"
 	headerAPIKey          = "X-Api-Key"
 	headerAuthorization   = "Authorization"
+	headerAcceptEncoding  = "Accept-Encoding"
 	headerUpstreamRequest = "Request-Id"
 )
 
@@ -218,11 +219,15 @@ func pickProvider(snap *config.Snapshot) (config.Provider, bool) {
 // in every mode. In proxy_key mode the client credential, which is the virtual
 // key, is replaced by the provider key. In client_passthrough mode the client's
 // own Authorization and x-api-key are forwarded as they came, and the proxy
-// holds and injects no credential of its own.
+// holds and injects no credential of its own. Accept-Encoding is set to
+// identity in every mode, whatever the client sent.
 func rewrite(pr *httputil.ProxyRequest, target *url.URL, p config.Provider) {
 	pr.SetURL(target)
 	out := pr.Out.Header
 	out.Del(headerProxyKey)
+	// Ask for an uncompressed body so the tap can scan every response
+	// (ADR 0050). The client's Accept-Encoding is not forwarded.
+	out.Set(headerAcceptEncoding, "identity")
 	if p.AuthMode == config.AuthClientPassthrough {
 		return
 	}

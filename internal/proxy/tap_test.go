@@ -168,6 +168,8 @@ func TestTapOversizeBodySetsExtractionPartial(t *testing.T) {
 	}
 }
 
+// An upstream that compresses despite Accept-Encoding: identity (ADR 0050)
+// still passes through, and the record is marked partial.
 func TestTapEncodedBodyPassesUnscanned(t *testing.T) {
 	ex := &fakeExtractor{}
 	e := newEnv(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

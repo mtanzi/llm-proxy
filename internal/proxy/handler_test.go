@@ -282,6 +282,22 @@ func TestForwardsBytesAndHeadersUnchanged(t *testing.T) {
 	}
 }
 
+func TestUpstreamAcceptEncodingIsIdentity(t *testing.T) {
+	for _, client := range []string{"gzip, deflate, br", "", "identity"} {
+		got := make(chan seen, 1)
+		e := newEnv(t, capture(got, nil), nil)
+		kv := auth()
+		if client != "" {
+			kv = append(kv, "Accept-Encoding", client)
+		}
+		_ = readAll(t, e.do(t, "POST", "/v1/messages", "{}", kv...).Body)
+		up := <-got
+		if g := up.header.Values("Accept-Encoding"); len(g) != 1 || g[0] != "identity" {
+			t.Errorf("client %q: upstream Accept-Encoding = %q, want identity", client, g)
+		}
+	}
+}
+
 func TestVirtualKeyNeverReachesUpstream(t *testing.T) {
 	got := make(chan seen, 1)
 	e := newEnv(t, capture(got, nil), nil)
