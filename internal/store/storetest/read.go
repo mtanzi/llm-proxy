@@ -210,6 +210,26 @@ var readCases = []testCase{
 			t.Errorf("got %v, want %v", got, want)
 		}
 	}},
+	{"tool_error_matches_a_result_long_after_the_range", func(t *testing.T, e *env) {
+		g := e.gen
+		use := g.Call(g.At(Base), g.WithUse("toolu_late", "Bash"))
+		late := g.Call(g.At(Base.Add(30*time.Hour)), g.WithResult("toolu_late", true))
+		clean := g.Call(g.At(Base.Add(time.Minute)), g.WithUse("toolu_clean", "Bash"))
+		cleanResult := g.Call(g.At(Base.Add(2*time.Minute)), g.WithResult("toolu_clean", false))
+		calls := []core.CallRecord{use, late, clean, cleanResult}
+		e.write(t, calls...)
+		f := core.CallFilter{From: Base, To: Base.Add(time.Hour), ToolError: &yes}
+		if !f.Match(use, toolCalls(calls)) {
+			t.Fatal("Match, the reference, does not select the call")
+		}
+		if got, want := e.walk(t, f, 10), []core.ID{use.ID}; !slices.Equal(got, want) {
+			t.Errorf("list got %v, want %v", got, want)
+		}
+		n, capped, err := e.CountCalls(context.Background(), f, 100)
+		if err != nil || n != 1 || capped {
+			t.Errorf("count = %d capped %v err %v, want 1", n, capped, err)
+		}
+	}},
 	{"list_row_has_summary_fields", func(t *testing.T, e *env) {
 		c := fullRecord(e.gen)
 		bare := e.gen.Call(e.gen.At(Base.Add(time.Minute)), func(c *core.CallRecord) {

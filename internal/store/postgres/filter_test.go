@@ -56,9 +56,9 @@ func TestBuildWhereEachField(t *testing.T) {
 		{"Tools", func(f *core.CallFilter) { f.Tools = []string{"Bash"} },
 			"EXISTS (SELECT 1 FROM tool_events u WHERE u.call_id = c.id AND u.kind = 'use' AND u.tool_name = $3)", 1},
 		{"ToolError", func(f *core.CallFilter) { f.ToolError = &yes },
-			"EXISTS (SELECT 1 FROM tool_events u JOIN tool_events r ON r.tool_call_id = u.tool_call_id AND r.kind = 'result' AND r.ts < $3 WHERE u.call_id = c.id AND u.kind = 'use' AND r.is_error = $4)", 2},
+			"EXISTS (SELECT 1 FROM tool_events u JOIN tool_events r ON r.tool_call_id = u.tool_call_id AND r.kind = 'result' WHERE u.call_id = c.id AND u.kind = 'use' AND r.is_error = $3)", 1},
 		{"Tools and ToolError", func(f *core.CallFilter) { f.Tools = []string{"Bash"}; f.ToolError = &yes },
-			"EXISTS (SELECT 1 FROM tool_events u JOIN tool_events r ON r.tool_call_id = u.tool_call_id AND r.kind = 'result' AND r.ts < $4 WHERE u.call_id = c.id AND u.kind = 'use' AND u.tool_name = $3 AND r.is_error = $5)", 3},
+			"EXISTS (SELECT 1 FROM tool_events u JOIN tool_events r ON r.tool_call_id = u.tool_call_id AND r.kind = 'result' WHERE u.call_id = c.id AND u.kind = 'use' AND u.tool_name = $3 AND r.is_error = $4)", 2},
 		{"MinLatency", func(f *core.CallFilter) { f.MinLatency = 1500*time.Millisecond + time.Microsecond }, "c.duration_ms >= $3", 1},
 		{"MinCost", func(f *core.CallFilter) { f.MinCost = 42 }, "c.cost_usd >= $3", 1},
 	}

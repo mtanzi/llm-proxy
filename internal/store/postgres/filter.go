@@ -11,10 +11,6 @@ import (
 	"github.com/mtanzi/llm-proxy/internal/core"
 )
 
-// toolResultWindow is how far past a query's To bound a tool result is looked
-// up when a ToolError filter pairs a use with its result (ADR 0020).
-const toolResultWindow = 24 * time.Hour
-
 // where builds the WHERE clause of a call query. Values are only ever bind
 // parameters; the SQL text holds column names and operators from this file.
 type where struct {
@@ -151,8 +147,7 @@ func (w *where) tools(f core.CallFilter) {
 	inner.textIn("u.tool_name", true, f.Tools)
 	join := ""
 	if f.ToolError != nil {
-		join = " JOIN tool_events r ON r.tool_call_id = u.tool_call_id AND r.kind = 'result' AND r.ts < " +
-			inner.arg(f.To.Add(toolResultWindow))
+		join = " JOIN tool_events r ON r.tool_call_id = u.tool_call_id AND r.kind = 'result'"
 		inner.add("r.is_error = " + inner.arg(*f.ToolError))
 	}
 	w.args = inner.args
