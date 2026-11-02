@@ -60,7 +60,7 @@ CREATE INDEX calls_errors_ts_idx ON calls (ts DESC) WHERE error_class IS NOT NUL
 CREATE TABLE tool_events (
   call_id      uuid NOT NULL,                  -- the call that carried this half
   idx          integer NOT NULL,               -- position within that call
-  ts           timestamptz NOT NULL,           -- use: response end; result: request start
+  ts           timestamptz NOT NULL,           -- use, server result: response end; client result: request start
   kind         text NOT NULL,                  -- 'use' | 'result'
   source       text NOT NULL,                  -- 'client' | 'server'
   tool_call_id text NOT NULL,                  -- toolu_...

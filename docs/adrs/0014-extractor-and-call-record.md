@@ -33,7 +33,7 @@ After the record is built, the proxy computes cost (ADR 0015), drops the request
 - Implement request fact extraction with `gjson`: `model`, stream flag, `tool_result` blocks (ids, `is_error`, sizes).
 - Implement usage normalisation into the disjoint columns, including 5-minute and 1-hour cache writes, and keep `usage_raw`.
 - Implement response-side assembly from the tap facts (ADR 0013), error mapping (ADR 0007), `stop_reason`, `streamed`, and `usage_estimated` for aborts.
-- Assemble the `core.CallRecord` and assign tool-half indices (`idx`) and timestamps (`use`: response end; `result`: request start).
+- Assemble the `core.CallRecord` and assign tool-half indices (`idx`) and timestamps (`use` and server `result`: response end; client `result`: request start).
 - Record server-side tools (web search, code execution) with `source = server`.
 - Build the golden fixture set under `testdata/fixtures/`: recorded or hand-written SSE exchanges (short chat, long thinking, parallel tool calls, tool results in the next request, cache reads and writes, 429, 529, mid-stream error, abort) with expected call-record JSON. Provide a small tool to regenerate goldens.
 - Tests: a table test per usage shape, a property test that no input string from the fixture bodies appears in any record field (the fake-prompt scan), and a test that a malformed body yields a record with null fields, not a panic.
