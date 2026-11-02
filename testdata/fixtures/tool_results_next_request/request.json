@@ -1,0 +1,103 @@
+{
+ "model": "claude-opus-4-8",
+ "max_tokens": 1024,
+ "stream": false,
+ "system": "FAKEPROMPT-system-7c1e: you are a secret agent",
+ "messages": [
+  {
+   "role": "user",
+   "content": "FAKEPROMPT-user-2e8a: read two files"
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "FAKEPROMPT-asst-text"
+    },
+    {
+     "type": "tool_use",
+     "id": "toolu_00Z",
+     "name": "Read",
+     "input": {
+      "file_path": "/old"
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_00Z",
+     "content": "FAKEPROMPT-old-result"
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_01A",
+     "name": "Read",
+     "input": {
+      "file_path": "/FAKEPROMPT-path-1/a.txt"
+     }
+    },
+    {
+     "type": "tool_use",
+     "id": "toolu_01B",
+     "name": "Read",
+     "input": {
+      "file_path": "/FAKEPROMPT-path-2/b.txt"
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_01A",
+     "content": "FAKEPROMPT-file-a-contents-h\u00e9llo"
+    },
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_01B",
+     "is_error": true,
+     "content": [
+      {
+       "type": "text",
+       "text": "FAKEPROMPT-err-text"
+      },
+      {
+       "type": "image",
+       "source": {
+        "type": "base64",
+        "media_type": "image/png",
+        "data": "AAAA"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "tools": [
+  {
+   "name": "Read",
+   "description": "FAKEPROMPT-tooldesc-93ab reads a file",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "file_path": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ ]
+}
