@@ -81,6 +81,7 @@ For the Anthropic family. "Forward" means unchanged, byte for byte.
 | `anthropic-version`, `anthropic-beta`, every other `anthropic-*` | Forwarded. Treated as open lists, never allowlisted, as Anthropic's guide requires |
 | `x-claude-code-*` | Read for correlation ([backend.md](backend.md#correlation)) and forwarded |
 | `traceparent` | Recorded and forwarded |
+| `Accept-Encoding` | Not forwarded. The proxy sends `identity` upstream whatever the client sent, so the tap can scan the body ([ADR 0050](../adrs/0050-upstream-identity-encoding.md)) |
 | Hop-by-hop headers | Removed by `ReverseProxy`, as HTTP requires |
 
 | Header | Response handling |

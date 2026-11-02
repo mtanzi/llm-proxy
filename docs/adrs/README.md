@@ -101,6 +101,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0047](0047-credential-modes-one-fixed-auth-mode-per-provider.md) | Credential modes: one fixed auth mode per provider | Completed | 0004, 0008, 0012 |
 | [0048](0048-call-record-and-filter-changes.md) | Call record and filter changes | Accepted | 0003, 0010, 0014, 0017 |
 | [0049](0049-source-precedence-and-corrections-to-completed-adrs.md) | Source precedence and corrections to Completed ADRs | Completed | 0001, 0003, 0004 |
+| [0050](0050-upstream-identity-encoding.md) | Upstream identity encoding | Completed | 0011, 0013 |
 
 ## Suggested implementation order
 
