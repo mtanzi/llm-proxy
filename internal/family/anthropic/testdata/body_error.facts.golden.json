@@ -1,0 +1,16 @@
+{
+  "Usage": {
+    "InputTokens": null,
+    "OutputTokens": null,
+    "CacheReadInputTokens": null,
+    "CacheCreationInputTokens": null,
+    "Ephemeral5mInputTokens": null,
+    "Ephemeral1hInputTokens": null
+  },
+  "UsageRaw": null,
+  "StopReason": "",
+  "ErrorType": "rate_limit_error",
+  "ToolUses": null,
+  "Complete": true,
+  "Partial": false
+}
