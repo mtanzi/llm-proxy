@@ -28,6 +28,22 @@ Call records are metadata only, kept for a configured period (default 400 days).
 - Add contract cases (ADR 0018): rows older than the cutoff go, nothing else goes, batches respect the size, a second run deletes nothing.
 - Start the job from the composition root (ADR 0028) and stop it on shutdown (ADR 0027).
 
+## Implementation note
+
+Landed:
+
+- `postgres.Config.Retention` carries the settings: `Keep`, batch size and batch pause (10,000 rows and 100 ms by default). The job runs at a fixed 03:00 UTC plus up to 30 minutes of jitter.
+- `(*Store).DeleteBefore(ctx, table, cutoff)` is the batch loop, and `RunRetention` runs both tables once and logs one line.
+- `StartRetention(ctx)` and `StopRetention(ctx)` start and stop the scheduler goroutine, and `Close` also stops it.
+- `RetentionStats` returns the deleted-row count and last run time as plain values.
+- The contract cases are in `internal/store/storetest/retention.go`.
+
+Remaining:
+
+- Metrics export: ADR 0026 exports the `RetentionStats` values as `llm_proxy_retention_deleted_total` and `llm_proxy_retention_last_run_timestamp_seconds`.
+- Config wiring and start: the composition root (ADR 0028) fills `Retention.Keep` from `retention.calls` and calls `StartRetention`.
+- Stop on shutdown: ADR 0027 calls `StopRetention`.
+
 ## Depends on
 
 - ADR 0004, ADR 0017, ADR 0018.

@@ -34,6 +34,7 @@ type env struct {
 // groups lists the case groups, in run order.
 var groups = []group{
 	{"write", writeCases},
+	{"retention", retentionCases},
 	{"no_bodies", noBodiesCases},
 }
 
