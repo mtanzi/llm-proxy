@@ -44,8 +44,8 @@ func TestBuildWhereEachField(t *testing.T) {
 		{"Models", func(f *core.CallFilter) { f.Models = []string{"m"} }, "c.model = $3", 1},
 		{"Endpoints", func(f *core.CallFilter) { f.Endpoints = []string{"/v1/messages"} }, "c.endpoint = $3", 1},
 		{"Streamed", func(f *core.CallFilter) { f.Streamed = &yes }, "c.streamed = $3", 1},
-		{"Statuses", func(f *core.CallFilter) { f.Statuses = []int{429, 529} }, "c.status = ANY($3::int[])", 1},
-		{"Statuses one", func(f *core.CallFilter) { f.Statuses = []int{429} }, "c.status = $3", 1},
+		{"Statuses", func(f *core.CallFilter) { f.Statuses = []int{429, 529} }, "c.status = ANY($3::bigint[])", 1},
+		{"Statuses one", func(f *core.CallFilter) { f.Statuses = []int{429} }, "c.status = $3::bigint", 1},
 		{"Statuses unknown", func(f *core.CallFilter) { f.Statuses = []int{0} }, "c.status IS NULL", 0},
 		{"ErrorClasses", func(f *core.CallFilter) { f.ErrorClasses = []string{"rate_limited"} }, "c.error_class = $3", 1},
 		{"SessionKey", func(f *core.CallFilter) { f.SessionKey = "s1" }, "c.session_key = $3", 1},
@@ -59,7 +59,7 @@ func TestBuildWhereEachField(t *testing.T) {
 			"EXISTS (SELECT 1 FROM tool_events u JOIN tool_events r ON r.tool_call_id = u.tool_call_id AND r.kind = 'result' WHERE u.call_id = c.id AND u.kind = 'use' AND r.is_error = $3)", 1},
 		{"Tools and ToolError", func(f *core.CallFilter) { f.Tools = []string{"Bash"}; f.ToolError = &yes },
 			"EXISTS (SELECT 1 FROM tool_events u JOIN tool_events r ON r.tool_call_id = u.tool_call_id AND r.kind = 'result' WHERE u.call_id = c.id AND u.kind = 'use' AND u.tool_name = $3 AND r.is_error = $4)", 2},
-		{"MinLatency", func(f *core.CallFilter) { f.MinLatency = 1500*time.Millisecond + time.Microsecond }, "c.duration_ms >= $3", 1},
+		{"MinLatency", func(f *core.CallFilter) { f.MinLatency = 1500*time.Millisecond + time.Microsecond }, "c.duration_ms >= $3::bigint", 1},
 		{"MinCost", func(f *core.CallFilter) { f.MinCost = 42 }, "c.cost_usd >= $3", 1},
 	}
 	covered := map[string]bool{}

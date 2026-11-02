@@ -1,12 +1,9 @@
 package postgres
 
 import (
-	"math/big"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/mtanzi/llm-proxy/internal/core"
 )
@@ -94,21 +91,21 @@ func buildWhere(f core.CallFilter) *where {
 		w.add("c.streamed = " + w.arg(*f.Streamed))
 	}
 	if len(f.Statuses) > 0 {
-		var set []int32
+		var set []int64
 		unknown := false
 		for _, s := range f.Statuses {
 			if s == 0 {
 				unknown = true
 				continue
 			}
-			set = append(set, int32(s))
+			set = append(set, int64(s))
 		}
 		var parts []string
 		switch {
 		case len(set) == 1:
-			parts = append(parts, "c.status = "+w.arg(set[0]))
+			parts = append(parts, "c.status = "+w.arg(set[0])+"::bigint")
 		case len(set) > 1:
-			parts = append(parts, "c.status = ANY("+w.arg(set)+"::int[])")
+			parts = append(parts, "c.status = ANY("+w.arg(set)+"::bigint[])")
 		}
 		if unknown {
 			parts = append(parts, "c.status IS NULL")
@@ -125,11 +122,11 @@ func buildWhere(f core.CallFilter) *where {
 	if f.MinLatency > 0 {
 		// duration_ms is stored truncated to the millisecond.
 		ms := (f.MinLatency + time.Millisecond - 1) / time.Millisecond
-		w.add("c.duration_ms >= " + w.arg(int64(ms)))
+		w.add("c.duration_ms >= " + w.arg(int64(ms)) + "::bigint")
 	}
 	if f.MinCost > 0 {
 		// cost_usd is NULL when unknown, and NULL never satisfies >=.
-		w.add("c.cost_usd >= " + w.arg(pgtype.Numeric{Int: big.NewInt(int64(f.MinCost)), Exp: -6, Valid: true}))
+		w.add("c.cost_usd >= " + w.arg(cost(&f.MinCost)))
 	}
 	return w
 }

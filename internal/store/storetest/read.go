@@ -230,6 +230,32 @@ var readCases = []testCase{
 			t.Errorf("count = %d capped %v err %v, want 1", n, capped, err)
 		}
 	}},
+	{"list_and_count_out_of_range_numbers_match_nothing", func(t *testing.T, e *env) {
+		calls := e.gen.Calls(3)
+		e.write(t, calls...)
+		for _, set := range []func(*core.CallFilter){
+			func(f *core.CallFilter) { f.Statuses = []int{70_000} },
+			func(f *core.CallFilter) { f.Statuses = []int{70_000, 70_001} },
+			func(f *core.CallFilter) { f.Statuses = []int{1<<32 + calls[0].Status} },
+			func(f *core.CallFilter) { f.MinLatency = 30 * 24 * time.Hour },
+			func(f *core.CallFilter) { f.MinCost = core.MicroUSD(1<<63 - 1) },
+		} {
+			f := win
+			set(&f)
+			for _, c := range calls {
+				if f.Match(c, nil) {
+					t.Fatalf("Match, the reference, selects a call for %+v", f)
+				}
+			}
+			if got := e.walk(t, f, 10); len(got) != 0 {
+				t.Errorf("%+v: list got %v, want none", f, got)
+			}
+			n, capped, err := e.CountCalls(context.Background(), f, 100)
+			if err != nil || n != 0 || capped {
+				t.Errorf("%+v: count = %d capped %v err %v, want 0", f, n, capped, err)
+			}
+		}
+	}},
 	{"list_row_has_summary_fields", func(t *testing.T, e *env) {
 		c := fullRecord(e.gen)
 		bare := e.gen.Call(e.gen.At(Base.Add(time.Minute)), func(c *core.CallRecord) {
