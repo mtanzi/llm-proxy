@@ -590,7 +590,7 @@ func TestRunRetentionNeedsAKeepPeriod(t *testing.T) {
 func TestStartAndStopRetention(t *testing.T) {
 	url := pgtest.NewDatabase(t)
 	s, err := postgres.Open(context.Background(), postgres.Config{
-		URL: url, Retention: postgres.Retention{Keep: time.Hour, RunAt: 3 * time.Hour},
+		URL: url, Retention: postgres.Retention{Keep: time.Hour},
 	})
 	if err != nil {
 		t.Fatal(err)

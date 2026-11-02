@@ -1,6 +1,6 @@
 # ADR 0022: Retention job
 
-Status: Completed
+Status: Accepted
 
 Date: 2026-10-21
 
@@ -30,9 +30,19 @@ Call records are metadata only, kept for a configured period (default 400 days).
 
 ## Implementation note
 
-- `postgres.Config.Retention` carries the settings (`Keep` from `retention.calls`; batch size, pause, run time and jitter default to 10,000 rows, 100 ms, 03:00 UTC and 30 minutes). `(*Store).DeleteBefore(ctx, table, cutoff)` is the batch loop; `RunRetention` runs both tables once.
-- `StartRetention(ctx)` and `StopRetention(ctx)` start and stop the scheduler goroutine; `Close` also stops it. The composition root (ADR 0028) and shutdown (ADR 0027) are not built yet; they will call these two methods.
-- `RetentionStats` returns the deleted-row count and last run time as plain values. ADR 0026 exports them as `llm_proxy_retention_deleted_total` and `llm_proxy_retention_last_run_timestamp_seconds`; no metrics library is added here.
+Landed:
+
+- `postgres.Config.Retention` carries the settings: `Keep`, batch size and batch pause (10,000 rows and 100 ms by default). The job runs at a fixed 03:00 UTC plus up to 30 minutes of jitter.
+- `(*Store).DeleteBefore(ctx, table, cutoff)` is the batch loop, and `RunRetention` runs both tables once and logs one line.
+- `StartRetention(ctx)` and `StopRetention(ctx)` start and stop the scheduler goroutine, and `Close` also stops it.
+- `RetentionStats` returns the deleted-row count and last run time as plain values.
+- The contract cases are in `internal/store/storetest/retention.go`.
+
+Remaining:
+
+- Metrics export: ADR 0026 exports the `RetentionStats` values as `llm_proxy_retention_deleted_total` and `llm_proxy_retention_last_run_timestamp_seconds`.
+- Config wiring and start: the composition root (ADR 0028) fills `Retention.Keep` from `retention.calls` and calls `StartRetention`.
+- Stop on shutdown: ADR 0027 calls `StopRetention`.
 
 ## Depends on
 

@@ -15,8 +15,13 @@ import (
 const (
 	DefaultBatchSize  = 10000
 	DefaultBatchPause = 100 * time.Millisecond
-	DefaultRunAt      = 3 * time.Hour // 03:00 UTC
-	DefaultJitter     = 30 * time.Minute
+)
+
+// The daily job starts at retentionRunAt UTC plus a random delay up to
+// retentionJitter.
+const (
+	retentionRunAt  = 3 * time.Hour // 03:00 UTC
+	retentionJitter = 30 * time.Minute
 )
 
 // Retention holds the retention job settings. cmd fills Keep from the
@@ -26,9 +31,6 @@ type Retention struct {
 	Keep       time.Duration // calls and tool_events older than this are deleted; zero or less disables the job
 	BatchSize  int           // rows per DELETE; each batch is its own transaction
 	BatchPause time.Duration // wait between two batches
-	RunAt      time.Duration // time of day, in UTC, as an offset from midnight
-	Jitter     time.Duration // the run starts up to this long after RunAt
-	Logger     *slog.Logger  // one line per run; slog.Default when nil
 }
 
 func (r Retention) withDefaults() Retention {
@@ -37,17 +39,6 @@ func (r Retention) withDefaults() Retention {
 	}
 	if r.BatchPause <= 0 {
 		r.BatchPause = DefaultBatchPause
-	}
-	if r.RunAt <= 0 || r.RunAt >= 24*time.Hour {
-		r.RunAt = DefaultRunAt
-	}
-	if r.Jitter < 0 {
-		r.Jitter = 0
-	} else if r.Jitter == 0 {
-		r.Jitter = DefaultJitter
-	}
-	if r.Logger == nil {
-		r.Logger = slog.Default()
 	}
 	return r
 }
@@ -134,7 +125,7 @@ func (s *Store) RunRetention(ctx context.Context) (calls, toolEvents int64, err 
 	}
 	start := time.Now()
 	cutoff := start.Add(-s.retention.Keep)
-	log := s.retention.Logger
+	log := slog.Default()
 	calls, err = s.DeleteBefore(ctx, "calls", cutoff)
 	if err == nil {
 		toolEvents, err = s.DeleteBefore(ctx, "tool_events", cutoff)
@@ -151,7 +142,7 @@ func (s *Store) RunRetention(ctx context.Context) (calls, toolEvents int64, err 
 }
 
 // StartRetention starts the daily job in a goroutine owned by the store. The
-// job runs at Retention.RunAt UTC plus a random delay up to Retention.Jitter,
+// job runs at retentionRunAt UTC plus a random delay up to retentionJitter,
 // every day, until ctx ends or StopRetention or Close is called. A run in
 // progress when that happens is cancelled. It returns an error if the job is
 // already running or no retention period is configured.
@@ -170,7 +161,7 @@ func (s *Store) StartRetention(ctx context.Context) error {
 	go func() {
 		defer close(done)
 		for {
-			wait := untilNextRun(time.Now(), s.retention.RunAt, rand.N(s.retention.Jitter+1))
+			wait := untilNextRun(time.Now(), rand.N(retentionJitter+1))
 			select {
 			case <-ctx.Done():
 				return
@@ -202,11 +193,11 @@ func (s *Store) StopRetention(ctx context.Context) error {
 }
 
 // untilNextRun returns how long to wait from now for the next occurrence of
-// runAt (an offset from midnight UTC) plus jitter. A run is never scheduled
-// for the occurrence of runAt that has already started today.
-func untilNextRun(now time.Time, runAt, jitter time.Duration) time.Duration {
+// retentionRunAt plus jitter. A run is never scheduled for the occurrence of
+// retentionRunAt that has already started today.
+func untilNextRun(now time.Time, jitter time.Duration) time.Duration {
 	now = now.UTC()
-	next := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Add(runAt)
+	next := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).Add(retentionRunAt)
 	if !next.After(now) {
 		next = next.AddDate(0, 0, 1)
 	}
