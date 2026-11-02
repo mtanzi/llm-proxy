@@ -8,10 +8,6 @@ import (
 	"github.com/mtanzi/llm-proxy/internal/core"
 )
 
-// maxModelLen bounds the model name kept in a record, like a correlation
-// value: a longer value is malformed and stored as null.
-const maxModelLen = 256
-
 // endpointMessages is the endpoint whose bodies carry tool halves and usage.
 const endpointMessages = "/v1/messages"
 
@@ -27,10 +23,11 @@ type Extractor struct{}
 // cannot read stays at its zero value, which the store writes as null, and a
 // request body that is not JSON marks the record partial.
 //
-// It writes the tool halves in a fixed order: results in request order, then
-// uses in response order. The store gives each half its index and timestamp
-// from that order (ADR 0017): a result at the request start, a use at the
-// response end.
+// It writes the tool halves in a fixed order: client results in request order,
+// then server results and uses, each in response order. The store gives each
+// half its index from that order and its timestamp from its kind and source
+// (ADR 0017): a client result at the request start, a server result or a use at
+// the response end.
 func (Extractor) Extract(rec *core.CallRecord, request []byte, facts Facts) {
 	ExtractRequest(rec, request)
 	extractResponse(rec, facts)
@@ -47,9 +44,7 @@ func ExtractRequest(rec *core.CallRecord, body []byte) {
 		rec.ExtractionPartial = true
 		return
 	}
-	if m := gjson.GetBytes(body, "model"); m.Type == gjson.String && len(m.Str) <= maxModelLen {
-		rec.Model = m.Str
-	}
+	rec.Model = boundedString(gjson.GetBytes(body, "model"))
 	if rec.Endpoint == endpointMessages {
 		rec.ToolResults = requestToolResults(body)
 	}
@@ -64,6 +59,7 @@ func extractResponse(rec *core.CallRecord, f Facts) {
 	// A response that stopped before its end carries usage that may be short.
 	rec.UsageEstimated = rec.UsageEstimated || (len(f.UsageRaw) > 0 && !f.Complete)
 	if rec.Endpoint == endpointMessages {
+		rec.ToolResults = append(rec.ToolResults, f.ToolResults...)
 		rec.ToolUses = f.ToolUses
 	}
 	// A status below 400 hides an error event inside the stream.
@@ -122,30 +118,34 @@ func ErrorClassOf(errType string) core.ErrorClass {
 }
 
 // requestToolResults returns the tool_result blocks the client sent back in
-// the newest message. A client resends the whole conversation with every
-// request, so the older results were recorded by the calls that first carried
-// them. Only the last message, when it is from the user, holds new results.
+// the trailing run of user messages. A client resends the whole conversation
+// with every request, so results before the last assistant message were
+// recorded by the calls that first carried them. The API merges consecutive
+// user messages, so every message of the run is one turn and holds new results.
 func requestToolResults(body []byte) []core.ToolResult {
-	var last gjson.Result
+	var run []gjson.Result
 	gjson.GetBytes(body, "messages").ForEach(func(_, m gjson.Result) bool {
-		last = m
-		return true
-	})
-	if last.Get("role").String() != "user" {
-		return nil
-	}
-	var out []core.ToolResult
-	last.Get("content").ForEach(func(_, blk gjson.Result) bool {
-		if blk.Get("type").String() == "tool_result" {
-			out = append(out, core.ToolResult{
-				Source:      core.ToolSourceClient,
-				ToolCallID:  blk.Get("tool_use_id").String(),
-				IsError:     blk.Get("is_error").Bool(),
-				ResultBytes: resultSize(blk.Get("content")),
-			})
+		if m.Get("role").String() == "user" {
+			run = append(run, m)
+		} else {
+			run = nil
 		}
 		return true
 	})
+	var out []core.ToolResult
+	for _, m := range run {
+		m.Get("content").ForEach(func(_, blk gjson.Result) bool {
+			if blk.Get("type").String() == "tool_result" {
+				out = append(out, core.ToolResult{
+					Source:      core.ToolSourceClient,
+					ToolCallID:  boundedString(blk.Get("tool_use_id")),
+					IsError:     blk.Get("is_error").Type == gjson.True,
+					ResultBytes: resultSize(blk.Get("content")),
+				})
+			}
+			return true
+		})
+	}
 	return out
 }
 

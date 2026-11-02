@@ -239,7 +239,7 @@ A proxy never sees a tool run. It sees the model request the tool in response N,
 - **Unmatched halves** are derived: a use with no result after 1 hour is `use_only`; a result with no use is `result_only`. The 1 hour and the 24 hours are the only two constants. Nothing sets these at write time, so there is no idle-close job.
 - **Why this is safe:** every write is a plain insert, so a retried batch, out-of-order arrival, or two replicas writing the halves cannot corrupt anything.
 - **Sessions** are `GROUP BY session_key` over `calls` in the time range. Calls with a null `session_key` belong to no session. The **agent tree** is the distinct `(agent_id, parent_agent_id, agent_type)` set of a session. There are no `sessions` or `agents` tables.
-- **Server-side tools** (Anthropic web search, code execution) appear complete inside one response and are recorded with `source = server`.
+- **Server-side tools** (Anthropic web search, code execution) appear complete inside one response and are recorded with `source = server`: the use half and the result half (id, `is_error`, size), both timed at response end.
 - The inferred link from a sub-agent to the `Task` tool call that spawned it is deferred; a sub-agent nests under its parent agent, from headers. `source = mcp` arrives with the MCP gateway, a later item ([Later versions](#storage-and-scale)).
 
 ### Admin and query API
@@ -525,7 +525,7 @@ CREATE INDEX ON calls (ts DESC) WHERE error_class IS NOT NULL;
 CREATE TABLE tool_events (
   call_id       uuid NOT NULL,                 -- the call that carried this half
   idx           integer NOT NULL,              -- position within that call
-  ts            timestamptz NOT NULL,          -- use: response end; result: request start
+  ts            timestamptz NOT NULL,          -- use, server result: response end; client result: request start
   kind          text NOT NULL,                 -- 'use' | 'result'
   source        text NOT NULL,                 -- 'client' | 'server'
   tool_call_id  text NOT NULL,                 -- toolu_...

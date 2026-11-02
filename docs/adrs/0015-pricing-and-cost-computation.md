@@ -1,6 +1,6 @@
 # ADR 0015: Pricing and cost computation
 
-Status: Completed
+Status: Accepted
 
 Date: 2026-10-21
 

@@ -71,5 +71,12 @@
       "ArgBytes": 33
     }
   ],
-  "ToolResults": null
+  "ToolResults": [
+    {
+      "Source": "server",
+      "ToolCallID": "srvtoolu_01C",
+      "IsError": false,
+      "ResultBytes": 100
+    }
+  ]
 }

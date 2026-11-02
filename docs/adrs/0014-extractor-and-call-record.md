@@ -17,7 +17,7 @@ A call record holds:
 - **Usage:** disjoint columns `input_uncached`, `cache_read`, `cache_write_5m`, `cache_write_1h`, `output` (including reasoning), `reasoning` (informational), plus `usage_raw` as the provider's usage JSON. Cost carries `pricing_version`, the `from` date of the matched pricing entry (ADR 0015).
 - **Timings:** TTFB, TTFT, duration, end timestamp.
 - **Outcome:** status, `error_class`, provider `error_type`, stop reason, `streamed`, `usage_estimated`, `extraction_partial`. No provider message text.
-- **Tool halves:** for each `tool_use` in the response: call id, tool name, argument size in bytes. For each `tool_result` in the request: the id it answers, `is_error`, result size in bytes. Text is read to measure it and not kept.
+- **Tool halves:** for each `tool_use` in the response: call id, tool name, argument size in bytes. For each `tool_result` in the trailing run of consecutive user messages of the request: the id it answers, `is_error`, result size in bytes. Results before that run were recorded by the calls that first carried them. For each server tool result block in the response, such as `web_search_tool_result` or `code_execution_tool_result`: the same fields with `source = server`, timed at response end. Tool ids and names are kept only as JSON strings of at most 256 bytes. Text is read to measure it and not kept.
 - No snippet, no prompt text, no header value other than the correlation fields; credentials are never read into the record.
 
 After the record is built, the proxy computes cost (ADR 0015), drops the request bytes and sends `Finished(record)` to the recorder.

@@ -154,11 +154,19 @@ func TestFixtureFacts(t *testing.T) {
 		{"parallel_tool_calls", func(r core.CallRecord) string {
 			u := r.ToolUses
 			return check(len(u) == 3 && u[0].Source == core.ToolSourceClient && u[1].ToolCallID == "toolu_01B" &&
-				u[2].Source == core.ToolSourceServer && u[2].Name == "web_search" && len(r.ToolResults) == 0, r)
+				u[2].Source == core.ToolSourceServer && u[2].Name == "web_search" && len(r.ToolResults) == 1 &&
+				r.ToolResults[0].Source == core.ToolSourceServer && r.ToolResults[0].ToolCallID == "srvtoolu_01C" &&
+				!r.ToolResults[0].IsError && r.ToolResults[0].ResultBytes > 0, r)
+		}},
+		{"server_tool_error", func(r core.CallRecord) string {
+			x := r.ToolResults
+			return check(r.Status == 200 && r.ErrorClass == "" && len(r.ToolUses) == 2 && len(x) == 2 &&
+				x[0].Source == core.ToolSourceServer && x[0].ToolCallID == "srvtoolu_01A" && x[0].IsError && x[0].ResultBytes > 0 &&
+				x[1].Source == core.ToolSourceServer && x[1].ToolCallID == "srvtoolu_01B" && x[1].IsError && x[1].ResultBytes > 0, r)
 		}},
 		{"tool_results_next_request", func(r core.CallRecord) string {
 			x := r.ToolResults
-			// Only the newest message counts; the older result was recorded by its own call.
+			// Only the trailing user messages count; the older result was recorded by its own call.
 			return check(len(x) == 2 && x[0].ToolCallID == "toolu_01A" && !x[0].IsError &&
 				x[0].ResultBytes == len("FAKEPROMPT-file-a-contents-héllo") &&
 				x[1].ToolCallID == "toolu_01B" && x[1].IsError && x[1].ResultBytes > len("FAKEPROMPT-err-text") &&
@@ -364,7 +372,7 @@ func TestMalformedRequestIsNotAPanic(t *testing.T) {
 	})
 	t.Run("long model is dropped", func(t *testing.T) {
 		rec := core.CallRecord{}
-		ExtractRequest(&rec, []byte(`{"model":"`+strings.Repeat("a", maxModelLen+1)+`"}`))
+		ExtractRequest(&rec, []byte(`{"model":"`+strings.Repeat("a", maxFieldLen+1)+`"}`))
 		if rec.Model != "" {
 			t.Errorf("model kept at %d bytes", len(rec.Model))
 		}
@@ -377,4 +385,123 @@ func TestMalformedRequestIsNotAPanic(t *testing.T) {
 			t.Errorf("record = %+v", rec)
 		}
 	})
+}
+
+func TestRequestToolResultsTrailingUserRun(t *testing.T) {
+	result := func(id string) string {
+		return `{"role":"user","content":[{"type":"tool_result","tool_use_id":"` + id + `","content":"FAKEPROMPT"}]}`
+	}
+	assistant := `{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{}}]}`
+	text := `{"role":"user","content":[{"type":"text","text":"FAKEPROMPT"}]}`
+	tests := []struct {
+		name     string
+		messages []string
+		want     []string
+	}{
+		{"result then text", []string{assistant, result("toolu_1"), text}, []string{"toolu_1"}},
+		{"text then result", []string{assistant, text, result("toolu_1")}, []string{"toolu_1"}},
+		{"results in two messages", []string{assistant, result("toolu_1"), result("toolu_2")}, []string{"toolu_1", "toolu_2"}},
+		{"resent history stays out", []string{result("toolu_0"), assistant, result("toolu_1"), text}, []string{"toolu_1"}},
+		{"assistant last", []string{result("toolu_0"), assistant}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := core.CallRecord{Endpoint: "/v1/messages"}
+			ExtractRequest(&rec, []byte(`{"messages":[`+strings.Join(tt.messages, ",")+`]}`))
+			var got []string
+			for _, r := range rec.ToolResults {
+				got = append(got, r.ToolCallID)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("results = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestUntrustedStringsAreNotKept: a kept string field holds a JSON string within
+// the bound or nothing. gjson would otherwise render an object as its raw text.
+func TestUntrustedStringsAreNotKept(t *testing.T) {
+	long := `"` + strings.Repeat("a", maxFieldLen+1) + `"`
+	bad := map[string]string{
+		"object": `{"x":"FAKEPROMPT"}`, "array": `["FAKEPROMPT"]`, "number": `42`, "bool": `true`, "too long": long,
+	}
+	for name, v := range bad {
+		t.Run(name, func(t *testing.T) {
+			rec := core.CallRecord{Endpoint: "/v1/messages"}
+			ExtractRequest(&rec, []byte(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":`+v+`,"content":"x"}]}]}`))
+			if len(rec.ToolResults) != 1 || rec.ToolResults[0].ToolCallID != "" {
+				t.Errorf("request tool results = %+v", rec.ToolResults)
+			}
+
+			blocks := `{"type":"tool_use","id":` + v + `,"name":` + v + `,"input":{}},` +
+				`{"type":"web_search_tool_result","tool_use_id":` + v + `,"content":[]}`
+			body, _ := scanChunks(false, []byte(`{"type":"message","stop_reason":`+v+`,"content":[`+blocks+`]}`))
+			stream, _ := scanChunks(true, []byte(
+				`data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":`+v+`,"name":`+v+`,"input":{}}}`+"\n\n"+
+					`data: {"type":"content_block_start","index":1,"content_block":{"type":"web_search_tool_result","tool_use_id":`+v+`,"content":[]}}`+"\n\n"+
+					`data: {"type":"message_delta","delta":{"stop_reason":`+v+`}}`+"\n\n"+
+					`data: {"type":"error","error":{"type":`+v+`}}`+"\n\n"))
+			for scanner, f := range map[string]Facts{"body": body, "stream": stream} {
+				if len(f.ToolUses) != 1 || f.ToolUses[0].ToolCallID != "" || f.ToolUses[0].Name != "" {
+					t.Errorf("%s tool uses = %+v", scanner, f.ToolUses)
+				}
+				if len(f.ToolResults) != 1 || f.ToolResults[0].ToolCallID != "" {
+					t.Errorf("%s tool results = %+v", scanner, f.ToolResults)
+				}
+				if f.StopReason != "" || f.ErrorType != "" {
+					t.Errorf("%s stop reason %q, error type %q", scanner, f.StopReason, f.ErrorType)
+				}
+			}
+		})
+	}
+	t.Run("error body type", func(t *testing.T) {
+		f, _ := scanChunks(false, []byte(`{"type":"error","error":{"type":{"x":"FAKEPROMPT"}}}`))
+		if f.ErrorType != "" {
+			t.Errorf("error type = %q", f.ErrorType)
+		}
+	})
+	t.Run("is_error must be a JSON true", func(t *testing.T) {
+		rec := core.CallRecord{Endpoint: "/v1/messages"}
+		ExtractRequest(&rec, []byte(`{"messages":[{"role":"user","content":[
+			{"type":"tool_result","tool_use_id":"a","is_error":"true"},
+			{"type":"tool_result","tool_use_id":"b","is_error":true}]}]}`))
+		if len(rec.ToolResults) != 2 || rec.ToolResults[0].IsError || !rec.ToolResults[1].IsError {
+			t.Errorf("tool results = %+v", rec.ToolResults)
+		}
+	})
+}
+
+func TestServerToolResultsInBody(t *testing.T) {
+	f, _ := scanChunks(false, []byte(`{"type":"message","content":[
+		{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{}},
+		{"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","content":[{"type":"web_search_result","title":"t"}]},
+		{"type":"server_tool_use","id":"srvtoolu_2","name":"code_execution","input":{}},
+		{"type":"code_execution_tool_result","tool_use_id":"srvtoolu_2","content":{"type":"code_execution_tool_result_error","error_code":"unavailable"}},
+		{"type":"mcp_tool_result","tool_use_id":"mcptoolu_3","is_error":true,"content":[]}]}`))
+	want := []core.ToolResult{
+		{Source: core.ToolSourceServer, ToolCallID: "srvtoolu_1", ResultBytes: len(`[{"type":"web_search_result","title":"t"}]`)},
+		{Source: core.ToolSourceServer, ToolCallID: "srvtoolu_2", IsError: true,
+			ResultBytes: len(`{"type":"code_execution_tool_result_error","error_code":"unavailable"}`)},
+	}
+	if !reflect.DeepEqual(f.ToolResults, want) {
+		t.Errorf("results = %+v, want %+v", f.ToolResults, want)
+	}
+}
+
+func TestToolHalfOrderAndEndpoint(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"x"}]}]}`)
+	facts := Facts{ToolResults: []core.ToolResult{{Source: core.ToolSourceServer, ToolCallID: "srvtoolu_2"}}}
+
+	rec := core.CallRecord{Endpoint: "/v1/messages"}
+	Extractor{}.Extract(&rec, body, facts)
+	if len(rec.ToolResults) != 2 || rec.ToolResults[0].ToolCallID != "toolu_1" || rec.ToolResults[1].ToolCallID != "srvtoolu_2" {
+		t.Errorf("results = %+v", rec.ToolResults)
+	}
+
+	rec = core.CallRecord{Endpoint: "/v1/messages/count_tokens"}
+	Extractor{}.Extract(&rec, body, facts)
+	if len(rec.ToolResults) != 0 {
+		t.Errorf("count_tokens results = %+v", rec.ToolResults)
+	}
 }

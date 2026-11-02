@@ -21,6 +21,7 @@
   "StopReason": "",
   "ErrorType": "overloaded_error",
   "ToolUses": null,
+  "ToolResults": null,
   "Complete": false,
   "Partial": false
 }
