@@ -23,11 +23,15 @@ var migrations embed.FS
 type Config struct {
 	URL      string // a postgres:// URL or key=value connection string
 	MaxConns int    // pool size; zero or less keeps the pgx default
+
+	Retention Retention // the retention job; cmd fills Keep from the config file
 }
 
 // Store is the Postgres adapter. It implements core.CallWriter.
 type Store struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	retention Retention
+	ret       retentionState
 }
 
 var _ core.CallWriter = (*Store)(nil)
@@ -47,7 +51,7 @@ func Open(ctx context.Context, cfg Config) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("postgres: %w", err)
 	}
-	return &Store{pool: pool}, nil
+	return &Store{pool: pool, retention: cfg.Retention.withDefaults()}, nil
 }
 
 // Migrate applies the embedded migrations that are not applied yet. It holds
@@ -80,7 +84,9 @@ func (s *Store) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
 
-// Close closes the pool. It waits for connections in use to be returned.
+// Close stops the retention job, then closes the pool. It waits for
+// connections in use to be returned.
 func (s *Store) Close() {
+	_ = s.StopRetention(context.Background())
 	s.pool.Close()
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/mtanzi/llm-proxy/internal/core"
 	"github.com/mtanzi/llm-proxy/internal/store/postgres"
 	"github.com/mtanzi/llm-proxy/internal/store/postgres/pgtest"
+	"github.com/mtanzi/llm-proxy/internal/store/storetest"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -21,7 +22,11 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 // open opens a store on url without migrating it.
 func open(t *testing.T, url string) *postgres.Store {
 	t.Helper()
-	s, err := postgres.Open(context.Background(), postgres.Config{URL: url, MaxConns: 4})
+	s, err := postgres.Open(context.Background(), postgres.Config{
+		URL: url, MaxConns: 4,
+		// A small batch makes the retention cases cross batch edges with few rows.
+		Retention: postgres.Retention{BatchSize: 4, BatchPause: time.Millisecond},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,5 +531,93 @@ func TestWriteBatchHalvesInAnyOrder(t *testing.T) {
 				t.Fatalf("pairs = %d, gap = %v; want 1 pair 2s apart", pairs, gap)
 			}
 		})
+	}
+}
+
+func TestRunRetentionDeletesPastTheKeepPeriod(t *testing.T) {
+	url := pgtest.NewDatabase(t)
+	s, err := postgres.Open(context.Background(), postgres.Config{
+		URL: url, MaxConns: 4,
+		Retention: postgres.Retention{Keep: 400 * 24 * time.Hour, BatchSize: 2, BatchPause: time.Millisecond},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	ctx := context.Background()
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	g := storetest.NewGenAt(time.Now().Add(-500 * 24 * time.Hour))
+	oldCalls := g.Calls(3, g.WithUse("toolu_old", "Bash"))
+	young := g.Call(g.At(time.Now().Add(-time.Hour)), g.WithUse("toolu_new", "Bash"))
+	if err := s.WriteBatch(ctx, append(oldCalls, young)); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.RetentionStats().LastRun; !got.IsZero() {
+		t.Fatalf("last run is %v before any run", got)
+	}
+	calls, halves, err := s.RunRetention(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 3 || halves != 3 {
+		t.Fatalf("deleted %d calls and %d halves, want 3 and 3", calls, halves)
+	}
+	if n, _ := s.CountRows(ctx, "calls"); n != 1 {
+		t.Fatalf("%d calls left, want 1", n)
+	}
+	st := s.RetentionStats()
+	if st.Deleted != 6 || time.Since(st.LastRun) > time.Minute {
+		t.Fatalf("stats %+v after a run that deleted 6 rows", st)
+	}
+	// Running it again is safe.
+	if calls, halves, err = s.RunRetention(ctx); err != nil || calls != 0 || halves != 0 {
+		t.Fatalf("second run deleted %d calls and %d halves, err %v", calls, halves, err)
+	}
+}
+
+func TestRunRetentionNeedsAKeepPeriod(t *testing.T) {
+	s, _ := newStore(t)
+	if _, _, err := s.RunRetention(context.Background()); err == nil {
+		t.Fatal("RunRetention ran without a retention period")
+	}
+	if err := s.StartRetention(context.Background()); err == nil {
+		t.Fatal("StartRetention started without a retention period")
+	}
+}
+
+func TestStartAndStopRetention(t *testing.T) {
+	url := pgtest.NewDatabase(t)
+	s, err := postgres.Open(context.Background(), postgres.Config{
+		URL: url, Retention: postgres.Retention{Keep: time.Hour, RunAt: 3 * time.Hour},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	ctx := context.Background()
+	if err := s.StartRetention(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StartRetention(ctx); err == nil {
+		t.Fatal("StartRetention started a second job")
+	}
+	stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := s.StopRetention(stopCtx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StopRetention(stopCtx); err != nil {
+		t.Fatalf("second stop: %v", err)
+	}
+	// A stopped job can start again, and a cancelled parent context ends it.
+	runCtx, end := context.WithCancel(ctx)
+	if err := s.StartRetention(runCtx); err != nil {
+		t.Fatal(err)
+	}
+	end()
+	if err := s.StopRetention(stopCtx); err != nil {
+		t.Fatal(err)
 	}
 }
