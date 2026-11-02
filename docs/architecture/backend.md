@@ -370,7 +370,7 @@ type Cursor struct {
 
 `ID` is the 16-byte UUIDv7 and `MicroUSD` the exact `int64` count of millionths of a dollar, both defined in `core` because the standard-library-only rule excludes `uuid.UUID` and `decimal.Decimal`.
 
-Lifecycle is on the concrete adapter, not an interface: `postgres.Open(ctx, cfg)`, `(*Store).Migrate`, `(*Store).Ping` (backs `/readyz`), `(*Store).DeleteBefore(table, cutoff)` and `(*Store).Close`. `cmd` calls them directly.
+Lifecycle is on the concrete adapter, not an interface: `postgres.Open(ctx, cfg)`, `(*Store).Migrate`, `(*Store).Ping` (backs `/readyz`), `(*Store).StartRetention(ctx)`, `(*Store).StopRetention(ctx)` and `(*Store).Close`. `cmd` calls them directly. The scheduler that `StartRetention` owns calls `(*Store).DeleteBefore(ctx, table, cutoff)` through `(*Store).RunRetention(ctx)`.
 
 Notes on the shapes:
 
