@@ -35,6 +35,7 @@ type env struct {
 var groups = []group{
 	{"write", writeCases},
 	{"retention", retentionCases},
+	{"read", readCases},
 	{"no_bodies", noBodiesCases},
 }
 
