@@ -3,12 +3,14 @@ package storetest
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"math"
+	"net/url"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -172,11 +174,16 @@ var toolCases = []testCase{
 	}},
 	{"tool_duration_is_the_header_value_or_the_estimated_gap", func(t *testing.T, e *env) {
 		g := e.gen
-		// Three tools in one response, answered together. The header reports two of them.
-		use := g.Call(g.At(Base), tuse("toolu_b", "Bash", 1), tuse("toolu_r", "Read", 1), tuse("toolu_g", "Grep", 1))
+		// Five tools in one response, answered together: two Bash uses run in
+		// parallel, and one tool name the header percent-encodes. The header
+		// reports all but Grep, one entry per tool call, in order.
+		use := g.Call(g.At(Base),
+			tuse("toolu_b1", "Bash", 1), tuse("toolu_r", "Read", 1), tuse("toolu_b2", "Bash", 1),
+			tuse("toolu_g", "Grep", 1), tuse("toolu_m", "mcp tool;x=1,%", 1))
 		res := g.Call(g.At(Base.Add(10*time.Second)),
-			tres("toolu_b", false, 1), tres("toolu_r", false, 1), tres("toolu_g", false, 1),
-			WithPrevToolDurations(`{"Bash":1200,"Read":35.4}`))
+			tres("toolu_b1", false, 1), tres("toolu_r", false, 1), tres("toolu_b2", false, 1),
+			tres("toolu_g", false, 1), tres("toolu_m", false, 1),
+			WithPrevToolDurations("Bash=1200;Read=40;Bash=310;mcp%20tool%3Bx%3D1%2C%25=77"))
 		e.write(t, use, res)
 		type dur struct {
 			d   time.Duration
@@ -188,19 +195,46 @@ var toolCases = []testCase{
 		}
 		gap := res.TS.Sub(use.EndedAt)
 		want := map[string]dur{
-			"toolu_b": {1200 * time.Millisecond, core.DurationHeader},
-			"toolu_r": {35 * time.Millisecond, core.DurationHeader},
-			"toolu_g": {gap, core.DurationEstimated},
+			"toolu_b1": {1200 * time.Millisecond, core.DurationHeader},
+			"toolu_r":  {40 * time.Millisecond, core.DurationHeader},
+			"toolu_b2": {310 * time.Millisecond, core.DurationHeader},
+			"toolu_g":  {gap, core.DurationEstimated},
+			"toolu_m":  {77 * time.Millisecond, core.DurationHeader},
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("durations %v, want %v", got, want)
 		}
+		if ref := refTools([]core.CallRecord{use, res}, toolWin, time.Now()); !reflect.DeepEqual(ref, e.listTools(t, toolWin, 10)) {
+			t.Fatalf("reference disagrees: %+v", ref)
+		}
 	}},
-	{"tool_duration_ignores_a_header_that_is_not_a_name_to_milliseconds_map", func(t *testing.T, e *env) {
+	{"tool_duration_header_entries_go_to_uses_of_their_name_in_order", func(t *testing.T, e *env) {
+		g := e.gen
+		// Three Bash uses over two responses, all answered by one call. The
+		// header has two Bash entries and a malformed one between them: the
+		// third use has no entry and falls back to the gap.
+		u1 := g.Call(g.At(Base), tuse("toolu_1", "Bash", 1), tuse("toolu_2", "Bash", 1))
+		u2 := g.Call(g.At(Base.Add(time.Second)), tuse("toolu_3", "Bash", 1))
+		res := g.Call(g.At(Base.Add(10*time.Second)),
+			tres("toolu_3", false, 1), tres("toolu_2", false, 1), tres("toolu_1", false, 1),
+			WithPrevToolDurations("Bash=500;Bash=x;Bash=600"))
+		e.write(t, res, u2, u1)
+		got := map[string]core.DurationSource{}
+		ms := map[string]time.Duration{}
+		for _, tc := range e.listTools(t, toolWin, 10) {
+			got[tc.ToolCallID], ms[tc.ToolCallID] = tc.DurationSource, tc.Duration
+		}
+		want := map[string]core.DurationSource{"toolu_1": core.DurationHeader, "toolu_2": core.DurationHeader, "toolu_3": core.DurationEstimated}
+		if !reflect.DeepEqual(got, want) || ms["toolu_1"] != 500*time.Millisecond || ms["toolu_2"] != 600*time.Millisecond ||
+			ms["toolu_3"] != res.TS.Sub(u2.EndedAt) {
+			t.Fatalf("sources %v durations %v", got, ms)
+		}
+	}},
+	{"tool_duration_ignores_malformed_header_entries", func(t *testing.T, e *env) {
 		g := e.gen
 		for i, header := range []string{
-			`not json`, `["Bash"]`, `"Bash"`, `null`, `{}`, `{"Read":5}`,
-			`{"Bash":"1200"}`, `{"Bash":null}`, `{"Bash":-5}`, `{"Bash":1e30}`, `{"Bash":1e400}`,
+			`not a header`, `{"Bash":1200}`, `Bash`, `Bash=`, `=1200`, `Read=5`, `Bash=-5`, `Bash=1.5`,
+			`Bash=12x`, `Bash=1=2`, `Ba%7=5`, `Ba%ZZh=5`, `Bash =5`, `Bash=31536000001`, `Bash=99999999999999999999999`,
 		} {
 			id := "toolu_" + string(rune('a'+i))
 			start := Base.Add(time.Duration(i) * time.Minute)
@@ -209,8 +243,8 @@ var toolCases = []testCase{
 				g.Call(g.At(start.Add(5*time.Second)), tres(id, false, 1), WithPrevToolDurations(header)))
 		}
 		got := e.listTools(t, core.ToolCallFilter{From: Base, To: Base.Add(time.Hour)}, 50)
-		if len(got) != 11 {
-			t.Fatalf("%d tool calls, want 11", len(got))
+		if len(got) != 15 {
+			t.Fatalf("%d tool calls, want 15", len(got))
 		}
 		for _, tc := range got {
 			if tc.DurationSource != core.DurationEstimated || tc.Duration != 3500*time.Millisecond {
@@ -221,7 +255,7 @@ var toolCases = []testCase{
 	{"tool_server_side_tool_is_complete_inside_one_call", func(t *testing.T, e *env) {
 		g := e.gen
 		c := g.Call(g.At(Base), WithSession("s1"), g.WithServerTool("srvtoolu_1", "web_search", true),
-			WithPrevToolDurations(`{"web_search":999}`))
+			WithPrevToolDurations("web_search=999"))
 		e.write(t, c)
 		e.wantTools(t, toolWin, core.ToolCall{
 			ToolCallID: "srvtoolu_1", Name: "web_search", Source: core.ToolSourceServer, Status: core.ToolCallPaired,
@@ -322,14 +356,14 @@ var toolCases = []testCase{
 			at = at.Add(10 * time.Second)
 			calls = append(calls,
 				g.Call(g.At(at), WithAgentType("main"), tuse(id, "Bash", 1)),
-				g.Call(g.At(at.Add(time.Second)), tres(id, i == 5, 1), WithPrevToolDurations(`{"Bash":`+string(rune('0'+i))+`00}`)))
+				g.Call(g.At(at.Add(time.Second)), tres(id, i == 5, 1), WithPrevToolDurations("Bash="+string(rune('0'+i))+"00")))
 		}
 		for i, ms := range []int{1000, 3000} {
 			id := "toolu_s" + string(rune('0'+i))
 			at = at.Add(10 * time.Second)
 			calls = append(calls,
 				g.Call(g.At(at), WithAgentType("subagent"), tuse(id, "Bash", 1)),
-				g.Call(g.At(at.Add(time.Second)), tres(id, false, 1), WithPrevToolDurations(`{"Bash":`+strconv.Itoa(ms)+`}`)))
+				g.Call(g.At(at.Add(time.Second)), tres(id, false, 1), WithPrevToolDurations("Bash="+strconv.Itoa(ms))))
 		}
 		calls = append(calls, g.Call(g.At(at.Add(time.Minute)), WithAgentType("main"), tuse("toolu_lost", "Read", 1)))
 		e.write(t, calls...)
@@ -354,7 +388,7 @@ func toolDataset(g *Gen) []core.CallRecord {
 		at(0, WithSession("s1"), WithAgent("a1", "", "main"), tuse("toolu_1", "Bash", 100), tuse("toolu_2", "Read", 50)),
 		at(20, WithSession("s1"), WithAgent("a1", "", "main"),
 			tres("toolu_1", true, 300), tres("toolu_2", false, 5000), tuse("toolu_3", "Grep", 10),
-			WithPrevToolDurations(`{"Bash":4000,"Read":10}`)),
+			WithPrevToolDurations("Bash=4000;Read=10")),
 		at(40, WithSession("s2"), WithAgent("a2", "a1", "subagent"),
 			tres("toolu_3", false, 20), tuse("toolu_4", "Edit", 2000), g.WithServerTool("srvtoolu_1", "web_search", false)),
 		at(60, WithSession("s2"), WithAgent("a2", "a1", "subagent"), tres("toolu_4", true, 7), tuse("toolu_5", "Bash", 100)),
@@ -493,6 +527,37 @@ func refTools(calls []core.CallRecord, f core.ToolCallFilter, now time.Time) []c
 		}
 	}
 
+	// ordinal is the place of each client use, in use order, among the
+	// client uses of its name resolved by the same call.
+	type resolver struct {
+		call core.ID
+		name string
+	}
+	resolved := map[resolver][]refHalf{}
+	for _, h := range uses {
+		u := useOf(h)
+		if r, ok := earliest[u.ToolCallID]; ok && u.Source == core.ToolSourceClient {
+			k := resolver{r.call.ID, u.Name}
+			resolved[k] = append(resolved[k], h)
+		}
+	}
+	type halfKey struct {
+		call core.ID
+		idx  int
+	}
+	ordinal := map[halfKey]int{}
+	for _, hs := range resolved {
+		slices.SortFunc(hs, func(a, b refHalf) int {
+			if before(a, b) {
+				return -1
+			}
+			return 1
+		})
+		for i, h := range hs {
+			ordinal[halfKey{h.call.ID, h.idx}] = i + 1
+		}
+	}
+
 	type placed struct {
 		tc core.ToolCall
 		at refHalf
@@ -516,7 +581,7 @@ func refTools(calls []core.CallRecord, f core.ToolCallFilter, now time.Time) []c
 			if tc.Duration < 0 {
 				tc.Duration = 0
 			}
-			if ms, ok := headerMS(r.call.PrevToolDurations, u); ok {
+			if ms, ok := headerMS(r.call.PrevToolDurations, u, ordinal[halfKey{h.call.ID, h.idx}]); ok {
 				tc.Duration, tc.DurationSource = ms, core.DurationHeader
 			}
 		} else if now.Sub(h.ts) >= core.ToolIdleAfter {
@@ -553,21 +618,37 @@ func refTools(calls []core.CallRecord, f core.ToolCallFilter, now time.Time) []c
 	return tcs
 }
 
-// headerMS reads the duration of a client tool from a prev_tool_durations
-// value: a JSON object of tool name to milliseconds.
-func headerMS(raw string, u core.ToolUse) (time.Duration, bool) {
-	if u.Source != core.ToolSourceClient || raw == "" {
+// headerEntry is a well-formed prev_tool_durations entry: a percent-encoded
+// tool name, '=', and whole milliseconds.
+var headerEntry = regexp.MustCompile(`^(?:[^%=]|%[0-9A-Fa-f]{2})+=[0-9]+$`)
+
+// headerMS reads the duration of the k-th client use of a tool name resolved
+// by one call from that call's prev_tool_durations value: entries
+// "name=ms" joined by ';', one per tool call, in order. Malformed entries are
+// skipped; a value above one year yields no duration.
+func headerMS(raw string, u core.ToolUse, k int) (time.Duration, bool) {
+	if u.Source != core.ToolSourceClient || k < 1 {
 		return 0, false
 	}
-	var m map[string]any
-	if json.Unmarshal([]byte(raw), &m) != nil {
-		return 0, false
+	seen := 0
+	for _, entry := range strings.Split(raw, ";") {
+		if !headerEntry.MatchString(entry) {
+			continue
+		}
+		name, ms, _ := strings.Cut(entry, "=")
+		if decoded, err := url.PathUnescape(name); err != nil || decoded != u.Name {
+			continue
+		}
+		if seen++; seen != k {
+			continue
+		}
+		v, err := strconv.ParseInt(ms, 10, 64)
+		if err != nil || v > 365*24*3600*1000 {
+			return 0, false
+		}
+		return time.Duration(v) * time.Millisecond, true
 	}
-	v, ok := m[u.Name].(float64)
-	if !ok || v < 0 || v > 365*24*3600*1000 {
-		return 0, false
-	}
-	return time.Duration(math.Round(v)) * time.Millisecond, true
+	return 0, false
 }
 
 // refSummary is the reference for ToolSummary over the chosen tool calls.

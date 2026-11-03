@@ -256,9 +256,13 @@ func toolCallsSQL(w *where, f core.ToolCallFilter, now time.Time, after *core.Cu
 		order = " ORDER BY ts DESC, call_id DESC, idx DESC LIMIT " + strconv.Itoa(limit)
 	}
 
-	// The header holds a JSON object of tool name to milliseconds. Any other
-	// value, and any number out of range, is ignored, and the gap is used.
-	// Server-side tools run inside one response, so the header never applies.
+	// The header is a list of name=ms entries joined by ';', in call order,
+	// with names percent-encoded. The k-th well-formed entry for a name goes to
+	// the k-th client use of that name, in use order, among the uses whose
+	// earliest result is in the resolving call. A malformed entry is skipped; a
+	// value above maxHeaderMS keeps its place but yields no duration, and the
+	// gap is used. Server-side tools run inside one response, so the header
+	// never applies.
 	return `
 SELECT u.tool_call_id, u.tool_name AS name, u.source,
 	CASE WHEN r.call_id IS NOT NULL THEN 'paired'
@@ -280,15 +284,29 @@ LEFT JOIN LATERAL (
 	ORDER BY re.ts, re.call_id, re.idx LIMIT 1
 ) r ON true
 LEFT JOIN LATERAL (
-	SELECT CASE WHEN jsonb_typeof(j.v) = 'object' AND jsonb_typeof(j.v -> u.tool_name) = 'number'
-	            THEN CASE WHEN (j.v ->> u.tool_name)::numeric BETWEEN 0 AND ` + fmt.Sprint(maxHeaderMS) + `
-	                      THEN round((j.v ->> u.tool_name)::numeric)::bigint END
-	       END AS ms
-	FROM (
-		SELECT CASE WHEN pg_input_is_valid(rc.prev_tool_durations, 'jsonb')
-		            THEN rc.prev_tool_durations::jsonb END AS v
-		FROM calls rc WHERE rc.id = r.call_id AND u.source = 'client'
-	) j
+	SELECT CASE WHEN e.ms::numeric <= ` + fmt.Sprint(maxHeaderMS) + ` THEN e.ms::numeric::bigint END AS ms
+	FROM calls rc
+	CROSS JOIN LATERAL (
+		SELECT x.ms, row_number() OVER (ORDER BY x.ord) AS k
+		FROM (
+			SELECT split_part(s.entry, '=', 1) AS name, split_part(s.entry, '=', 2) AS ms, s.ord
+			FROM string_to_table(rc.prev_tool_durations, ';') WITH ORDINALITY AS s(entry, ord)
+			WHERE s.entry ~ '^([^%=]|%[0-9A-Fa-f]{2})+=[0-9]+$'
+		) x
+		WHERE (SELECT string_agg(CASE WHEN left(m.p[1], 1) = '%' THEN decode(substr(m.p[1], 2), 'hex')
+		                              ELSE convert_to(m.p[1], 'UTF8') END, ''::bytea ORDER BY m.o)
+		       FROM regexp_matches(x.name, '%[0-9A-Fa-f]{2}|[^%]+', 'g') WITH ORDINALITY AS m(p, o))
+		      = convert_to(u.tool_name, 'UTF8')
+	) e
+	WHERE rc.id = r.call_id AND u.source = 'client'
+	  AND e.k = (
+		SELECT count(*) FROM tool_events re2
+		JOIN tool_events u2 ON u2.kind = 'use' AND u2.tool_call_id = re2.tool_call_id
+		WHERE re2.call_id = r.call_id AND re2.kind = 'result'
+		  AND u2.source = 'client' AND u2.tool_name = u.tool_name
+		  AND (u2.ts, u2.call_id, u2.idx) <= (u.ts, u.call_id, u.idx)
+		  AND NOT EXISTS (SELECT 1 FROM tool_events r3 WHERE r3.kind = 'result' AND r3.tool_call_id = re2.tool_call_id
+			AND (r3.ts, r3.call_id, r3.idx) < (re2.ts, re2.call_id, re2.idx)))
 ) h ON true
 UNION ALL
 SELECT r.tool_call_id, NULL::text, r.source, 'result_only',
