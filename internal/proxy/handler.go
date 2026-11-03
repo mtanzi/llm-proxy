@@ -114,7 +114,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		NotFound(w, r)
 		return
 	}
-	arrival := time.Now()
 	id := httpmw.CallID(r.Context())
 	reqID := id.String()
 	w.Header().Set(httpmw.HeaderRequestID, reqID)
@@ -145,9 +144,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bodyStart := time.Now()
 	body, err := io.ReadAll(r.Body)
-	bodyWait := time.Since(bodyStart)
 	if err != nil {
 		if !httpmw.WriteBodyError(w, err) {
 			httpmw.WriteError(w, anthropic.MalformedRequestError(reqID))
@@ -168,7 +165,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	Correlate(r.Header, &rec)
 
-	f := &flight{h: h, rec: &rec, body: body, start: start, reqID: reqID, snap: snap, arrival: arrival, bodyWait: bodyWait}
+	f := &flight{h: h, rec: &rec, body: body, start: start, reqID: reqID, snap: snap, arrival: httpmw.Arrival(r.Context())}
 	defer func() {
 		p := recover()
 		if p == http.ErrAbortHandler && f.failure == core.FailureNone && r.Context().Err() == nil {
@@ -269,15 +266,10 @@ type flight struct {
 	extracted bool // the tap ran the extractor
 	inflight  bool // counted in llm_proxy_inflight_streams until finish
 
-	// Proxy overhead (ADR 0026): arrival to the upstream request headers
-	// written, less the client body upload and the upstream connection wait.
-	// The transport calls the trace hooks on its own goroutines.
-	arrival  time.Time
-	bodyWait time.Duration
-	traceMu  sync.Mutex
-	getConn  time.Time
-	connWait time.Duration
-	sent     bool
+	// Proxy overhead (ADR 0026): arrival at the chain to the upstream request
+	// headers written. The transport calls the trace hook on its own goroutine.
+	arrival time.Time
+	sent    sync.Once
 }
 
 // clientTrace measures llm_proxy_proxy_overhead_seconds. It observes once, when
@@ -287,27 +279,8 @@ func (f *flight) clientTrace() *httptrace.ClientTrace {
 		return nil
 	}
 	return &httptrace.ClientTrace{
-		GetConn: func(string) {
-			f.traceMu.Lock()
-			f.getConn = time.Now()
-			f.traceMu.Unlock()
-		},
-		GotConn: func(httptrace.GotConnInfo) {
-			f.traceMu.Lock()
-			if !f.getConn.IsZero() {
-				f.connWait += time.Since(f.getConn)
-				f.getConn = time.Time{}
-			}
-			f.traceMu.Unlock()
-		},
 		WroteHeaders: func() {
-			f.traceMu.Lock()
-			defer f.traceMu.Unlock()
-			if f.sent {
-				return
-			}
-			f.sent = true
-			f.h.metrics.observeOverhead(time.Since(f.arrival) - f.bodyWait - f.connWait)
+			f.sent.Do(func() { f.h.metrics.observeOverhead(time.Since(f.arrival)) })
 		},
 	}
 }

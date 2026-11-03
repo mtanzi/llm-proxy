@@ -9,7 +9,7 @@ llm_proxy_inflight_streams gauge {}
 llm_proxy_live_events_dropped_total counter {}
     Live-tail events lost by subscribers that read too slowly.
 llm_proxy_proxy_overhead_seconds histogram {}
-    Seconds the proxy itself takes between request arrival and the upstream request being sent, excluding the client body upload and the upstream connection wait.
+    Seconds from request arrival to the upstream request headers being written.
 llm_proxy_request_duration_seconds histogram {}
     Seconds from the start of the upstream exchange to the end of the response.
 llm_proxy_requests_total counter {error_class,family,provider,status}

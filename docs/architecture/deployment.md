@@ -248,7 +248,7 @@ Prometheus metrics at `/metrics` on the admin listener. This is a minimal set; e
 |---|---|
 | `llm_proxy_requests_total{family,provider,status,error_class}` | Error rates |
 | `llm_proxy_request_duration_seconds`, `llm_proxy_ttft_seconds` | Latency |
-| `llm_proxy_proxy_overhead_seconds` | Time the proxy adds before the upstream request is sent; target p99 under 5 ms (gap review R15). It runs from request arrival to the upstream request headers being written, less the time the client takes to upload the body and the time to get an upstream connection, which the proxy does not control |
+| `llm_proxy_proxy_overhead_seconds` | Time the proxy adds before the upstream request is sent; target p99 under 5 ms (gap review R15). It runs from request arrival, before the first data-plane middleware, to the upstream request headers being written. It includes the client body upload and the upstream connection wait (DNS, dial and TLS), so a slow client or a cold connection shows here |
 | `llm_proxy_inflight_streams` | Streaming requests being forwarded now; load and drain progress |
 | `llm_proxy_call_queue_depth`, `llm_proxy_calls_dropped_total{reason}` | Lost log records (should be zero) |
 | `llm_proxy_writer_errors_total` | Store writes (Postgres in v1) failing |

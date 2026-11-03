@@ -31,7 +31,7 @@ func Healthz() http.Handler {
 }
 
 // Readyz answers 200 when the process is not draining and check returns nil,
-// and 503 otherwise. A nil check always passes. The body names the cause
+// and 503 otherwise. check must not be nil. The body names the cause
 // without the error text, which can carry connection details.
 func Readyz(d *Drain, check func(context.Context) error) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,13 +39,11 @@ func Readyz(d *Drain, check func(context.Context) error) http.Handler {
 			writeProbe(w, http.StatusServiceUnavailable, "shutting down")
 			return
 		}
-		if check != nil {
-			ctx, cancel := context.WithTimeout(r.Context(), readyTimeout)
-			defer cancel()
-			if err := check(ctx); err != nil {
-				writeProbe(w, http.StatusServiceUnavailable, "not ready")
-				return
-			}
+		ctx, cancel := context.WithTimeout(r.Context(), readyTimeout)
+		defer cancel()
+		if err := check(ctx); err != nil {
+			writeProbe(w, http.StatusServiceUnavailable, "not ready")
+			return
 		}
 		writeProbe(w, http.StatusOK, "ok")
 	})

@@ -1,6 +1,6 @@
 # ADR 0022: Retention job
 
-Status: Completed
+Status: Accepted
 
 Date: 2026-10-21
 
@@ -40,7 +40,6 @@ Landed:
 
 Remaining:
 
-- Metrics export: ADR 0026 exports the `RetentionStats` values as `llm_proxy_retention_deleted_total` and `llm_proxy_retention_last_run_timestamp_seconds`.
 - Config wiring and start: the composition root (ADR 0028) fills `Retention.Keep` from `retention.calls` and calls `StartRetention`.
 - Stop on shutdown: ADR 0027 calls `StopRetention`.
 

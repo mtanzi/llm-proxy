@@ -49,7 +49,7 @@ func NewMetrics() *Metrics {
 		}),
 		overhead: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    MetricOverhead,
-			Help:    "Seconds the proxy itself takes between request arrival and the upstream request being sent, excluding the client body upload and the upstream connection wait.",
+			Help:    "Seconds from request arrival to the upstream request headers being written.",
 			Buckets: []float64{0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25},
 		}),
 		inflight: prometheus.NewGauge(prometheus.GaugeOpts{

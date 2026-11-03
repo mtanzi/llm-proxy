@@ -14,7 +14,7 @@ import (
 
 // Options configures NewMux.
 type Options struct {
-	// Metrics is served at /metrics. Nil leaves the route unimplemented.
+	// Metrics is served at /metrics. It must not be nil.
 	Metrics prometheus.Gatherer
 	// Ping is the admin readiness check: the store answers (Store.Ping). Nil
 	// reports not-ready, so a wiring that forgets it fails loudly.
@@ -42,11 +42,7 @@ func NewMux(o Options) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/admin/", notImplemented)
 	mux.HandleFunc("/ui/", notImplemented)
-	if o.Metrics != nil {
-		mux.Handle("/metrics", promhttp.HandlerFor(o.Metrics, promhttp.HandlerOpts{}))
-	} else {
-		mux.HandleFunc("/metrics", notImplemented)
-	}
+	mux.Handle("/metrics", promhttp.HandlerFor(o.Metrics, promhttp.HandlerOpts{}))
 	mux.Handle("/healthz", httpmw.Healthz())
 	ping := o.Ping
 	if ping == nil {

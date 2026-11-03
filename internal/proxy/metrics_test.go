@@ -105,7 +105,7 @@ func TestMetricsInflightStreamsCountsWhileStreaming(t *testing.T) {
 	}
 }
 
-func TestMetricsOverheadExcludesBodyUpload(t *testing.T) {
+func TestMetricsOverheadIncludesBodyUpload(t *testing.T) {
 	m := NewMetrics()
 	e := newEnv(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
@@ -128,8 +128,8 @@ func TestMetricsOverheadExcludesBodyUpload(t *testing.T) {
 	_ = readAll(t, resp.Body)
 	e.rec.next(t)
 	ov := gather(t, m)[MetricOverhead].GetMetric()[0].GetHistogram()
-	if ov.GetSampleCount() != 1 || ov.GetSampleSum() > 0.2 {
-		t.Errorf("overhead = %gs over %d samples; a 300ms client upload must not count", ov.GetSampleSum(), ov.GetSampleCount())
+	if ov.GetSampleCount() != 1 || ov.GetSampleSum() < 0.3 {
+		t.Errorf("overhead = %gs over %d samples; it runs from arrival, so a 300ms client upload counts", ov.GetSampleSum(), ov.GetSampleCount())
 	}
 }
 
