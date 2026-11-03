@@ -1,6 +1,6 @@
 # ADR 0022: Retention job
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

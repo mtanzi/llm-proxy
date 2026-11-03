@@ -6,6 +6,7 @@
 // A batch closes at BatchSize records or BatchInterval, whichever comes first.
 // The package holds no SQL and no store import.
 //
-// The four metrics are plain counters and a gauge with accessors on Recorder.
-// Their exported names are the Metric* constants, for the exporter (ADR 0026).
+// The four metrics keep their plain counters and accessors on Recorder. The
+// collector from Recorder.Collector exports them to Prometheus when scraped;
+// the Metric* constants are their names (ADR 0026).
 package recorder

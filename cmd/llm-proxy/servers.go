@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/mtanzi/llm-proxy/internal/api"
 	"github.com/mtanzi/llm-proxy/internal/config"
@@ -21,11 +24,27 @@ const (
 	idleTimeout       = 2 * time.Minute
 )
 
+// Observability is what the servers need from the rest of the binary for ADR
+// 0026. The composition root (ADR 0028) fills it.
+type Observability struct {
+	// Ping is the admin readiness check, Store.Ping. Nil reports not-ready.
+	Ping func(context.Context) error
+	// Collectors are registered next to the proxy's own: the recorder, the
+	// config holder and the store's retention job.
+	Collectors []prometheus.Collector
+}
+
 // Servers are the two listeners of the binary. The caller starts them with
 // ServeData and ServeAdmin and stops them with Shutdown.
 type Servers struct {
 	Data  *http.Server
 	Admin *http.Server
+
+	// Drain is the shutdown flag. Drain.Start makes both /readyz endpoints
+	// report not-ready; graceful shutdown (ADR 0027) calls it first.
+	Drain *httpmw.Drain
+	// Registry is served at /metrics on the admin plane.
+	Registry *prometheus.Registry
 
 	tls config.TLS
 }
@@ -34,17 +53,24 @@ type Servers struct {
 // behind the request chain. It refuses a non-loopback listen.admin, so the
 // unauthenticated admin plane never leaves the host even when validation was
 // skipped. The data plane reads its providers and keys from snaps, one
-// snapshot per request.
-func BuildServers(cfg *config.Config, snaps proxy.Snapshots, log *slog.Logger) (*Servers, error) {
+// snapshot per request. The /metrics registry holds the proxy collectors and
+// obs.Collectors.
+func BuildServers(cfg *config.Config, snaps proxy.Snapshots, log *slog.Logger, obs Observability) (*Servers, error) {
 	if !config.IsLoopback(cfg.Listen.Admin) {
 		return nil, fmt.Errorf("listen.admin %q is not a loopback address; the admin plane must listen on 127.0.0.1, ::1 or localhost", cfg.Listen.Admin)
 	}
 	opts := httpmw.Options{Logger: log, MaxRequestBytes: int64(cfg.Server.MaxRequestBytes)}
-	handler := proxy.NewHandler(snaps, proxy.Options{Logger: log})
+	pm := proxy.NewMetrics()
+	reg := api.NewRegistry(append([]prometheus.Collector{pm}, obs.Collectors...)...)
+	drain := &httpmw.Drain{}
+	handler := proxy.NewHandler(snaps, proxy.Options{Logger: log, Metrics: pm})
+	adminMux := api.NewMux(api.Options{Metrics: reg, Ping: obs.Ping, Drain: drain})
 	s := &Servers{
-		Data:  newServer(cfg.Listen.Data, httpmw.Wrap(proxy.NewMux(handler), opts), log),
-		Admin: newServer(cfg.Listen.Admin, httpmw.Wrap(api.NewMux(), opts), log),
-		tls:   cfg.Listen.TLS,
+		Data:     newServer(cfg.Listen.Data, httpmw.Wrap(proxy.NewMux(handler, drain), opts), log),
+		Admin:    newServer(cfg.Listen.Admin, httpmw.Wrap(adminMux, opts), log),
+		Drain:    drain,
+		Registry: reg,
+		tls:      cfg.Listen.TLS,
 	}
 	if s.tls.Enabled() {
 		s.Data.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}

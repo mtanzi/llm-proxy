@@ -51,7 +51,7 @@ func TestBuildServersRefusesNonLoopbackAdmin(t *testing.T) {
 	for _, addr := range []string{":9090", "0.0.0.0:9090", "10.0.0.5:9090", "[::]:9090", "example.com:9090"} {
 		cfg := testConfig()
 		cfg.Listen.Admin = addr
-		s, err := BuildServers(cfg, noSnapshots{}, testLogger())
+		s, err := BuildServers(cfg, noSnapshots{}, testLogger(), Observability{})
 		if err == nil || s != nil {
 			t.Errorf("admin %q: got servers %v, err %v; want a refusal", addr, s, err)
 		} else if !strings.Contains(err.Error(), "loopback") {
@@ -61,14 +61,14 @@ func TestBuildServersRefusesNonLoopbackAdmin(t *testing.T) {
 	for _, addr := range []string{"127.0.0.1:9090", "[::1]:9090", "localhost:9090"} {
 		cfg := testConfig()
 		cfg.Listen.Admin = addr
-		if _, err := BuildServers(cfg, noSnapshots{}, testLogger()); err != nil {
+		if _, err := BuildServers(cfg, noSnapshots{}, testLogger(), Observability{}); err != nil {
 			t.Errorf("admin %q: %v", addr, err)
 		}
 	}
 }
 
 func TestServerTimeouts(t *testing.T) {
-	s, err := BuildServers(testConfig(), noSnapshots{}, testLogger())
+	s, err := BuildServers(testConfig(), noSnapshots{}, testLogger(), Observability{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestServerTimeouts(t *testing.T) {
 }
 
 func TestPlanesServeTheirRoutes(t *testing.T) {
-	s, err := BuildServers(testConfig(), noSnapshots{}, testLogger())
+	s, err := BuildServers(testConfig(), noSnapshots{}, testLogger(), Observability{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,11 @@ func TestPlanesServeTheirRoutes(t *testing.T) {
 		{"GET", dataLn.Addr().String(), "/api/hello", http.StatusNotFound},
 		{"GET", dataLn.Addr().String(), "/admin/requests", http.StatusNotFound},
 		{"GET", adminLn.Addr().String(), "/admin/requests", http.StatusNotImplemented},
-		{"GET", adminLn.Addr().String(), "/metrics", http.StatusNotImplemented},
+		{"GET", adminLn.Addr().String(), "/metrics", http.StatusOK},
+		{"GET", adminLn.Addr().String(), "/healthz", http.StatusOK},
+		{"GET", adminLn.Addr().String(), "/readyz", http.StatusServiceUnavailable}, // no store wired
+		{"GET", dataLn.Addr().String(), "/healthz", http.StatusOK},
+		{"GET", dataLn.Addr().String(), "/readyz", http.StatusServiceUnavailable}, // no config loaded
 		{"GET", adminLn.Addr().String(), "/v1/messages", http.StatusNotFound},
 	}
 	for _, tt := range tests {
@@ -124,7 +128,7 @@ func TestPlanesServeTheirRoutes(t *testing.T) {
 }
 
 func TestOversizeBodyRejected(t *testing.T) {
-	s, err := BuildServers(testConfig(), noSnapshots{}, testLogger())
+	s, err := BuildServers(testConfig(), noSnapshots{}, testLogger(), Observability{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +208,7 @@ func TestDataPlaneServesTLS(t *testing.T) {
 	certFile, keyFile := writeSelfSigned(t, dir)
 	cfg := testConfig()
 	cfg.Listen.TLS = config.TLS{CertFile: certFile, KeyFile: keyFile}
-	s, err := BuildServers(cfg, noSnapshots{}, testLogger())
+	s, err := BuildServers(cfg, noSnapshots{}, testLogger(), Observability{})
 	if err != nil {
 		t.Fatal(err)
 	}

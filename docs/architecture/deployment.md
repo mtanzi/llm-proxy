@@ -248,14 +248,18 @@ Prometheus metrics at `/metrics` on the admin listener. This is a minimal set; e
 |---|---|
 | `llm_proxy_requests_total{family,provider,status,error_class}` | Error rates |
 | `llm_proxy_request_duration_seconds`, `llm_proxy_ttft_seconds` | Latency |
-| `llm_proxy_proxy_overhead_seconds` | Added time before the first byte; target p99 under 5 ms (gap review R15) |
-| `llm_proxy_inflight_streams` | Load; drain progress |
+| `llm_proxy_proxy_overhead_seconds` | Time the proxy adds before the upstream request is sent; target p99 under 5 ms (gap review R15). It runs from request arrival to the upstream request headers being written, less the time the client takes to upload the body and the time to get an upstream connection, which the proxy does not control |
+| `llm_proxy_inflight_streams` | Streaming requests being forwarded now; load and drain progress |
 | `llm_proxy_call_queue_depth`, `llm_proxy_calls_dropped_total{reason}` | Lost log records (should be zero) |
 | `llm_proxy_writer_errors_total` | Store writes (Postgres in v1) failing |
 | `llm_proxy_live_events_dropped_total` | Slow UI subscribers |
 | `llm_proxy_config_reloads_total{result}` | `SIGHUP` reloads that failed, so the proxy kept the previous snapshot |
 | `llm_proxy_retention_deleted_total` | Rows the retention job deleted |
-| `llm_proxy_retention_last_run_timestamp_seconds` | Retention job not running: the timestamp stops moving |
+| `llm_proxy_retention_last_run_timestamp_seconds` | Retention job not running: the timestamp stops moving (0 before the first run) |
+
+Label sets are bounded, so no series count grows with traffic. `family` and `provider` come from the code and the config file, `status` is an HTTP status code, `error_class` is the closed set of call error classes, `reason` is `queue_full` or `shutdown`, and `result` is `success` or `failure`. No metric carries a key name, session, model or call id; per-key detail comes from the call log. `llm_proxy_requests_total` counts forwarded calls that finished, so a request rejected before forwarding (bad virtual key, unknown path) is in the access log and not in this counter.
+
+The Go runtime and process collectors are served beside these. `cmd/llm-proxy/testdata/metrics.golden` pins the names, types and label names above.
 
 - Logs: `log/slog` JSON to stdout, one line per request with the call id. Logs never contain bodies or credentials.
 - Dropped calls and writer errors are visible only in `/metrics` in v1. There is no alert feed; see [backend.md](backend.md#later-versions).

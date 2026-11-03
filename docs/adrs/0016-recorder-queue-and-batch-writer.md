@@ -1,6 +1,6 @@
 # ADR 0016: Recorder: live fan-out, bounded queue and batch writer
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
