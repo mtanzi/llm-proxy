@@ -1,18 +1,54 @@
 package api
 
-import "net/http"
+import (
+	"context"
+	"errors"
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/mtanzi/llm-proxy/internal/httpmw"
+)
+
+// Options configures NewMux.
+type Options struct {
+	// Metrics is served at /metrics. It must not be nil.
+	Metrics prometheus.Gatherer
+	// Ping is the admin readiness check: the store answers (Store.Ping). Nil
+	// reports not-ready, so a wiring that forgets it fails loudly.
+	Ping func(context.Context) error
+	// Drain is the shutdown flag shared with the data plane. Nil never drains.
+	Drain *httpmw.Drain
+}
+
+// NewRegistry returns the Prometheus registry of the binary: the Go runtime
+// and process collectors plus cs. Each package declares the collectors it
+// updates; the composition root passes them here. It panics on a duplicate.
+func NewRegistry(cs ...prometheus.Collector) *prometheus.Registry {
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	reg.MustRegister(cs...)
+	return reg
+}
 
 // NewMux returns the admin-plane mux: the routes of ADR 0006. It sets no CORS
-// headers and checks no credentials; the loopback bind is the protection. The
-// handlers are placeholders until the ADRs that own them land: the admin API
-// (ADR 0023), the UI (ADR 0029) and health and metrics (ADR 0026).
-func NewMux() *http.ServeMux {
+// headers and checks no credentials; the loopback bind is the protection.
+// /healthz says the process is alive, /readyz says the store answers and drain
+// has not started, and /metrics serves the registry (ADR 0026). The admin API
+// (ADR 0023) and the UI (ADR 0029) are placeholders until those ADRs land.
+func NewMux(o Options) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/admin/", notImplemented)
 	mux.HandleFunc("/ui/", notImplemented)
-	mux.HandleFunc("/metrics", notImplemented)
-	mux.HandleFunc("/healthz", notImplemented)
-	mux.HandleFunc("/readyz", notImplemented)
+	mux.Handle("/metrics", promhttp.HandlerFor(o.Metrics, promhttp.HandlerOpts{}))
+	mux.Handle("/healthz", httpmw.Healthz())
+	ping := o.Ping
+	if ping == nil {
+		ping = func(context.Context) error { return errors.New("api: no store to ping") }
+	}
+	mux.Handle("/readyz", httpmw.Readyz(o.Drain, ping))
 	return mux
 }
 

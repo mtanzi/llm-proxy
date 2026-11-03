@@ -3,6 +3,7 @@ package httpmw
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/mtanzi/llm-proxy/internal/core"
 )
@@ -16,7 +17,24 @@ type ctxKey int
 const (
 	callIDKey ctxKey = iota
 	clientRequestIDKey
+	arrivalKey
 )
+
+// stampArrival records the time the request reached the chain, before any
+// other step runs. Read it with Arrival.
+func stampArrival(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), arrivalKey, time.Now())
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// Arrival returns the time the request reached the Wrap chain, or the zero
+// time when the request did not pass through Wrap.
+func Arrival(ctx context.Context) time.Time {
+	t, _ := ctx.Value(arrivalKey).(time.Time)
+	return t
+}
 
 // RequestID assigns a new UUIDv7 call id to every request and sets it as the
 // x-request-id response header. A client-supplied x-request-id is not reused;

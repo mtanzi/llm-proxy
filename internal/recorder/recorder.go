@@ -27,14 +27,6 @@ const (
 	retryMax         = 10 * time.Second
 )
 
-// Metric names, for the exporter (ADR 0026).
-const (
-	MetricQueueDepth        = "llm_proxy_call_queue_depth"
-	MetricCallsDropped      = "llm_proxy_calls_dropped_total"
-	MetricWriterErrors      = "llm_proxy_writer_errors_total"
-	MetricLiveEventsDropped = "llm_proxy_live_events_dropped_total"
-)
-
 // Drop reasons, the values of the reason label of MetricCallsDropped.
 const (
 	ReasonQueueFull = "queue_full"

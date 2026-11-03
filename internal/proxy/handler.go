@@ -8,9 +8,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mtanzi/llm-proxy/internal/config"
@@ -54,6 +56,7 @@ type Options struct {
 	Extractor Extractor // nil uses anthropic.Extractor
 	Tap       Tap       // nil adds no hook after the built-in tap
 	Logger    *slog.Logger
+	Metrics   *Metrics // nil records no metrics
 }
 
 // Handler forwards the Anthropic data-plane endpoints to the configured
@@ -66,11 +69,12 @@ type Handler struct {
 	extractor  Extractor
 	tap        Tap
 	log        *slog.Logger
+	metrics    *Metrics
 }
 
 // NewHandler returns a Handler that reads its providers and keys from snaps.
 func NewHandler(snaps Snapshots, o Options) *Handler {
-	h := &Handler{snaps: snaps, transports: NewTransports(), recorder: o.Recorder, extractor: o.Extractor, tap: o.Tap, log: o.Logger}
+	h := &Handler{snaps: snaps, transports: NewTransports(), recorder: o.Recorder, extractor: o.Extractor, tap: o.Tap, log: o.Logger, metrics: o.Metrics}
 	if h.extractor == nil {
 		h.extractor = anthropic.Extractor{}
 	}
@@ -161,7 +165,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	Correlate(r.Header, &rec)
 
-	f := &flight{h: h, rec: &rec, body: body, start: start, reqID: reqID, snap: snap}
+	f := &flight{h: h, rec: &rec, body: body, start: start, reqID: reqID, snap: snap, arrival: httpmw.Arrival(r.Context())}
 	defer func() {
 		p := recover()
 		if p == http.ErrAbortHandler && f.failure == core.FailureNone && r.Context().Err() == nil {
@@ -188,6 +192,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer f.wd.Disarm()
 	if anthropic.RequestStreams(body) {
 		f.wd.Arm()
+		f.h.metrics.streamStarted()
+		f.inflight = true
 	}
 
 	r.Body = io.NopCloser(bytes.NewReader(body))
@@ -199,7 +205,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ModifyResponse: f.modifyResponse,
 		ErrorHandler:   f.errorHandler,
 	}
-	rp.ServeHTTP(w, r.WithContext(upstreamCtx))
+	outCtx := upstreamCtx
+	if tr := f.clientTrace(); tr != nil {
+		outCtx = httptrace.WithClientTrace(upstreamCtx, tr)
+	}
+	rp.ServeHTTP(w, r.WithContext(outCtx))
 }
 
 // pickProvider returns the one Anthropic provider of v1.
@@ -254,6 +264,25 @@ type flight struct {
 
 	failure   core.FailureKind
 	extracted bool // the tap ran the extractor
+	inflight  bool // counted in llm_proxy_inflight_streams until finish
+
+	// Proxy overhead (ADR 0026): arrival at the chain to the upstream request
+	// headers written. The transport calls the trace hook on its own goroutine.
+	arrival time.Time
+	sent    sync.Once
+}
+
+// clientTrace measures llm_proxy_proxy_overhead_seconds. It observes once, when
+// the headers of the first upstream request attempt are written.
+func (f *flight) clientTrace() *httptrace.ClientTrace {
+	if f.h.metrics == nil {
+		return nil
+	}
+	return &httptrace.ClientTrace{
+		WroteHeaders: func() {
+			f.sent.Do(func() { f.h.metrics.observeOverhead(time.Since(f.arrival)) })
+		},
+	}
 }
 
 // modifyResponse records the upstream facts and installs the tap. The headers
@@ -338,6 +367,10 @@ func (f *flight) finish(ctx context.Context) {
 	}
 	f.price()
 	f.body = nil
+	if f.inflight {
+		f.h.metrics.streamEnded()
+	}
+	f.h.metrics.finished(rec.Family, rec.Provider, rec.Status, rec.ErrorClass, rec.Duration, rec.TTFT)
 	if f.h.recorder != nil {
 		f.h.recorder.Finished(*rec)
 	}

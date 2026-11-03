@@ -67,7 +67,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0013](0013-tap-incremental-response-scanner.md) | Tap: incremental response scanner | Completed | 0011 |
 | [0014](0014-extractor-and-call-record.md) | Extractor and the call record | Completed | 0003, 0007, 0010, 0013 |
 | [0015](0015-pricing-and-cost-computation.md) | Pricing and cost computation | Accepted | 0003, 0004 |
-| [0016](0016-recorder-queue-and-batch-writer.md) | Recorder: live fan-out, bounded queue and batch writer | Accepted | 0003, 0014 |
+| [0016](0016-recorder-queue-and-batch-writer.md) | Recorder: live fan-out, bounded queue and batch writer | Completed | 0003, 0014 |
 | [0017](0017-postgres-store-schema-and-write-path.md) | Postgres store: schema, migrations and write path | Completed | 0002, 0003, 0004 |
 | [0018](0018-contract-test-suite-and-postgres-test-harness.md) | Contract test suite and Postgres test harness | Completed | 0003, 0017 |
 | [0019](0019-postgres-callreader-lists-filters-and-pagination.md) | Postgres `CallReader`: lists, filters, pagination and call detail | Completed | 0017, 0018 |
@@ -77,7 +77,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0023](0023-admin-plane-skeleton-openapi-and-call-log-endpoints.md) | Admin plane skeleton, OpenAPI contract and call-log endpoints | Accepted | 0003, 0004, 0006, 0015, 0019 |
 | [0024](0024-session-tool-call-and-usage-endpoints.md) | Session, tool-call and usage endpoints | Accepted | 0020, 0021, 0023 |
 | [0025](0025-live-tail-sse-stream.md) | Live tail (`GET /admin/stream`) | Accepted | 0003, 0016, 0023 |
-| [0026](0026-observability-health-readiness-and-metrics.md) | Observability: health, readiness and Prometheus metrics | Accepted | 0006, 0016, 0017 |
+| [0026](0026-observability-health-readiness-and-metrics.md) | Observability: health, readiness and Prometheus metrics | Completed | 0006, 0016, 0017 |
 | [0027](0027-graceful-shutdown-and-drain.md) | Graceful shutdown and drain | Accepted | 0006, 0011, 0016, 0026 |
 | [0028](0028-composition-root-and-serve-startup.md) | Composition root and `serve` startup | Accepted | 0005, 0008, 0011, 0016, 0017, 0022, 0023, 0026, 0027 |
 | [0029](0029-ui-scaffold-embedding-and-serving.md) | UI scaffold, embedding and serving | Accepted | 0001, 0006, 0023 |

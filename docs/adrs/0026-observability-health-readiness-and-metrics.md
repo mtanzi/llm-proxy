@@ -1,6 +1,6 @@
 # ADR 0026: Observability: health, readiness and Prometheus metrics
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

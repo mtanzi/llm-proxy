@@ -1,0 +1,24 @@
+llm_proxy_call_queue_depth gauge {}
+    Finished calls waiting for the batch writer.
+llm_proxy_calls_dropped_total counter {reason}
+    Finished calls dropped before they were written, by reason (queue_full, shutdown). Should stay zero.
+llm_proxy_config_reloads_total counter {result}
+    Config reloads by result (success, failure). A failure keeps the previous snapshot.
+llm_proxy_inflight_streams gauge {}
+    Streaming requests being forwarded now.
+llm_proxy_live_events_dropped_total counter {}
+    Live-tail events lost by subscribers that read too slowly.
+llm_proxy_proxy_overhead_seconds histogram {}
+    Seconds from request arrival to the upstream request headers being written.
+llm_proxy_request_duration_seconds histogram {}
+    Seconds from the start of the upstream exchange to the end of the response.
+llm_proxy_requests_total counter {error_class,family,provider,status}
+    Forwarded calls that finished, by family, provider, HTTP status and error class.
+llm_proxy_retention_deleted_total counter {}
+    Rows the retention job deleted from calls and tool_events since start.
+llm_proxy_retention_last_run_timestamp_seconds gauge {}
+    Unix time the last retention run finished without error; 0 before the first run.
+llm_proxy_ttft_seconds histogram {}
+    Seconds from the start of the upstream exchange to the first content of the response.
+llm_proxy_writer_errors_total counter {}
+    Failed batch writes to the store.

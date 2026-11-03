@@ -17,8 +17,8 @@ type Options struct {
 	Inner []Middleware
 }
 
-// Wrap runs h behind the fixed chain: recover, request id, access log, size
-// limit, then the Inner steps in order.
+// Wrap runs h behind the fixed chain: arrival stamp, recover, request id,
+// access log, size limit, then the Inner steps in order.
 func Wrap(h http.Handler, o Options) http.Handler {
 	for i := len(o.Inner) - 1; i >= 0; i-- {
 		h = o.Inner[i](h)
@@ -28,5 +28,5 @@ func Wrap(h http.Handler, o Options) http.Handler {
 	}
 	h = AccessLog(o.Logger, h)
 	h = RequestID(h)
-	return Recover(o.Logger, h)
+	return stampArrival(Recover(o.Logger, h))
 }

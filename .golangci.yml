@@ -53,11 +53,19 @@ linters:
         core-only:
           list-mode: strict
           files:
-            - "**/internal/recorder/**"
             - "**/internal/keyring/**"
           allow:
             - $gostd
             - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/llm-proxy/internal/core/coretest
+        recorder:
+          list-mode: strict
+          files:
+            - "**/internal/recorder/**"
+          allow:
+            - $gostd
+            - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/prometheus/client_golang/prometheus
             - github.com/mtanzi/llm-proxy/internal/core/coretest
         storetest:
           list-mode: strict
@@ -76,6 +84,7 @@ linters:
             - github.com/mtanzi/llm-proxy/internal/core
             - github.com/mtanzi/llm-proxy/internal/core/coretest
             - go.yaml.in/yaml/v3
+            - github.com/prometheus/client_golang/prometheus
         ui:
           list-mode: strict
           files:
@@ -97,6 +106,7 @@ linters:
             - github.com/mtanzi/llm-proxy/internal/core
             - github.com/jackc/pgx
             - github.com/pressly/goose
+            - github.com/prometheus/client_golang/prometheus
         postgres-test:
           list-mode: strict
           files:
