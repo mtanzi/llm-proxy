@@ -211,7 +211,19 @@ Estimates, not measurements: no live Claude Code traffic has been captured yet (
 | `calls` (~350 bytes/row measured in UI report 6.4, plus a few hundred bytes for the extra columns and indexes) | ~1.7 to 3 GB for 400 days | ~7 to 12 GB for 400 days |
 | CPU and memory for `serve` | 1 vCPU, 512 MB | 2 vCPU, 1 GB |
 
-At the upper end that is about 20 million `calls` rows over 400 days, 0.14 to 0.58 calls per second on average. Plain Postgres with a `(ts DESC, id DESC)` index serves a 24-hour list in milliseconds and a 30-day aggregate over about 1.5 million rows in well under a second. `tool_events` rows add to this; they are small, metadata-only rows and have not been estimated separately. Measure the real size in the phase-1 spike and update this table. Partitioning and rollups come back at the triggers in [backend.md](backend.md#storage-and-scale).
+At the upper end that is about 20 million `calls` rows over 400 days, 0.14 to 0.58 calls per second on average. Plain Postgres with a `(ts DESC, id DESC)` index serves a 24-hour list in milliseconds. A 30-day aggregate over about 1.5 million rows takes about 0.9 to 1.5 seconds (measured below). `tool_events` rows add to this; they are small, metadata-only rows and have not been estimated separately. Measure the real size in the phase-1 spike and update this table.
+
+**Measured usage aggregate** ([ADR 0021](../adrs/0021-postgres-usage-aggregation.md)). `Usage` over 1,500,000 generated `calls` rows spread evenly over 30 days (8 keys, 3 models, 4,000 sessions, about 3% errors and 2% unpriced), Postgres 16 in a container on an Apple M5 Pro with the default Postgres settings and the existing indexes only. `calls` was 697 MB with indexes (355 MB heap), about 465 bytes per row. Five runs each; the range is `time.Since` around the `Usage` call, so it includes the round trip:
+
+| `GroupBy` | `Grain` | Buckets returned | Median | Slowest |
+|---|---|---|---|---|
+| none | day | 30 | 0.92 s | 1.14 s |
+| none | hour | 720 | 0.86 s | 0.92 s |
+| key | day | 240 | 1.04 s | 1.10 s |
+| model | day | 90 | 1.05 s | 1.05 s |
+| session | day | 120,000 | 1.52 s | 1.94 s |
+
+Each query reads every row of the range (one pass, one sort per group for the percentiles), so the time grows with rows in range, not with the number of buckets, apart from the output size of a session grouping. The ungrouped and per-key 30-day views sit at the 1 s usage trigger for rollup tables in [backend.md](backend.md#storage-and-scale). Re-run it with `LLM_PROXY_SIZING_ROWS=1500000 go test -run TestUsageSizing -v ./internal/store/postgres`. Partitioning and rollups come back at the triggers in [backend.md](backend.md#storage-and-scale).
 
 ## Backups
 

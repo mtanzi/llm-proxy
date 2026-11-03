@@ -132,6 +132,30 @@ func WithError(status int, class string) CallOpt {
 // WithCost sets the cost.
 func WithCost(m core.MicroUSD) CallOpt { return func(c *core.CallRecord) { c.Cost = &m } }
 
+// WithUsage sets the token columns.
+func WithUsage(u core.Usage) CallOpt { return func(c *core.CallRecord) { c.Usage = u } }
+
+// WithDuration sets the call duration and moves the end of the call to match.
+func WithDuration(d time.Duration) CallOpt {
+	return func(c *core.CallRecord) { c.Duration, c.EndedAt = d, c.TS.Add(d) }
+}
+
+// WithClient sets the client.
+func WithClient(name string) CallOpt { return func(c *core.CallRecord) { c.Client = name } }
+
+// WithProvider sets the provider.
+func WithProvider(name string) CallOpt { return func(c *core.CallRecord) { c.Provider = name } }
+
+// WithEstimatedUsage marks the usage as estimated.
+func WithEstimatedUsage() CallOpt { return func(c *core.CallRecord) { c.UsageEstimated = true } }
+
+// WithoutUsageRaw drops the provider usage object, as for a call that failed
+// before any usage was reported.
+func WithoutUsageRaw() CallOpt { return func(c *core.CallRecord) { c.UsageRaw = nil } }
+
+// WithoutCost makes the cost unknown.
+func WithoutCost() CallOpt { return func(c *core.CallRecord) { c.Cost = nil } }
+
 // WithUse adds a client tool use to the response of the call. Its argument
 // size is that of the fake tool arguments.
 func (g *Gen) WithUse(toolCallID, name string) CallOpt {

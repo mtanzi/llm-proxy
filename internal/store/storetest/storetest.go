@@ -36,6 +36,7 @@ var groups = []group{
 	{"write", writeCases},
 	{"retention", retentionCases},
 	{"read", readCases},
+	{"usage", usageCases},
 	{"no_bodies", noBodiesCases},
 }
 
