@@ -1,6 +1,6 @@
 # ADR 0020: Postgres read-time derivation: tool pairing, sessions and agents
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
@@ -30,6 +30,28 @@ A proxy never sees a tool run. It sees the model request the tool in response N 
 - Define the two constants as documented constants, not settings: a use with no result after 1 hour reads as `use_only`, and pairing looks up to 24 hours past the query's `To` bound.
 - Add contract cases (ADR 0018): a use then its result resolves, a result before its use resolves once the use arrives, a use with no result after 1 hour reads as `use_only`, a result 23 hours past `To` still pairs, a result with no use reads as `result_only`, header versus estimated duration, parallel tools, sessions group correctly, the agent tree matches the call rows.
 - Check query plans and indexes on a generated dataset.
+
+## As built
+
+- The pairing lives in the adapter as a query, not a view: the 1 hour and 24 hour constants are `core.ToolIdleAfter` and `core.ToolResultLookahead`, and a view cannot hold a bound that depends on the query. There is no migration.
+- A use with no result reads `pending` until `core.ToolIdleAfter` has passed, then `use_only`. A result with no use anywhere reads `result_only` and sits at the result's time. When several results carry one id, the earliest pairs, and the rest are ignored.
+- `prev_tool_durations` is read as a JSON object of tool name to milliseconds. Any other value, a number below 0 or above one year, and any server-side tool fall back to the estimated gap.
+- `ToolStat` has one row per tool and agent type (`AgentType`, `TotalDuration` added; `ErrorRate()` is derived). `ToolCallFilter` gained `MinArgBytes` and `MinResultBytes`.
+- One call can carry several tool halves, so `core.Cursor` gained `Idx`. Tool calls order by `(ts, call id, idx)` of the listed half. Sessions order by their newest call in the range, and the cursor holds that call's `(ts, id)`.
+- A session is listed when one of its calls in the range satisfies the call fields; its summary counts all its calls in the range. `GetSession` reads all calls of the key in one snapshot: calls newest first, prompts newest first, agents in order of first call. A call without `agent_id` is not an agent node.
+
+## Plan check
+
+Checked by hand with `EXPLAIN (ANALYZE, BUFFERS)` on Postgres 16 against a generated, `ANALYZE`d dataset: 5,000,000 calls over 30 days, with 1,666,667 use and 1,583,333 result `tool_events` (95% of uses answered by the next call, half of those with a `prev_tool_durations` value), about 100,000 sessions. The generator is not in the repository. No new index or migration was needed.
+
+- A first plan joined every use of the range before the sort: 1.6 s for a day and 7.1 s for a month. The query now cuts the use branch and the result-only branch to the page size before the joins when the filter needs no pairing. A use page then reads `tool_events_ts_idx` under an Incremental Sort, probes `tool_events_tool_call_id_idx` and `calls_pkey` per row, and takes about 3 ms.
+- `ListToolCalls`, no pairing filter, first page: 0.2-0.4 s for a day and 0.4 s for a month. Nearly all of it is the result-only branch: it must check every result in the range for a use, and the planner hash-anti-joins a sequential scan of the uses. This cost grows with the range.
+- Name, argument size and session filters: 1-56 ms for a day, 0.2 s for a month with a session.
+- Filters known only after pairing (status, error, duration, result size) read the whole range: 0.4-0.8 s for a day, 2.0 s for `IsError` over a month.
+- `ToolSummary`: 1.3 s for a day, 5.6 s for a week, 6.8 s for a month. It pairs every tool call of the range.
+- `ListSessions`: 0.24 s for a day, 1.5 s for a week, 2.3 s for a month, one pass over `calls` with `GROUP BY session_key`. `GetSession` reads one session by `calls_session_key_ts_idx` in under 1 ms.
+
+The slow cases are the ones the Consequences section names: a long range in the tool explorer. The trigger for a materialised pairing table stays tool explorer p95 above about 1 s.
 
 ## Depends on
 

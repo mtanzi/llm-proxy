@@ -10,6 +10,18 @@ const (
 	DurationEstimated DurationSource = "estimated" // gap between the use and the result
 )
 
+// The two constants of tool-call pairing. They are fixed, not settings (ADR 0048).
+const (
+	// ToolIdleAfter is how long a use may wait for its result. A use with no
+	// result that is older than this reads as use_only; a younger one is pending.
+	ToolIdleAfter = time.Hour
+
+	// ToolResultLookahead is how far past the To bound of a query the lookup
+	// for a result reaches, so a use near the end of the range still finds the
+	// result that arrives in a later request.
+	ToolResultLookahead = 24 * time.Hour
+)
+
 // CallSummary is one row of the call log.
 type CallSummary struct {
 	ID         ID
@@ -97,13 +109,26 @@ type ToolCall struct {
 	ResultBytes    int
 }
 
-// ToolStat is per-tool statistics over a filter.
+// ToolStat is the statistics of one tool for one agent type over a filter.
+// ToolSummary returns one row per (Name, AgentType). Count covers every tool
+// call that matches, including unmatched halves; Errors counts results with
+// is_error. The durations cover the tool calls that have one.
 type ToolStat struct {
-	Name        string
-	Count       int
-	Errors      int
-	DurationP50 time.Duration
-	DurationP95 time.Duration
+	Name          string
+	AgentType     string // empty when the calling agent has no type
+	Count         int
+	Errors        int
+	DurationP50   time.Duration
+	DurationP95   time.Duration
+	TotalDuration time.Duration
+}
+
+// ErrorRate is Errors over Count, or zero for an empty row.
+func (s ToolStat) ErrorRate() float64 {
+	if s.Count == 0 {
+		return 0
+	}
+	return float64(s.Errors) / float64(s.Count)
 }
 
 // UsageBucket is one point of the usage time series. A bucket exists only

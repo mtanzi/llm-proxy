@@ -148,6 +148,7 @@ func TestToolCallFilterMatch(t *testing.T) {
 	tc := ToolCall{
 		Name: "Bash", Source: ToolSourceClient, Status: ToolCallPaired, SessionKey: "s1", AgentID: "a1",
 		UseTS: use, ResultTS: use.Add(time.Minute), Duration: time.Minute, IsError: ptr(true),
+		ArgBytes: 100, ResultBytes: 2000,
 	}
 	tests := []struct {
 		name string
@@ -163,6 +164,8 @@ func TestToolCallFilterMatch(t *testing.T) {
 		{"statuses", ToolCallFilter{Statuses: []ToolCallStatus{ToolCallPaired}}, ToolCallFilter{Statuses: []ToolCallStatus{ToolCallPending}}},
 		{"is error", ToolCallFilter{IsError: ptr(true)}, ToolCallFilter{IsError: ptr(false)}},
 		{"min duration", ToolCallFilter{MinDuration: time.Minute}, ToolCallFilter{MinDuration: time.Minute + 1}},
+		{"min arg bytes", ToolCallFilter{MinArgBytes: 100}, ToolCallFilter{MinArgBytes: 101}},
+		{"min result bytes", ToolCallFilter{MinResultBytes: 2000}, ToolCallFilter{MinResultBytes: 2001}},
 	}
 	for _, tt := range tests {
 		if !tt.hit.Match(tc) {
@@ -176,6 +179,9 @@ func TestToolCallFilterMatch(t *testing.T) {
 	pending := ToolCall{Name: "Bash", Status: ToolCallPending, UseTS: use}
 	if (ToolCallFilter{IsError: ptr(false)}).Match(pending) {
 		t.Error("IsError matched a tool call without a result")
+	}
+	if (ToolCallFilter{MinResultBytes: 1}).Match(pending) {
+		t.Error("MinResultBytes matched a tool call without a result")
 	}
 	resultOnly := ToolCall{Status: ToolCallResultOnly, ResultTS: use.Add(time.Hour)}
 	if (ToolCallFilter{From: use, To: use.Add(time.Minute)}).Match(resultOnly) {
