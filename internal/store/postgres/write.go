@@ -115,25 +115,30 @@ func callRow(c *core.CallRecord) []any {
 // appendToolRows appends the values of toolEventColumns for each tool half of
 // c. The index is the position within the call: results first, in request
 // order, then uses, in response order. It depends only on the record, so a
-// replayed call produces the same keys. A result is timed at request start, a
-// use at response end, or at request start when the end is not known.
+// replayed call produces the same keys. A client result is timed at request
+// start. A use or a server result is timed at response end, or at request start
+// when the end is not known.
 func appendToolRows(rows [][]any, c *core.CallRecord) [][]any {
 	id, session, agent := uuid(c.ID), text(c.SessionKey), text(c.AgentID)
-	useTS := c.EndedAt
-	if useTS.IsZero() {
-		useTS = c.TS
+	endTS := c.EndedAt
+	if endTS.IsZero() {
+		endTS = c.TS
 	}
 	idx := 0
 	for _, r := range c.ToolResults {
+		ts := c.TS
+		if r.Source == core.ToolSourceServer {
+			ts = endTS
+		}
 		rows = append(rows, []any{
-			id, idx, c.TS, "result", clean(string(r.Source)), clean(r.ToolCallID), nil, r.ResultBytes, r.IsError,
+			id, idx, ts, "result", clean(string(r.Source)), clean(r.ToolCallID), nil, r.ResultBytes, r.IsError,
 			session, agent,
 		})
 		idx++
 	}
 	for _, u := range c.ToolUses {
 		rows = append(rows, []any{
-			id, idx, useTS, "use", clean(string(u.Source)), clean(u.ToolCallID), text(u.Name), u.ArgBytes, nil,
+			id, idx, endTS, "use", clean(string(u.Source)), clean(u.ToolCallID), text(u.Name), u.ArgBytes, nil,
 			session, agent,
 		})
 		idx++

@@ -1,0 +1,20 @@
+{
+ "id": "msg_02",
+ "type": "message",
+ "role": "assistant",
+ "model": "claude-opus-4-8",
+ "content": [
+  {
+   "type": "text",
+   "text": "FAKEPROMPT-final-answer"
+  }
+ ],
+ "stop_reason": "end_turn",
+ "stop_sequence": null,
+ "usage": {
+  "input_tokens": 120,
+  "cache_read_input_tokens": 900,
+  "output_tokens": 35,
+  "service_tier": "standard"
+ }
+}

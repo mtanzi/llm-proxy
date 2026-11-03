@@ -72,7 +72,8 @@ type env struct {
 	logger   *slog.Logger // nil discards
 
 	idle      string    // provider idle_timeout; empty keeps the default
-	extractor Extractor // nil keeps no response facts
+	extractor Extractor // nil uses the anthropic extractor
+	pricing   string    // YAML for the pricing key, appended to the config
 }
 
 func (e *env) yaml() string {
@@ -93,7 +94,7 @@ providers:
 keys:
   - name: alice
     sha256: %s
-`, e.baseURL, e.authMode, idleLine, hashOf(clientKey))
+%s`, e.baseURL, e.authMode, idleLine, hashOf(clientKey), e.pricing)
 }
 
 // setBaseURL changes the upstream the next Reload points at.

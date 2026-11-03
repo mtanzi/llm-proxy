@@ -65,7 +65,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0011](0011-proxy-passthrough-and-streaming.md) | Proxy passthrough and streaming | Completed | 0005, 0006, 0007, 0008, 0010 |
 | [0012](0012-client-passthrough-and-subscription-setup.md) | Client passthrough mode and subscription setup | Completed | 0004, 0008, 0011 |
 | [0013](0013-tap-incremental-response-scanner.md) | Tap: incremental response scanner | Completed | 0011 |
-| [0014](0014-extractor-and-call-record.md) | Extractor and the call record | Accepted | 0003, 0007, 0010, 0013 |
+| [0014](0014-extractor-and-call-record.md) | Extractor and the call record | Completed | 0003, 0007, 0010, 0013 |
 | [0015](0015-pricing-and-cost-computation.md) | Pricing and cost computation | Accepted | 0003, 0004 |
 | [0016](0016-recorder-queue-and-batch-writer.md) | Recorder: live fan-out, bounded queue and batch writer | Accepted | 0003, 0014 |
 | [0017](0017-postgres-store-schema-and-write-path.md) | Postgres store: schema, migrations and write path | Completed | 0002, 0003, 0004 |

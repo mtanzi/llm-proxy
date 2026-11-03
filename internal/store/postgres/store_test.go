@@ -196,6 +196,28 @@ func fullCall() core.CallRecord {
 	}
 }
 
+func TestServerToolResultTimedAtResponseEnd(t *testing.T) {
+	s, conn := newStore(t)
+	ctx := context.Background()
+	c := fullCall()
+	c.ToolResults = []core.ToolResult{
+		{Source: core.ToolSourceClient, ToolCallID: "toolu_a", ResultBytes: 1},
+		{Source: core.ToolSourceServer, ToolCallID: "srvtoolu_c", IsError: true, ResultBytes: 2},
+	}
+	if err := s.WriteBatch(ctx, []core.CallRecord{c}); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]time.Time{"toolu_a": c.TS, "srvtoolu_c": c.EndedAt} {
+		var ts time.Time
+		if err := conn.QueryRow(ctx, `SELECT ts FROM tool_events WHERE kind = 'result' AND tool_call_id = $1`, id).Scan(&ts); err != nil {
+			t.Fatal(err)
+		}
+		if !ts.Equal(want) {
+			t.Errorf("%s ts = %v, want %v", id, ts, want)
+		}
+	}
+}
+
 func TestWriteBatchFirstWrite(t *testing.T) {
 	s, conn := newStore(t)
 	ctx := context.Background()

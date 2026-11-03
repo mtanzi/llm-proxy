@@ -32,6 +32,7 @@ type tap struct {
 	rec     *core.CallRecord
 	request []byte
 	ex      Extractor
+	flight  *flight
 	log     *slog.Logger
 
 	unscanned bool // the body is encoded, so the scanner cannot read it
@@ -53,6 +54,7 @@ func newTap(f *flight, resp *http.Response) *tap {
 		rec:       f.rec,
 		request:   f.body,
 		ex:        f.h.extractor,
+		flight:    f,
 		log:       f.h.log,
 		unscanned: enc != "" && !strings.EqualFold(enc, "identity"),
 	}
@@ -117,5 +119,6 @@ func (t *tap) finish() {
 	}
 	if t.ex != nil {
 		t.ex.Extract(t.rec, t.request, facts)
+		t.flight.extracted = true
 	}
 }

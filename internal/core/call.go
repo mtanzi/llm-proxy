@@ -23,7 +23,8 @@ type ToolUse struct {
 }
 
 // ToolResult is the "result" half: the client returned a result in the request
-// of the carrying call. Result text is never kept, only its size.
+// of the carrying call, or a server-side tool returned one in its response.
+// Result text is never kept, only its size.
 type ToolResult struct {
 	Source      ToolSource
 	ToolCallID  string // the id of the use it answers

@@ -29,6 +29,7 @@ make vet
 make test
 make lint           # golangci-lint, including depguard rules (.golangci.yml)
 make check-imports  # depguard rules only
+make goldens        # rewrite the golden call records under testdata/fixtures; read the diff
 ```
 
 The store tests in `internal/store/...` need a real Postgres. They start a `postgres:16-alpine` container with testcontainers-go when Docker is running, or use the server in `LLM_PROXY_TEST_DATABASE_URL` (a URL whose user may create databases); without either they skip. Each test gets its own throwaway database.

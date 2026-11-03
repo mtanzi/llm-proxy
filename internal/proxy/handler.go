@@ -51,7 +51,7 @@ type Tap func(rec *core.CallRecord, request []byte, resp *http.Response)
 // Options configures a Handler. The zero value forwards and records nothing.
 type Options struct {
 	Recorder  Recorder  // nil drops finished calls
-	Extractor Extractor // nil keeps no response facts
+	Extractor Extractor // nil uses anthropic.Extractor
 	Tap       Tap       // nil adds no hook after the built-in tap
 	Logger    *slog.Logger
 }
@@ -71,6 +71,9 @@ type Handler struct {
 // NewHandler returns a Handler that reads its providers and keys from snaps.
 func NewHandler(snaps Snapshots, o Options) *Handler {
 	h := &Handler{snaps: snaps, transports: NewTransports(), recorder: o.Recorder, extractor: o.Extractor, tap: o.Tap, log: o.Logger}
+	if h.extractor == nil {
+		h.extractor = anthropic.Extractor{}
+	}
 	if h.log == nil {
 		h.log = slog.New(slog.DiscardHandler)
 	}
@@ -158,7 +161,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	Correlate(r.Header, &rec)
 
-	f := &flight{h: h, rec: &rec, body: body, start: start, reqID: reqID}
+	f := &flight{h: h, rec: &rec, body: body, start: start, reqID: reqID, snap: snap}
 	defer func() {
 		p := recover()
 		if p == http.ErrAbortHandler && f.failure == core.FailureNone && r.Context().Err() == nil {
@@ -247,8 +250,10 @@ type flight struct {
 	start time.Time
 	reqID string
 	wd    *watchdog
+	snap  *config.Snapshot
 
-	failure core.FailureKind
+	failure   core.FailureKind
+	extracted bool // the tap ran the extractor
 }
 
 // modifyResponse records the upstream facts and installs the tap. The headers
@@ -309,18 +314,42 @@ func isTimeout(err error) bool {
 // ReverseProxy has returned, so the upstream body is closed and the tap is
 // done. It also runs while a panic unwinds, so an aborted stream is logged: a
 // stream cut by the upstream after the headers counts as an upstream failure.
+// The order is the one of ADR 0014: extract, classify, price, drop the request
+// bytes, send Finished.
 func (f *flight) finish(ctx context.Context) {
 	rec := f.rec
 	now := time.Now()
 	rec.Duration = now.Sub(f.start)
 	rec.EndedAt = now
+	if !f.extracted {
+		// No response body reached the tap: the upstream was never reached or
+		// the client left first. The request facts are still worth keeping.
+		rec.Streamed = anthropic.RequestStreams(f.body)
+		anthropic.ExtractRequest(rec, f.body)
+	}
 	if f.failure == core.FailureNone && ctx.Err() != nil {
 		f.failure = core.FailureClientAbort
 	}
 	if rec.ErrorClass == "" {
 		rec.ErrorClass = string(core.ClassifyOutcome(rec.Status, f.failure))
 	}
+	if rec.ErrorClass == string(core.ErrorClassClientAbort) {
+		rec.UsageEstimated = true
+	}
+	f.price()
+	f.body = nil
 	if f.h.recorder != nil {
 		f.h.recorder.Finished(*rec)
 	}
+}
+
+// price sets the cost and the pricing version from the snapshot the request
+// started with (ADR 0015). A record without usage, or with a model no price
+// entry matches, keeps a nil cost: an unknown cost is not zero.
+func (f *flight) price() {
+	rec := f.rec
+	if len(rec.UsageRaw) == 0 || f.snap == nil {
+		return
+	}
+	rec.Cost, rec.PricingVersion = core.CostAt(f.snap.Config().PriceVersions(), rec.Provider, rec.Model, rec.TS, rec.Usage)
 }

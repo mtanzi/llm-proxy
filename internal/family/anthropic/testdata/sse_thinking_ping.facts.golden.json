@@ -21,6 +21,7 @@
   "StopReason": "end_turn",
   "ErrorType": "",
   "ToolUses": null,
+  "ToolResults": null,
   "Complete": true,
   "Partial": false
 }

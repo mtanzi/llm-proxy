@@ -1,0 +1,26 @@
+{
+ "model": "claude-opus-4-8",
+ "max_tokens": 1024,
+ "stream": true,
+ "system": "FAKEPROMPT-system-7c1e: you are a secret agent",
+ "messages": [
+  {
+   "role": "user",
+   "content": "FAKEPROMPT-user-1d52: say hello to Zaphod"
+  }
+ ],
+ "tools": [
+  {
+   "name": "Read",
+   "description": "FAKEPROMPT-tooldesc-93ab reads a file",
+   "input_schema": {
+    "type": "object",
+    "properties": {
+     "file_path": {
+      "type": "string"
+     }
+    }
+   }
+  }
+ ]
+}

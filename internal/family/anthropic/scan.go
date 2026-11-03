@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/tidwall/gjson"
 
@@ -11,6 +12,19 @@ import (
 // MaxBodyBytes bounds the buffer for a non-streaming response body. Past it
 // the scanner reads nothing more and the facts are marked partial.
 const MaxBodyBytes = 8 << 20
+
+// maxFieldLen bounds a provider or client string kept in a record, such as a
+// model, a tool id or a stop reason.
+const maxFieldLen = 256
+
+// boundedString returns r when it is a JSON string within maxFieldLen. Anything
+// else is malformed and yields the empty string, which the store writes as null.
+func boundedString(r gjson.Result) string {
+	if r.Type != gjson.String || len(r.Str) > maxFieldLen {
+		return ""
+	}
+	return r.Str
+}
 
 // Usage holds the usage fields of a response as the provider sent them. A nil
 // field was not sent. Normalising them into disjoint columns is the
@@ -32,6 +46,9 @@ type Facts struct {
 	StopReason string
 	ErrorType  string // the provider's error type; its message is not kept
 	ToolUses   []core.ToolUse
+	// ToolResults holds the results of server-side tools, which arrive complete
+	// in the response.
+	ToolResults []core.ToolResult
 	// Complete says the response ended the way the provider ends one: a
 	// message_stop event, or a whole non-streaming body. A stream cut short is
 	// not complete.
@@ -140,29 +157,34 @@ func (s *streamScanner) event(ev Event) {
 	case "content_block_stop":
 		s.blockStop(d.Get("index").Int())
 	case "message_delta":
-		if r := d.Get("delta.stop_reason").String(); r != "" {
+		if r := boundedString(d.Get("delta.stop_reason")); r != "" {
 			s.facts.StopReason = r
 		}
 		s.addUsage(d.Get("usage"))
 	case "message_stop":
 		s.facts.Complete = true
 	case "error":
-		if t := d.Get("error.type").String(); t != "" {
+		if t := boundedString(d.Get("error.type")); t != "" {
 			s.facts.ErrorType = t
 		}
 	}
 }
 
 func (s *streamScanner) blockStart(d gjson.Result) {
-	src, ok := toolSource(d.Get("content_block.type").String())
+	cb := d.Get("content_block")
+	blockType := cb.Get("type").String()
+	if isServerToolResult(blockType) {
+		s.facts.ToolResults = append(s.facts.ToolResults, serverToolResult(cb))
+		return
+	}
+	src, ok := toolSource(blockType)
 	if !ok {
 		return
 	}
-	cb := d.Get("content_block")
 	s.facts.ToolUses = append(s.facts.ToolUses, core.ToolUse{
 		Source:     src,
-		ToolCallID: cb.Get("id").String(),
-		Name:       cb.Get("name").String(),
+		ToolCallID: boundedString(cb.Get("id")),
+		Name:       boundedString(cb.Get("name")),
 	})
 	s.blocks[d.Get("index").Int()] = &toolBlock{
 		at:      len(s.facts.ToolUses) - 1,
@@ -251,7 +273,7 @@ func parseBody(body []byte, over bool) Facts {
 	d := gjson.ParseBytes(body)
 	var f Facts
 	if d.Get("type").String() == "error" {
-		f.ErrorType = d.Get("error.type").String()
+		f.ErrorType = boundedString(d.Get("error.type"))
 		f.Complete = true
 		return f
 	}
@@ -259,13 +281,16 @@ func parseBody(body []byte, over bool) Facts {
 		setUsage(&f.Usage, u)
 		f.UsageRaw = json.RawMessage(u.Raw)
 	}
-	f.StopReason = d.Get("stop_reason").String()
+	f.StopReason = boundedString(d.Get("stop_reason"))
 	d.Get("content").ForEach(func(_, blk gjson.Result) bool {
-		if src, ok := toolSource(blk.Get("type").String()); ok {
+		blockType := blk.Get("type").String()
+		if isServerToolResult(blockType) {
+			f.ToolResults = append(f.ToolResults, serverToolResult(blk))
+		} else if src, ok := toolSource(blockType); ok {
 			f.ToolUses = append(f.ToolUses, core.ToolUse{
 				Source:     src,
-				ToolCallID: blk.Get("id").String(),
-				Name:       blk.Get("name").String(),
+				ToolCallID: boundedString(blk.Get("id")),
+				Name:       boundedString(blk.Get("name")),
 				ArgBytes:   len(blk.Get("input").Raw),
 			})
 		}
@@ -284,6 +309,26 @@ func toolSource(blockType string) (core.ToolSource, bool) {
 		return core.ToolSourceServer, true
 	}
 	return "", false
+}
+
+// isServerToolResult reports whether a response block type holds the result of
+// a server-side tool, such as web_search_tool_result. An MCP result is not one:
+// its use is not recorded either, until the MCP gateway adds source = mcp.
+func isServerToolResult(blockType string) bool {
+	return strings.HasSuffix(blockType, "_tool_result") && blockType != "mcp_tool_result"
+}
+
+// serverToolResult measures a server tool result block without keeping it. Its
+// size is the whole JSON of its content. A failed tool reports an error object
+// as the content, with a type such as web_search_tool_result_error.
+func serverToolResult(blk gjson.Result) core.ToolResult {
+	c := blk.Get("content")
+	return core.ToolResult{
+		Source:      core.ToolSourceServer,
+		ToolCallID:  boundedString(blk.Get("tool_use_id")),
+		IsError:     strings.HasSuffix(c.Get("type").Str, "_error"),
+		ResultBytes: len(c.Raw),
+	}
 }
 
 // setUsage copies the usage fields u carries into dst, leaving the rest alone.

@@ -11,6 +11,7 @@
   "StopReason": "",
   "ErrorType": "rate_limit_error",
   "ToolUses": null,
+  "ToolResults": null,
   "Complete": true,
   "Partial": false
 }
