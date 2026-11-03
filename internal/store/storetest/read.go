@@ -272,6 +272,7 @@ var readCases = []testCase{
 			ID: c.ID, TS: c.TS, KeyName: c.KeyName, Client: c.Client, SessionKey: c.SessionKey, AgentID: c.AgentID,
 			Provider: c.Provider, Model: c.Model, Status: c.Status, ErrorClass: c.ErrorClass, StopReason: c.StopReason,
 			Streamed: c.Streamed, TTFT: c.TTFT, Duration: c.Duration, Usage: c.Usage, Cost: &cost, ToolCount: len(c.ToolUses),
+			ContextCompacted: c.ContextCompacted,
 		}
 		wantBare := core.CallSummary{
 			ID: bare.ID, TS: bare.TS, KeyName: bare.KeyName, Provider: bare.Provider, Usage: bare.Usage,
