@@ -643,3 +643,38 @@ func TestStartAndStopRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The bucket start does not depend on the session time zone.
+func TestUsageBucketsIgnoreSessionTimeZone(t *testing.T) {
+	url := pgtest.NewDatabase(t)
+	setup := open(t, url)
+	if err := setup.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	sep := "?"
+	if strings.Contains(url, "?") {
+		sep = "&"
+	}
+	s := open(t, url+sep+"timezone=Pacific/Kiritimati") // UTC+14
+	g := storetest.NewGenAt(time.Date(2026, 10, 27, 23, 30, 0, 0, time.UTC))
+	ctx := context.Background()
+	if err := s.WriteBatch(ctx, g.Calls(2)); err != nil {
+		t.Fatal(err)
+	}
+	var tz string
+	conn, err := pgx.Connect(ctx, url+sep+"timezone=Pacific/Kiritimati")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	if err := conn.QueryRow(ctx, "SHOW timezone").Scan(&tz); err != nil || tz != "Pacific/Kiritimati" {
+		t.Fatalf("session time zone %q, err %v: the test does not change it", tz, err)
+	}
+	from := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	got, err := s.Usage(ctx, core.UsageQuery{
+		Filter: core.CallFilter{From: from, To: from.Add(48 * time.Hour)}, Grain: core.GrainDay,
+	})
+	if err != nil || len(got) != 1 || !got[0].Start.Equal(from) || got[0].Calls != 2 {
+		t.Fatalf("buckets %+v, err %v; want one UTC day starting %v", got, err, from)
+	}
+}

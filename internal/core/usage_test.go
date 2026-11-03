@@ -39,3 +39,22 @@ func TestCostRoundsOnceHalfUp(t *testing.T) {
 		t.Errorf("sum before rounding = %d, want 1", got)
 	}
 }
+
+func TestCacheHitRatio(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		u    Usage
+		want float64
+		ok   bool
+	}{
+		{"no input is unknown", Usage{Output: 10}, 0, false},
+		{"no cache read", Usage{InputUncached: 10}, 0, true},
+		{"all columns count as input", Usage{InputUncached: 100, CacheRead: 300, CacheWrite5m: 400, CacheWrite1h: 200}, 0.3, true},
+		{"output is not input", Usage{CacheRead: 1, Output: 1000}, 1, true},
+	} {
+		got, ok := UsageBucket{Usage: c.u}.CacheHitRatio()
+		if ok != c.ok || got != c.want {
+			t.Errorf("%s: got %v, %v; want %v, %v", c.name, got, ok, c.want, c.ok)
+		}
+	}
+}

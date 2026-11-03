@@ -106,15 +106,37 @@ type ToolStat struct {
 	DurationP95 time.Duration
 }
 
-// UsageBucket is one point of the usage time series.
+// UsageBucket is one point of the usage time series. A bucket exists only
+// when at least one call falls in it: the reader does not fill gaps.
+//
+// Unknown values are not zero. Usage and Cost sum what is known, and the
+// counters below say how many calls of the bucket are not fully known, so a
+// consumer can show the totals as partial.
 type UsageBucket struct {
-	Start      time.Time // UTC, aligned to the grain
-	Group      string    // value of the group-by dimension; empty when ungrouped
-	Calls      int
-	Errors     int
-	Usage      Usage
-	Cost       MicroUSD // sum over calls with a known cost
-	LatencyP50 time.Duration
+	Start  time.Time // UTC, aligned to the grain
+	Group  string    // value of the group-by dimension; empty when ungrouped or not known
+	Calls  int
+	Errors int // calls with an error class
+	Usage  Usage
+	Cost   MicroUSD // sum over calls with a known cost
+
+	UnpricedCalls  int // calls with no cost, left out of Cost
+	EstimatedCalls int // calls whose usage was estimated, for example after a client abort
+	NoUsageCalls   int // calls with no provider usage object; their token columns are zero
+
+	LatencyP50 time.Duration // zero when no call of the bucket has a duration
 	LatencyP95 time.Duration
 	LatencyP99 time.Duration
+}
+
+// CacheHitRatio is cache_read over all input columns: input_uncached,
+// cache_read, cache_write_5m and cache_write_1h. ok is false when the bucket
+// has no input tokens, so the ratio is not known.
+func (b UsageBucket) CacheHitRatio() (ratio float64, ok bool) {
+	u := b.Usage
+	in := u.InputUncached + u.CacheRead + u.CacheWrite5m + u.CacheWrite1h
+	if in <= 0 {
+		return 0, false
+	}
+	return float64(u.CacheRead) / float64(in), true
 }

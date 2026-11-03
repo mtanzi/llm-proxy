@@ -1,6 +1,6 @@
 # ADR 0021: Postgres usage aggregation
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

@@ -28,7 +28,7 @@ type Config struct {
 }
 
 // Store is the Postgres adapter. It implements core.CallWriter and the call
-// methods of core.CallReader: ListCalls, CountCalls and GetCall.
+// methods of core.CallReader: ListCalls, CountCalls, GetCall and Usage.
 type Store struct {
 	pool      *pgxpool.Pool
 	retention Retention
