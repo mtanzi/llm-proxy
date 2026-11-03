@@ -131,7 +131,7 @@ func (s *Store) GetCall(ctx context.Context, id core.ID) (core.CallDetail, error
 const costMicro = `(c.cost_usd * 1000000)::bigint`
 
 const summaryColumns = `c.id, c.ts, c.key_name, c.client, c.session_key, c.agent_id, c.provider, c.model,
-	c.status, c.error_class, c.stop_reason, c.streamed, c.ttft_ms, c.duration_ms,
+	c.status, c.error_class, c.stop_reason, c.streamed, c.context_compacted, c.ttft_ms, c.duration_ms,
 	c.input_uncached, c.cache_read, c.cache_write_5m, c.cache_write_1h, c.output, c.reasoning, ` + costMicro + `,
 	(SELECT count(*) FROM tool_events u WHERE u.call_id = c.id AND u.kind = 'use')`
 
@@ -154,14 +154,14 @@ func scanSummary(r pgx.CollectableRow) (core.CallSummary, error) {
 		client, session, agent, model, class, stop *string
 		provider                                   string
 		status                                     *int16
-		streamed                                   bool
+		streamed, compacted                        bool
 		ttft, dur                                  *int32
 		u                                          core.Usage
 		costM                                      *int64
 		tools                                      int
 	)
 	err := r.Scan(&id, &ts, &key, &client, &session, &agent, &provider, &model,
-		&status, &class, &stop, &streamed, &ttft, &dur,
+		&status, &class, &stop, &streamed, &compacted, &ttft, &dur,
 		&u.InputUncached, &u.CacheRead, &u.CacheWrite5m, &u.CacheWrite1h, &u.Output, &u.Reasoning, &costM, &tools)
 	if err != nil {
 		return core.CallSummary{}, err
@@ -171,6 +171,7 @@ func scanSummary(r pgx.CollectableRow) (core.CallSummary, error) {
 		AgentID: str(agent), Provider: provider, Model: str(model), Status: code(status),
 		ErrorClass: str(class), StopReason: str(stop), Streamed: streamed,
 		TTFT: ms(ttft), Duration: ms(dur), Usage: u, Cost: micro(costM), ToolCount: tools,
+		ContextCompacted: compacted,
 	}, nil
 }
 

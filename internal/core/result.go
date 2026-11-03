@@ -29,6 +29,8 @@ type CallSummary struct {
 	Usage      Usage
 	Cost       *MicroUSD
 	ToolCount  int // tool uses carried by the call
+	// ContextCompacted marks the call where the cache prefix resets (the UI compaction marker).
+	ContextCompacted bool
 }
 
 // CallDetail is one call with all its recorded metadata and its tool halves.
