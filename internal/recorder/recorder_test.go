@@ -209,6 +209,9 @@ func TestCloseDeadlineDropsRemainder(t *testing.T) {
 	if got := r.CallsDropped(ReasonShutdown); got != 6 {
 		t.Fatalf("shutdown drops = %d, want 6", got)
 	}
+	if got := r.WriterErrors(); got != 0 {
+		t.Fatalf("writer errors = %d, want 0 for a write cut off by the Close abort", got)
+	}
 	if _, n := w.written(); n != 0 {
 		t.Fatalf("written = %d, want 0", n)
 	}

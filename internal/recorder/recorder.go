@@ -276,6 +276,9 @@ func (r *Recorder) flush(batch []core.CallRecord) {
 		if err == nil {
 			return
 		}
+		if r.abortCtx.Err() != nil {
+			continue
+		}
 		r.writerErrors.Add(1)
 		r.log.Error("recorder: write batch failed", "err", err, "records", len(batch), "retry_in", delay)
 		select {
