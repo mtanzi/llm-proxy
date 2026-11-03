@@ -107,7 +107,11 @@ func TestBatchBySize(t *testing.T) {
 func TestBatchByTime(t *testing.T) {
 	w := &fakeWriter{}
 	r := New(w, fast(Options{}))
-	defer r.Close(context.Background())
+	t.Cleanup(func() {
+		if err := r.Close(context.Background()); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
 	start := time.Now()
 	r.Finished(rec(1))
 	r.Finished(rec(2))
@@ -245,7 +249,11 @@ func TestCloseTimeoutOption(t *testing.T) {
 
 func TestSubscribeFilterAndUnsubscribe(t *testing.T) {
 	r := New(&fakeWriter{}, fast(Options{}))
-	defer r.Close(context.Background())
+	t.Cleanup(func() {
+		if err := r.Close(context.Background()); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
 	all, unsubAll := r.Subscribe(nil)
 	odd, unsubOdd := r.Subscribe(func(c core.CallRecord) bool { return c.Status%2 == 1 })
 	for i := range 4 {
@@ -269,7 +277,11 @@ func TestSubscribeFilterAndUnsubscribe(t *testing.T) {
 
 func TestSlowSubscriberLosesEvents(t *testing.T) {
 	r := New(&fakeWriter{}, fast(Options{QueueCapacity: 1000}))
-	defer r.Close(context.Background())
+	t.Cleanup(func() {
+		if err := r.Close(context.Background()); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
 	ch, unsub := r.Subscribe(nil)
 	defer unsub()
 	n := subscriberBuffer + 10
