@@ -1,0 +1,273 @@
+package api
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http/httptest"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
+
+	"github.com/mtanzi/llm-proxy/internal/config"
+	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/llm-proxy/internal/core/coretest"
+)
+
+// spec is the served OpenAPI document with a compiler for its schemas. OpenAPI
+// 3.1 schemas are JSON Schema 2020-12, so the document is a schema resource and
+// "#/components/schemas/X" references resolve inside it.
+type spec struct {
+	doc map[string]any
+	c   *jsonschema.Compiler
+}
+
+func loadSpec(t *testing.T) *spec {
+	t.Helper()
+	raw, err := specJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	docAny, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := jsonschema.NewCompiler()
+	if err := c.AddResource("openapi.json", docAny); err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return &spec{doc: doc, c: c}
+}
+
+// responseSchema returns the JSON pointer of the schema of a response, or ""
+// when the operation documents no such status.
+func (s *spec) responseSchema(t *testing.T, path, status string) string {
+	t.Helper()
+	get := func(m any, keys ...string) any {
+		for _, k := range keys {
+			mm, ok := m.(map[string]any)
+			if !ok {
+				return nil
+			}
+			m = mm[k]
+		}
+		return m
+	}
+	resp := get(s.doc, "paths", path, "get", "responses", status)
+	base := "openapi.json#/paths/" + strings.NewReplacer("~", "~0", "/", "~1").Replace(path) + "/get/responses/" + status
+	if ref, ok := get(resp, "$ref").(string); ok { // #/components/responses/Name
+		resp = get(s.doc, strings.Split(strings.TrimPrefix(ref, "#/"), "/")...)
+		base = "openapi.json" + ref
+	}
+	if get(resp, "content", "application/json", "schema") == nil {
+		return ""
+	}
+	return base + "/content/application~1json/schema"
+}
+
+// check validates one response against the schema its operation documents.
+func (s *spec) check(t *testing.T, path string, status int, body []byte) {
+	t.Helper()
+	ptr := s.responseSchema(t, path, strconv.Itoa(status))
+	if ptr == "" {
+		t.Errorf("%s answers %d, which the OpenAPI document does not describe", path, status)
+		return
+	}
+	sch, err := s.c.Compile(ptr)
+	if err != nil {
+		t.Fatalf("compile %s: %v", ptr, err)
+	}
+	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(body))
+	if err != nil {
+		t.Errorf("%s %d: body is not JSON: %v", path, status, err)
+		return
+	}
+	if err := sch.Validate(inst); err != nil {
+		t.Errorf("%s %d does not match the OpenAPI schema: %v\n%s", path, status, err, body)
+	}
+}
+
+func TestResponsesConformToOpenAPI(t *testing.T) {
+	s := loadSpec(t)
+
+	cost := core.MicroUSD(1234)
+	id := core.NewIDAt(testNow.Add(-time.Hour))
+	next := core.Cursor{TS: testNow.Add(-time.Hour), ID: id}
+	full := core.CallRecord{
+		ID: id, TS: testNow, KeyName: "alice", Client: "claude-code", ClientRaw: "claude-cli/2.1", ClientRequestID: "r1",
+		SessionKey: "s", AgentID: "a", ParentAgentID: "p", AgentType: "Explore", PromptID: "pr", RequestClass: "main",
+		Compaction: true, ContextCompacted: true, TraceID: "t", Family: "anthropic", Endpoint: "/v1/messages",
+		AuthMode: "proxy_key", Provider: "anthropic", Model: "claude-opus-4-8", UpstreamRequestID: "req_1",
+		Status: 200, ErrorClass: "", ErrorType: "", StopReason: "end_turn", Streamed: true,
+		TTFB: time.Second, TTFT: 2 * time.Second, Duration: 3 * time.Second, EndedAt: testNow.Add(3 * time.Second),
+		Usage:    core.Usage{InputUncached: 1, CacheRead: 2, CacheWrite5m: 3, CacheWrite1h: 4, Output: 5, Reasoning: 1},
+		UsageRaw: json.RawMessage(`{"input_tokens":1}`), UsageEstimated: true, ExtractionPartial: true,
+		Cost: &cost, PricingVersion: "2026-10-01", PrevToolDurations: "{}",
+		ToolUses:    []core.ToolUse{{Source: core.ToolSourceServer, ToolCallID: "toolu_1", Name: "Bash", ArgBytes: 9}},
+		ToolResults: []core.ToolResult{{Source: core.ToolSourceClient, ToolCallID: "toolu_0", IsError: true, ResultBytes: 3}},
+	}
+	bare := core.CallRecord{ID: core.NewID()}
+	rd := &coretest.Reader{
+		Calls: []core.CallSummary{
+			{ID: id, TS: testNow, KeyName: "alice", Status: 200, Cost: &cost, ToolCount: 1, ContextCompacted: true,
+				Usage: core.Usage{Output: 5}, TTFT: time.Second, Duration: 2 * time.Second, Streamed: true},
+			{ID: core.NewID(), TS: testNow, Status: 529},
+		},
+		Count: 10000, Capped: true, Next: &next,
+		Details: map[core.ID]core.CallDetail{id: {CallRecord: full}, bare.ID: {CallRecord: bare}},
+	}
+	view := config.View{
+		Providers: []config.ProviderView{{Name: "anthropic", Kind: "anthropic", BaseURL: "https://api.anthropic.com", AuthMode: "proxy_key", IdleTimeout: config.Duration(90 * time.Second)}},
+		Pricing:   []config.PricingView{{Provider: "anthropic", Model: "m", From: config.Date(testNow), Price: config.PriceView{Input: 5_000_000}}},
+		Keys:      []config.KeyView{{Name: "alice"}, {Name: "ci", Disabled: true}},
+	}
+	h := newTestMux(t, rd, view)
+
+	samples := []struct {
+		target string
+		path   string // the path template of the document
+		status int
+	}{
+		{"/admin/calls", "/admin/calls", 200},
+		{"/admin/calls?model=a&status=429&streamed=true&tool=Bash&tool_error=true&latency_ms_gte=60000&endpoint=/v1/messages&limit=10", "/admin/calls", 200},
+		{"/admin/calls/" + id.String(), "/admin/calls/{id}", 200},
+		{"/admin/calls/" + bare.ID.String(), "/admin/calls/{id}", 200},
+		{"/admin/config", "/admin/config", 200},
+		{"/admin/calls?nope=1", "/admin/calls", 400},
+		{"/admin/calls?cursor=zzz", "/admin/calls", 400},
+		{"/admin/calls/not-an-id", "/admin/calls/{id}", 400},
+		{"/admin/calls/" + core.NewID().String(), "/admin/calls/{id}", 404},
+	}
+	for _, sm := range samples {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest("GET", sm.target, nil))
+		if rr.Code != sm.status {
+			t.Errorf("%s: status %d, want %d\n%s", sm.target, rr.Code, sm.status, rr.Body)
+			continue
+		}
+		s.check(t, sm.path, rr.Code, rr.Body.Bytes())
+	}
+
+	failing := newTestMux(t, &coretest.Reader{Err: errBoom}, view)
+	for _, sm := range []struct{ target, path string }{
+		{"/admin/calls", "/admin/calls"},
+		{"/admin/calls/" + id.String(), "/admin/calls/{id}"},
+	} {
+		rr := httptest.NewRecorder()
+		failing.ServeHTTP(rr, httptest.NewRequest("GET", sm.target, nil))
+		s.check(t, sm.path, rr.Code, rr.Body.Bytes())
+	}
+}
+
+// TestSpecQueryParametersMatchParser fails when the OpenAPI document and the
+// parameter parser drift apart: every documented parameter must be one the
+// parser accepts, and every parameter the parser accepts must be documented.
+func TestSpecQueryParametersMatchParser(t *testing.T) {
+	s := loadSpec(t)
+	params := s.doc["components"].(map[string]any)["parameters"].(map[string]any)
+	op := s.doc["paths"].(map[string]any)["/admin/calls"].(map[string]any)["get"].(map[string]any)
+	var documented []string
+	for _, p := range op["parameters"].([]any) {
+		ref := p.(map[string]any)["$ref"].(string)
+		def := params[strings.TrimPrefix(ref, "#/components/parameters/")].(map[string]any)
+		documented = append(documented, def["name"].(string))
+	}
+	var known []string
+	for name := range knownCallParams {
+		known = append(known, name)
+	}
+	slices.Sort(documented)
+	slices.Sort(known)
+	if !slices.Equal(documented, known) {
+		t.Errorf("documented parameters %v\nparser parameters     %v", documented, known)
+	}
+}
+
+func TestSpecRoutesMatchMux(t *testing.T) {
+	s := loadSpec(t)
+	paths := s.doc["paths"].(map[string]any)
+	for _, want := range []string{"/admin/calls", "/admin/calls/{id}", "/admin/config", "/admin/openapi.json"} {
+		if _, ok := paths[want]; !ok {
+			t.Errorf("OpenAPI document lacks %s", want)
+		}
+	}
+	if len(paths) != 4 {
+		t.Errorf("document has %d paths, want the 4 this ADR delivers", len(paths))
+	}
+}
+
+// TestSpecIsWellFormed is the local half of spec validation (CI also lints the
+// file with a pinned OpenAPI linter): the version, every $ref target, every
+// component schema and the operation ids.
+func TestSpecIsWellFormed(t *testing.T) {
+	s := loadSpec(t)
+	if s.doc["openapi"] != "3.1.0" {
+		t.Errorf("openapi = %v, want 3.1.0", s.doc["openapi"])
+	}
+
+	var refs []string
+	var walk func(v any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case map[string]any:
+			if r, ok := x["$ref"].(string); ok {
+				refs = append(refs, r)
+			}
+			for k, c := range x {
+				if c == nil {
+					t.Errorf("key %q has a null value: a flow mapping broke on a comma or colon", k)
+				}
+				walk(c)
+			}
+		case []any:
+			for _, c := range x {
+				walk(c)
+			}
+		}
+	}
+	walk(s.doc)
+	if len(refs) == 0 {
+		t.Fatal("no $ref found: the walk is broken")
+	}
+	for _, r := range refs {
+		var cur any = s.doc
+		for _, seg := range strings.Split(strings.TrimPrefix(r, "#/"), "/") {
+			m, ok := cur.(map[string]any)
+			if !ok {
+				cur = nil
+				break
+			}
+			cur = m[seg]
+		}
+		if !strings.HasPrefix(r, "#/") || cur == nil {
+			t.Errorf("$ref %s does not resolve", r)
+		}
+	}
+
+	schemas := s.doc["components"].(map[string]any)["schemas"].(map[string]any)
+	for name := range schemas {
+		if _, err := s.c.Compile("openapi.json#/components/schemas/" + name); err != nil {
+			t.Errorf("schema %s: %v", name, err)
+		}
+	}
+
+	ids := map[string]string{}
+	for path, item := range s.doc["paths"].(map[string]any) {
+		op := item.(map[string]any)["get"].(map[string]any)
+		id, _ := op["operationId"].(string)
+		if id == "" || ids[id] != "" {
+			t.Errorf("%s: operationId %q is empty or repeated (also %s)", path, id, ids[id])
+		}
+		ids[id] = path
+		if _, ok := op["responses"].(map[string]any)["200"]; !ok {
+			t.Errorf("%s has no 200 response", path)
+		}
+	}
+}

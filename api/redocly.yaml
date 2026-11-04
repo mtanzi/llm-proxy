@@ -1,0 +1,8 @@
+# Lint rules of the admin API document: the recommended set, with the rules
+# that do not fit a loopback-only API with no auth and no license switched off.
+extends:
+  - recommended
+rules:
+  info-license: off
+  security-defined: off
+  no-server-example.com: off

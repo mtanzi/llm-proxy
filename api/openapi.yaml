@@ -1,5 +1,498 @@
 openapi: 3.1.0
 info:
-  title: llm-proxy
-  version: 0.0.0
-paths: {}
+  title: llm-proxy admin API
+  version: 0.1.0
+  description: |
+    Read-only JSON API of the admin plane, served on the loopback listener under
+    /admin/. There is no sign-in and no CORS header. No endpoint returns prompt,
+    response or tool content: only numbers, names, ids and sizes.
+servers:
+  - url: /
+paths:
+  /admin/calls:
+    get:
+      operationId: listCalls
+      summary: Call log
+      description: |
+        Calls newest first, ordered by (ts, id) descending. Every query is bounded
+        by a time range: `from` and `to` default to the last 24 hours. Filters
+        combine with AND; a repeated parameter matches any of its values.
+        Pagination is keyset, forward only: pass `next_cursor` as `cursor`.
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Key"
+        - $ref: "#/components/parameters/Client"
+        - $ref: "#/components/parameters/Provider"
+        - $ref: "#/components/parameters/Model"
+        - $ref: "#/components/parameters/Endpoint"
+        - $ref: "#/components/parameters/Streamed"
+        - $ref: "#/components/parameters/Status"
+        - $ref: "#/components/parameters/ErrorClass"
+        - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/Agent"
+        - $ref: "#/components/parameters/AgentType"
+        - $ref: "#/components/parameters/Prompt"
+        - $ref: "#/components/parameters/RequestClass"
+        - $ref: "#/components/parameters/Tool"
+        - $ref: "#/components/parameters/ToolError"
+        - $ref: "#/components/parameters/LatencyMsGte"
+        - $ref: "#/components/parameters/CostMicroUsdGte"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of calls.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallList"
+        "400":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /admin/calls/{id}:
+    get:
+      operationId: getCall
+      summary: One call
+      description: Every recorded field of one call, with its tool uses and tool results.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Call id, a UUIDv7 in canonical form. It is also the x-request-id of the call.
+          schema:
+            $ref: "#/components/schemas/CallId"
+      responses:
+        "200":
+          description: The call.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallDetail"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /admin/config:
+    get:
+      operationId: getConfig
+      summary: Providers, pricing and key names
+      description: |
+        Read-only view of the running config. It holds no credential, no secret
+        reference, no key hash and no database URL.
+      responses:
+        "200":
+          description: The config view.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigView"
+        "500":
+          $ref: "#/components/responses/Error"
+  /admin/openapi.json:
+    get:
+      operationId: getOpenAPI
+      summary: This document as JSON
+      responses:
+        "200":
+          description: The OpenAPI document.
+          content:
+            application/json:
+              schema:
+                type: object
+components:
+  parameters:
+    From:
+      name: from
+      in: query
+      description: Start of the time range, inclusive, RFC 3339. Default is 24 hours before `to`.
+      schema: { type: string, format: date-time }
+    To:
+      name: to
+      in: query
+      description: End of the time range, exclusive, RFC 3339. Default is now.
+      schema: { type: string, format: date-time }
+    Key:
+      name: key
+      in: query
+      description: Virtual key name. Repeat to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { type: string } }
+    Client:
+      name: client
+      in: query
+      description: Client name. Repeat to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { type: string } }
+    Provider:
+      name: provider
+      in: query
+      description: Provider name. Repeat to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { type: string } }
+    Model:
+      name: model
+      in: query
+      description: Model as the client asked for it. Repeat to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { type: string } }
+    Endpoint:
+      name: endpoint
+      in: query
+      description: Request path, for example /v1/messages. Repeat to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { type: string } }
+    Streamed:
+      name: streamed
+      in: query
+      description: Only streamed (true) or only non-streamed (false) calls.
+      schema: { type: boolean }
+    Status:
+      name: status
+      in: query
+      description: HTTP status returned to the client. Repeat to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { type: integer, minimum: 100, maximum: 599 } }
+    ErrorClass:
+      name: error_class
+      in: query
+      description: Error class. Repeat to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { type: string } }
+    Session:
+      name: session
+      in: query
+      description: Session key.
+      schema: { type: string }
+    Agent:
+      name: agent
+      in: query
+      description: Agent id.
+      schema: { type: string }
+    AgentType:
+      name: agent_type
+      in: query
+      description: Agent type. Repeat to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { type: string } }
+    Prompt:
+      name: prompt
+      in: query
+      description: Prompt id.
+      schema: { type: string }
+    RequestClass:
+      name: request_class
+      in: query
+      description: Request class. Repeat to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { type: string } }
+    Tool:
+      name: tool
+      in: query
+      description: Calls that made a tool call with this tool name. Repeat to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { type: string } }
+    ToolError:
+      name: tool_error
+      in: query
+      description: |
+        Calls that made a tool call whose paired result has this is_error value.
+        Combined with `tool`, both must hold on the same tool call.
+      schema: { type: boolean }
+    LatencyMsGte:
+      name: latency_ms_gte
+      in: query
+      description: Calls whose total duration is at least this many milliseconds.
+      schema: { type: integer, minimum: 0 }
+    CostMicroUsdGte:
+      name: cost_micro_usd_gte
+      in: query
+      description: Calls with a known cost of at least this many micro-USD.
+      schema: { type: integer, minimum: 0 }
+    Limit:
+      name: limit
+      in: query
+      description: Page size. Default 50, maximum 500.
+      schema: { type: integer, minimum: 1, maximum: 500 }
+    Cursor:
+      name: cursor
+      in: query
+      description: The `next_cursor` of the previous page. Opaque; do not build it.
+      schema: { $ref: "#/components/schemas/Cursor" }
+  responses:
+    Error:
+      description: |
+        The request failed. `error.type` is stable and the UI maps it to an inline message.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+  schemas:
+    Cursor:
+      type: string
+      minLength: 1
+      description: Opaque position of the last item of a page.
+    CallId:
+      type: string
+      pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+      description: UUIDv7, lowercase canonical form.
+    ErrorType:
+      type: string
+      enum: [invalid_parameter, invalid_cursor, invalid_id, not_found, internal]
+      description: |
+        invalid_parameter: an unknown or malformed query parameter (see `parameter`).
+        invalid_cursor: the cursor is not one this API issued.
+        invalid_id: the path id is not a call id.
+        not_found: no such call or route.
+        internal: the server failed; retry later.
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, message]
+          properties:
+            type: { $ref: "#/components/schemas/ErrorType" }
+            message: { type: string, description: "Text for a log, not for matching." }
+            parameter:
+              type: string
+              description: The query parameter at fault, for invalid_parameter.
+    Usage:
+      type: object
+      description: Token counts in disjoint columns.
+      required: [input_uncached, cache_read, cache_write_5m, cache_write_1h, output, reasoning]
+      properties:
+        input_uncached: { type: integer }
+        cache_read: { type: integer }
+        cache_write_5m: { type: integer }
+        cache_write_1h: { type: integer }
+        output: { type: integer, description: Includes reasoning tokens. }
+        reasoning: { type: integer, description: The part of output spent on reasoning. }
+    CallSummary:
+      type: object
+      description: One row of the call log. Zero values mean not known.
+      required:
+        - id
+        - ts
+        - key
+        - client
+        - session_key
+        - agent_id
+        - provider
+        - model
+        - status
+        - error_class
+        - stop_reason
+        - streamed
+        - ttft_ms
+        - duration_ms
+        - usage
+        - cost_micro_usd
+        - tool_count
+        - context_compacted
+      properties:
+        id: { $ref: "#/components/schemas/CallId" }
+        ts: { type: string, format: date-time }
+        key: { type: string, description: Virtual key name. }
+        client: { type: string }
+        session_key: { type: string }
+        agent_id: { type: string }
+        provider: { type: string }
+        model: { type: string }
+        status: { type: integer }
+        error_class: { type: string }
+        stop_reason: { type: string }
+        streamed: { type: boolean }
+        ttft_ms: { type: integer, description: Time to first token. }
+        duration_ms: { type: integer }
+        usage: { $ref: "#/components/schemas/Usage" }
+        cost_micro_usd:
+          type: [integer, "null"]
+          description: Cost in micro-USD. Null when no price matched; unknown is not zero.
+        tool_count: { type: integer, description: Tool uses carried by the call. }
+        context_compacted:
+          type: boolean
+          description: The cache prefix resets at this call.
+    CallList:
+      type: object
+      required: [calls, next_cursor, count, count_capped]
+      properties:
+        calls:
+          type: array
+          items: { $ref: "#/components/schemas/CallSummary" }
+        next_cursor:
+          type: [string, "null"]
+          description: Cursor of the next page. Null on the last page.
+        count:
+          type: integer
+          description: Calls matching the filter, ignoring the cursor. Exact up to 10000.
+        count_capped:
+          type: boolean
+          description: More than 10000 calls match; `count` is 10000 and the UI shows "10,000+".
+    ToolUse:
+      type: object
+      required: [source, tool_call_id, name, arg_bytes]
+      properties:
+        source: { type: string, enum: [client, server] }
+        tool_call_id: { type: string }
+        name: { type: string }
+        arg_bytes: { type: integer }
+    ToolResult:
+      type: object
+      required: [source, tool_call_id, is_error, result_bytes]
+      properties:
+        source: { type: string, enum: [client, server] }
+        tool_call_id: { type: string, description: The id of the use it answers. }
+        is_error: { type: boolean }
+        result_bytes: { type: integer }
+    CallDetail:
+      type: object
+      description: Every recorded field of one call.
+      required:
+        - id
+        - ts
+        - key
+        - client
+        - client_raw
+        - client_request_id
+        - session_key
+        - agent_id
+        - parent_agent_id
+        - agent_type
+        - prompt_id
+        - request_class
+        - compaction
+        - context_compacted
+        - trace_id
+        - family
+        - endpoint
+        - auth_mode
+        - provider
+        - model
+        - upstream_request_id
+        - status
+        - error_class
+        - error_type
+        - stop_reason
+        - streamed
+        - ttfb_ms
+        - ttft_ms
+        - duration_ms
+        - ended_at
+        - usage
+        - usage_raw
+        - usage_estimated
+        - extraction_partial
+        - cost_micro_usd
+        - pricing_version
+        - prev_tool_durations
+        - tool_uses
+        - tool_results
+      properties:
+        id: { $ref: "#/components/schemas/CallId" }
+        ts: { type: string, format: date-time }
+        key: { type: string }
+        client: { type: string }
+        client_raw: { type: string }
+        client_request_id: { type: string }
+        session_key: { type: string }
+        agent_id: { type: string }
+        parent_agent_id: { type: string }
+        agent_type: { type: string }
+        prompt_id: { type: string }
+        request_class: { type: string }
+        compaction: { type: boolean }
+        context_compacted: { type: boolean }
+        trace_id: { type: string }
+        family: { type: string }
+        endpoint: { type: string }
+        auth_mode: { type: string, description: proxy_key or client_passthrough. }
+        provider: { type: string }
+        model: { type: string }
+        upstream_request_id: { type: string }
+        status: { type: integer }
+        error_class: { type: string }
+        error_type: { type: string }
+        stop_reason: { type: string }
+        streamed: { type: boolean }
+        ttfb_ms: { type: integer }
+        ttft_ms: { type: integer }
+        duration_ms: { type: integer }
+        ended_at: { type: [string, "null"], format: date-time }
+        usage: { $ref: "#/components/schemas/Usage" }
+        usage_raw:
+          description: The provider usage object as received, numbers only. Null when there was none.
+          type: [object, "null"]
+        usage_estimated: { type: boolean }
+        extraction_partial: { type: boolean }
+        cost_micro_usd: { type: [integer, "null"] }
+        pricing_version: { type: string, description: The from date of the matched price. }
+        prev_tool_durations: { type: string }
+        tool_uses:
+          type: array
+          items: { $ref: "#/components/schemas/ToolUse" }
+        tool_results:
+          type: array
+          items: { $ref: "#/components/schemas/ToolResult" }
+    ConfigView:
+      type: object
+      required: [providers, pricing, keys]
+      properties:
+        providers:
+          type: array
+          items: { $ref: "#/components/schemas/ProviderView" }
+        pricing:
+          type: array
+          items: { $ref: "#/components/schemas/PricingView" }
+        keys:
+          type: array
+          items: { $ref: "#/components/schemas/KeyView" }
+    ProviderView:
+      type: object
+      description: A provider without its credential.
+      required: [name, kind, base_url, auth_mode, idle_timeout]
+      properties:
+        name: { type: string }
+        kind: { type: string }
+        base_url: { type: string }
+        auth_mode: { type: string }
+        idle_timeout: { type: string, description: "A whole number and a unit, for example 10m." }
+    PricingView:
+      type: object
+      required: [provider, model, from, price]
+      properties:
+        provider: { type: string }
+        model: { type: string }
+        from: { type: string, description: "First day the price applies, YYYY-MM-DD." }
+        price: { $ref: "#/components/schemas/Price" }
+    Price:
+      type: object
+      description: Micro-USD per million tokens.
+      required: [input, output, cache_read, cache_write_5m, cache_write_1h]
+      properties:
+        input: { type: integer }
+        output: { type: integer }
+        cache_read: { type: integer }
+        cache_write_5m: { type: integer }
+        cache_write_1h: { type: integer }
+    KeyView:
+      type: object
+      description: A key name and its disabled flag, never its hash.
+      required: [name, disabled]
+      properties:
+        name: { type: string }
+        disabled: { type: boolean }

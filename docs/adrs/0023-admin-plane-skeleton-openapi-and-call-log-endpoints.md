@@ -1,6 +1,6 @@
 # ADR 0023: Admin plane skeleton, OpenAPI contract and call-log endpoints
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
