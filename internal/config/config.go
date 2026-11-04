@@ -64,7 +64,9 @@ type Database struct {
 	MaxConns int `yaml:"max_conns"`
 }
 
-// Provider is one upstream provider.
+// Provider is one upstream provider. v1 takes exactly one, of kind anthropic.
+// Kind openai_compatible, credential none and headers_to_add are v2 settings:
+// the fields stay so that validation can reject them by name.
 type Provider struct {
 	Name         string            `yaml:"name"`
 	Kind         string            `yaml:"kind"`

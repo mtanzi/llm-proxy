@@ -97,7 +97,7 @@ func TestKeygenEntryPassesConfigValidation(t *testing.T) {
 	if !ok {
 		t.Fatalf("no entry in %q", out)
 	}
-	cfg := "database: { url: { env: DB } }\nkeys:\n" + entry
+	cfg := "database: { url: { env: DB } }\nproviders:\n  - { name: a, kind: anthropic, base_url: 'https://x', auth_mode: client_passthrough }\nkeys:\n" + entry
 	opts := config.Options{
 		LookupEnv: func(k string) (string, bool) { return "postgres://x", k == "DB" },
 		BuildKeys: func(k []core.Key) (config.KeyIndex, error) { return keyring.New(k) }}

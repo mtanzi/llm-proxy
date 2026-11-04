@@ -14,7 +14,7 @@ A restart drains streams for up to 10 minutes, so config changes (keys, pricing,
 - The current snapshot is held behind an atomic pointer. The handler reads it once at the start of each request and keeps it for the whole request.
 - `SIGHUP` re-reads the file and the referenced secrets, builds a new snapshot, validates it, and swaps it atomically. Requests in flight keep the snapshot they started with.
 - A reload that fails validation is rejected whole: the proxy keeps the previous snapshot, logs the error and counts it. It does not exit.
-- Settings that need a restart (listener addresses, TLS files, database URL, queue capacity) are read at start. A reload that changes them logs a warning and ignores the change.
+- Settings that need a restart (listener addresses, TLS files, database URL and pool size, queue capacity, call retention, log level and format, drain timeout) are read at start. A reload that changes them logs a warning and ignores the change.
 
 ## Consequences
 

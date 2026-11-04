@@ -258,3 +258,35 @@ func writeSelfSigned(t *testing.T, dir string) (certFile, keyFile string) {
 	write(keyFile, "EC PRIVATE KEY", keyDER)
 	return certFile, keyFile
 }
+
+// holderSnaps serves one fixed snapshot that a test swaps.
+type swapSnaps struct{ cur *config.Snapshot }
+
+func (s *swapSnaps) Current() *config.Snapshot { return s.cur }
+
+func TestMaxRequestBytesFollowsSnapshot(t *testing.T) {
+	cfg := testConfig() // 1024 before any snapshot
+	snaps := &swapSnaps{}
+	limit := maxRequestBytes(cfg, snaps)
+	if got := limit(); got != 1024 {
+		t.Errorf("no snapshot: limit = %d, want 1024", got)
+	}
+	snaps.cur = snapshotWithMax(t, "2KiB")
+	if got := limit(); got != 2048 {
+		t.Errorf("after reload: limit = %d, want 2048", got)
+	}
+}
+
+func snapshotWithMax(t *testing.T, size string) *config.Snapshot {
+	t.Helper()
+	text := "database: { url: { env: DB } }\nproviders:\n  - { name: a, kind: anthropic, base_url: 'https://x', credential: { env: K } }\nserver: { max_request_bytes: " + size + " }\n"
+	path := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := config.NewHolder(path, config.Options{LookupEnv: func(k string) (string, bool) { return "v", k == "DB" || k == "K" }}, nil)
+	if err := h.Load(); err != nil {
+		t.Fatal(err)
+	}
+	return h.Current()
+}

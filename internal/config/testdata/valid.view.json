@@ -6,20 +6,6 @@
       "base_url": "https://api.anthropic.com",
       "auth_mode": "proxy_key",
       "idle_timeout": "90s"
-    },
-    {
-      "name": "local-vllm",
-      "kind": "openai_compatible",
-      "base_url": "http://vllm.internal:8000",
-      "auth_mode": "proxy_key",
-      "idle_timeout": "2m"
-    },
-    {
-      "name": "passthrough-only",
-      "kind": "anthropic",
-      "base_url": "https://api.anthropic.com",
-      "auth_mode": "client_passthrough",
-      "idle_timeout": "2m"
     }
   ],
   "pricing": [
@@ -42,18 +28,6 @@
       "price": {
         "input": 4500000,
         "output": 22500000,
-        "cache_read": 0,
-        "cache_write_5m": 0,
-        "cache_write_1h": 0
-      }
-    },
-    {
-      "provider": "local-vllm",
-      "model": "llama",
-      "from": "2026-01-01",
-      "price": {
-        "input": 0,
-        "output": 0,
         "cache_read": 0,
         "cache_write_5m": 0,
         "cache_write_1h": 0

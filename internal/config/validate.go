@@ -65,20 +65,19 @@ func (c *Config) validateProviders() []error {
 	add := func(i int, format string, args ...any) {
 		errs = append(errs, fmt.Errorf("providers[%d]: %s", i, fmt.Sprintf(format, args...)))
 	}
-	seen := map[string]int{}
+	if n := len(c.Providers); n != 1 {
+		errs = append(errs, fmt.Errorf("providers: v1 needs exactly one provider, of kind %s; got %d", KindAnthropic, n))
+	}
 	for i, p := range c.Providers {
-		switch {
-		case p.Name == "":
+		if p.Name == "" {
 			add(i, "name is required")
-		case seen[p.Name] != 0:
-			add(i, "duplicate name %q (also providers[%d])", p.Name, seen[p.Name]-1)
-		default:
-			seen[p.Name] = i + 1
 		}
 		switch p.Kind {
-		case KindAnthropic, KindOpenAICompatible:
+		case KindAnthropic:
+		case KindOpenAICompatible:
+			add(i, "kind %s is v2; v1 supports only kind %s", KindOpenAICompatible, KindAnthropic)
 		default:
-			add(i, "unknown kind %q; want %s or %s", p.Kind, KindAnthropic, KindOpenAICompatible)
+			add(i, "unknown kind %q; want %s", p.Kind, KindAnthropic)
 		}
 		if u, err := url.Parse(p.BaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
 			add(i, "base_url must be an absolute http or https URL without credentials")
@@ -89,19 +88,17 @@ func (c *Config) validateProviders() []error {
 			add(i, "unknown auth_mode %q; want %s or %s", p.AuthMode, AuthProxyKey, AuthClientPassthrough)
 		}
 		switch {
-		case p.Credential.None && p.Kind != KindOpenAICompatible:
-			add(i, "credential none is only valid for kind %s", KindOpenAICompatible)
-		case p.Credential.None || !p.Credential.Ref.IsZero():
+		case p.Credential.None:
+			add(i, "credential none is v2; v1 needs a credential, or auth_mode %s", AuthClientPassthrough)
+		case !p.Credential.Ref.IsZero():
 		case p.AuthMode != AuthClientPassthrough:
 			add(i, "credential is required for auth_mode %s", p.AuthMode)
 		}
 		if p.IdleTimeout <= 0 {
 			add(i, "idle_timeout must be greater than zero")
 		}
-		for h := range p.HeadersToAdd {
-			if h == "" {
-				add(i, "headers_to_add has an empty header name")
-			}
+		if len(p.HeadersToAdd) > 0 {
+			add(i, "headers_to_add is v2; v1 does not apply it")
 		}
 	}
 	return errs

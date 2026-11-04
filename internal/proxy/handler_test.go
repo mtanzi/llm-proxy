@@ -174,7 +174,7 @@ func (e *env) start(t *testing.T, tap Tap, mw func(http.Handler) http.Handler) {
 	if mw != nil {
 		root = mw(root)
 	}
-	e.proxy = httptest.NewServer(httpmw.Wrap(root, httpmw.Options{Logger: logger, MaxRequestBytes: 64 << 10}))
+	e.proxy = httptest.NewServer(httpmw.Wrap(root, httpmw.Options{Logger: logger, MaxRequestBytes: func() int64 { return 64 << 10 }}))
 	t.Cleanup(e.proxy.Close)
 }
 
