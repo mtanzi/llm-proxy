@@ -150,6 +150,16 @@ func newShutdownEnv(t *testing.T) *shutdownEnv {
 		_ = e.srv.Data.Close()
 		_ = e.srv.Admin.Close()
 	})
+	// Wait until both servers answer, so Serve has taken its listener before
+	// a test calls Shutdown. A Shutdown that runs first never closes it.
+	probe := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	for _, addr := range []string{e.dataAddr, e.admin} {
+		resp, err := probe.Get("http://" + addr + "/")
+		if err != nil {
+			t.Fatalf("probe %s: %v", addr, err)
+		}
+		_ = resp.Body.Close()
+	}
 	return e
 }
 
