@@ -287,7 +287,9 @@ The Go runtime and process collectors are served beside these. `cmd/llm-proxy/te
 
 ### Shutdown and the stop grace period
 
-On `SIGTERM` the process reports not-ready on both `/readyz` endpoints, stops accepting connections, waits for in-flight streams up to `server.drain_timeout`, flushes the recorder queue within 30 seconds, then stops the retention job, closes the store and exits. A second signal forces an immediate exit and logs it. Streams still open at the drain deadline are cut. Records still queued at the flush deadline are counted in `llm_proxy_calls_dropped_total{reason="shutdown"}` and their number is logged.
+On `SIGTERM` the process reports not-ready on both `/readyz` endpoints, stops accepting connections, waits for in-flight streams up to `server.drain_timeout`, flushes the recorder queue within 30 seconds, then stops the retention job, closes the store and exits. A second signal forces an immediate exit and logs it. Streams still open at the drain deadline are cut, and the process waits up to 2 seconds for their handlers to hand the final records to the recorder before it closes the queue. Records still queued at the flush deadline are counted in `llm_proxy_calls_dropped_total{reason="shutdown"}` and their number is logged.
+
+The data listener closes right after `/readyz` flips to not-ready, with no pause between them. A load balancer or orchestrator in front of the proxy that polls `/readyz` keeps routing new connections until its next probe, and those connections are refused. Make it stop routing before the proxy gets `SIGTERM`: for example, Kubernetes removes the pod from its endpoints, and a `preStop` hook that sleeps covers the propagation delay. The single-host Compose setup has no load balancer in front and is not affected.
 
 The supervisor must wait at least as long as the drain before it sends `SIGKILL`, or it kills the process mid-drain. Set the grace period equal to `server.drain_timeout` (default 10 minutes). A stream that runs to the drain deadline leaves no time for the flush; to keep the flush in that case, add 30 seconds.
 

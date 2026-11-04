@@ -85,6 +85,9 @@ type shutdownEnv struct {
 	log      *slog.Logger
 	// onClose runs, if set, when the data listener is closed.
 	onClose atomic.Pointer[func()]
+	// onCut runs, if set, in a /stream handler after its client is cut and
+	// before the handler counts itself finished.
+	onCut atomic.Pointer[func()]
 }
 
 // closeHookListener calls the env's onClose hook when the listener closes,
@@ -117,6 +120,9 @@ func newShutdownEnv(t *testing.T) *shutdownEnv {
 		select {
 		case <-e.release:
 		case <-r.Context().Done():
+			if f := e.onCut.Load(); f != nil {
+				(*f)()
+			}
 			return
 		}
 		_, _ = io.WriteString(w, "chunk2\n")
@@ -125,10 +131,11 @@ func newShutdownEnv(t *testing.T) *shutdownEnv {
 	admin.Handle("/readyz", httpmw.Readyz(drain, func(context.Context) error { return nil }))
 
 	e.srv = &Servers{
-		Data:     &http.Server{Handler: data},
-		Admin:    &http.Server{Handler: admin},
-		Drain:    drain,
-		Inflight: e.inflight.Load,
+		Data:          &http.Server{Handler: data},
+		Admin:         &http.Server{Handler: admin},
+		Drain:         drain,
+		Inflight:      e.inflight.Load,
+		InflightCalls: e.inflight.Load,
 	}
 	dln, aln := listen(t), listen(t)
 	e.dataAddr, e.admin = dln.Addr().String(), aln.Addr().String()
@@ -252,6 +259,27 @@ func TestShutdownDrainDeadlineCutsStreams(t *testing.T) {
 	}
 	if _, err := io.ReadAll(resp.Body); err == nil {
 		t.Error("stream ended cleanly, want it cut at the drain deadline")
+	}
+}
+
+func TestShutdownWaitsForCutStreamRecordsBeforeRecorderClose(t *testing.T) {
+	e := newShutdownEnv(t)
+	ev := &eventLog{}
+	cut := func() {
+		time.Sleep(50 * time.Millisecond)
+		ev.add("cut.finished")
+	}
+	e.onCut.Store(&cut)
+	resp := e.openStream(t)
+	defer func() { _ = resp.Body.Close() }()
+
+	s := &Shutdown{Servers: e.srv, Recorder: fakeRecorder{ev}, DrainTimeout: 50 * time.Millisecond, Log: e.log}
+	if err := s.Do(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Do = %v, want a deadline error", err)
+	}
+	want := []string{"cut.finished", "recorder.close"}
+	if got := ev.all(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("order = %v, want %v", got, want)
 	}
 }
 

@@ -16,6 +16,9 @@ import (
 const (
 	adminStopTimeout     = 5 * time.Second
 	retentionStopTimeout = 10 * time.Second
+	// cutWaitTimeout bounds the wait, after the drain deadline cuts streams,
+	// for their handlers to hand the final records to the recorder.
+	cutWaitTimeout = 2 * time.Second
 )
 
 // ErrForcedExit is returned by Shutdown.Run when a second signal cut the
@@ -146,7 +149,31 @@ func (s *Shutdown) drain(ctx context.Context) error {
 	n := s.inflight()
 	s.Log.Error("shutdown: drain deadline passed, cutting streams", "inflight_streams", n, "drain_timeout", s.DrainTimeout)
 	_ = s.Servers.Data.Close()
+	s.waitCutCalls(ctx)
 	return fmt.Errorf("shutdown: drain: %w (%d streams cut)", err, n)
+}
+
+// waitCutCalls waits, up to cutWaitTimeout, for the handlers of the calls
+// Data.Close cut to send their records, so the recorder is not closed under
+// them.
+func (s *Shutdown) waitCutCalls(ctx context.Context) {
+	if s.Servers.InflightCalls == nil {
+		return
+	}
+	deadline := time.NewTimer(cutWaitTimeout)
+	defer deadline.Stop()
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for s.Servers.InflightCalls() > 0 {
+		select {
+		case <-tick.C:
+		case <-deadline.C:
+			s.Log.Error("shutdown: cut calls still unwinding, closing the recorder", "inflight_calls", s.Servers.InflightCalls())
+			return
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 func (s *Shutdown) inflight() int64 {
