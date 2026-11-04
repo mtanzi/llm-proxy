@@ -9,10 +9,11 @@ import (
 )
 
 // MaxBytes enforces the one request-size limit (server.max_request_bytes). It
-// calls limit for each request, so a reloaded value applies to the next request;
-// a limit of zero or less means no limit. A declared Content-Length above the limit gets the protocol 413 at once; any
-// other body is wrapped in http.MaxBytesReader, so the reader fails once the
-// limit is crossed. Handlers report that failure with WriteBodyError.
+// calls limitFn for each request, so a reloaded value applies to the next
+// request; a limit of zero or less means no limit. A declared Content-Length
+// above the limit gets the protocol 413 at once; any other body is wrapped in
+// http.MaxBytesReader, so the reader fails once the limit is crossed. Handlers
+// report that failure with WriteBodyError.
 func MaxBytes(limitFn func() int64, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit := limitFn()
