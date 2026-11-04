@@ -43,6 +43,13 @@ type Servers struct {
 	// Drain is the shutdown flag. Drain.Start makes both /readyz endpoints
 	// report not-ready; graceful shutdown (ADR 0027) calls it first.
 	Drain *httpmw.Drain
+	// Inflight is the number of streams being forwarded now, from the proxy
+	// handler. Shutdown logs it when the drain deadline passes.
+	Inflight func() int64
+	// InflightCalls is the number of forwarded calls, streaming or not, whose
+	// record has not reached the recorder yet. Shutdown waits for it after
+	// cutting streams.
+	InflightCalls func() int64
 	// Registry is served at /metrics on the admin plane.
 	Registry *prometheus.Registry
 
@@ -66,11 +73,13 @@ func BuildServers(cfg *config.Config, snaps proxy.Snapshots, log *slog.Logger, o
 	handler := proxy.NewHandler(snaps, proxy.Options{Logger: log, Metrics: pm})
 	adminMux := api.NewMux(api.Options{Metrics: reg, Ping: obs.Ping, Drain: drain})
 	s := &Servers{
-		Data:     newServer(cfg.Listen.Data, httpmw.Wrap(proxy.NewMux(handler, drain), opts), log),
-		Admin:    newServer(cfg.Listen.Admin, httpmw.Wrap(adminMux, opts), log),
-		Drain:    drain,
-		Registry: reg,
-		tls:      cfg.Listen.TLS,
+		Data:          newServer(cfg.Listen.Data, httpmw.Wrap(proxy.NewMux(handler, drain), opts), log),
+		Admin:         newServer(cfg.Listen.Admin, httpmw.Wrap(adminMux, opts), log),
+		Drain:         drain,
+		Inflight:      handler.InflightStreams,
+		InflightCalls: handler.InflightCalls,
+		Registry:      reg,
+		tls:           cfg.Listen.TLS,
 	}
 	if s.tls.Enabled() {
 		s.Data.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}

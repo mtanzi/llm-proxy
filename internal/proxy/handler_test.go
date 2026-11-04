@@ -75,6 +75,7 @@ type env struct {
 	extractor Extractor // nil uses the anthropic extractor
 	pricing   string    // YAML for the pricing key, appended to the config
 	metrics   *Metrics  // nil records no metrics
+	handler   *Handler  // set by start
 }
 
 func (e *env) yaml() string {
@@ -170,6 +171,7 @@ func (e *env) start(t *testing.T, tap Tap, mw func(http.Handler) http.Handler) {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	h := NewHandler(e.holder, Options{Recorder: e.rec, Extractor: e.extractor, Tap: tap, Logger: logger, Metrics: e.metrics})
+	e.handler = h
 	var root http.Handler = NewMux(h, nil)
 	if mw != nil {
 		root = mw(root)

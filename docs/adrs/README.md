@@ -78,7 +78,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0024](0024-session-tool-call-and-usage-endpoints.md) | Session, tool-call and usage endpoints | Accepted | 0020, 0021, 0023 |
 | [0025](0025-live-tail-sse-stream.md) | Live tail (`GET /admin/stream`) | Accepted | 0003, 0016, 0023 |
 | [0026](0026-observability-health-readiness-and-metrics.md) | Observability: health, readiness and Prometheus metrics | Completed | 0006, 0016, 0017 |
-| [0027](0027-graceful-shutdown-and-drain.md) | Graceful shutdown and drain | Accepted | 0006, 0011, 0016, 0026 |
+| [0027](0027-graceful-shutdown-and-drain.md) | Graceful shutdown and drain | Completed | 0006, 0011, 0016, 0026 |
 | [0028](0028-composition-root-and-serve-startup.md) | Composition root and `serve` startup | Accepted | 0005, 0008, 0011, 0016, 0017, 0022, 0023, 0026, 0027 |
 | [0029](0029-ui-scaffold-embedding-and-serving.md) | UI scaffold, embedding and serving | Accepted | 0001, 0006, 0023 |
 | [0030](0030-ui-foundation-routing-api-client-and-tables.md) | UI foundation: routing, typed API client, query state and tables | Accepted | 0023, 0029 |
