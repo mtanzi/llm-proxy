@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mtanzi/llm-proxy/internal/config"
@@ -70,7 +71,13 @@ type Handler struct {
 	tap        Tap
 	log        *slog.Logger
 	metrics    *Metrics
+	streams    atomic.Int64 // streaming requests being forwarded now
 }
+
+// InflightStreams is the number of streaming requests being forwarded now. It
+// is the value of llm_proxy_inflight_streams, kept even when the handler has no
+// Metrics; graceful shutdown (ADR 0027) logs it when the drain deadline passes.
+func (h *Handler) InflightStreams() int64 { return h.streams.Load() }
 
 // NewHandler returns a Handler that reads its providers and keys from snaps.
 func NewHandler(snaps Snapshots, o Options) *Handler {
@@ -192,6 +199,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer f.wd.Disarm()
 	if anthropic.RequestStreams(body) {
 		f.wd.Arm()
+		f.h.streams.Add(1)
 		f.h.metrics.streamStarted()
 		f.inflight = true
 	}
@@ -365,6 +373,7 @@ func (f *flight) finish(ctx context.Context) {
 	f.price()
 	f.body = nil
 	if f.inflight {
+		f.h.streams.Add(-1)
 		f.h.metrics.streamEnded()
 	}
 	f.h.metrics.finished(rec.Family, rec.Provider, rec.Status, rec.ErrorClass, rec.Duration, rec.TTFT)

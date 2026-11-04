@@ -285,6 +285,18 @@ The Go runtime and process collectors are served beside these. `cmd/llm-proxy/te
 3. Pull the new image and restart `serve`. The new process applies its migrations at start. The old process drains in-flight streams for up to `drain_timeout` before it exits; set the container stop grace period to match. Clients that lose a connection retry: Claude Code treats a cut stream as a dropped connection and retries according to its own rules.
 4. The new process starts with an empty queue. Records still queued in the old process were flushed during its drain.
 
+### Shutdown and the stop grace period
+
+On `SIGTERM` the process reports not-ready on both `/readyz` endpoints, stops accepting connections, waits for in-flight streams up to `server.drain_timeout`, flushes the recorder queue within 30 seconds, then stops the retention job, closes the store and exits. A second signal forces an immediate exit and logs it. Streams still open at the drain deadline are cut. Records still queued at the flush deadline are counted in `llm_proxy_calls_dropped_total{reason="shutdown"}` and their number is logged.
+
+The supervisor must wait at least as long as the drain before it sends `SIGKILL`, or it kills the process mid-drain. Set the grace period equal to `server.drain_timeout` (default 10 minutes). A stream that runs to the drain deadline leaves no time for the flush; to keep the flush in that case, add 30 seconds.
+
+- Docker Compose: `stop_grace_period: 10m` (see the sketch above). With `docker stop`, use `--time 600`.
+- Kubernetes: `terminationGracePeriodSeconds: 600`.
+- systemd: `TimeoutStopSec=10min` in the `[Service]` section. The default is 90 seconds, which cuts streams. Keep `KillSignal=SIGTERM` (the default) and `SendSIGKILL=yes`.
+
+If you change `server.drain_timeout`, change the grace period with it. The drain timeout is read at start, so a `SIGHUP` reload does not change it.
+
 Compatibility rules:
 
 - Rollback: migrations are expand-only within a release, so the previous binary works against the expanded schema and rolling back one release needs no database restore.

@@ -43,6 +43,9 @@ type Servers struct {
 	// Drain is the shutdown flag. Drain.Start makes both /readyz endpoints
 	// report not-ready; graceful shutdown (ADR 0027) calls it first.
 	Drain *httpmw.Drain
+	// Inflight is the number of streams being forwarded now, from the proxy
+	// handler. Shutdown logs it when the drain deadline passes.
+	Inflight func() int64
 	// Registry is served at /metrics on the admin plane.
 	Registry *prometheus.Registry
 
@@ -69,6 +72,7 @@ func BuildServers(cfg *config.Config, snaps proxy.Snapshots, log *slog.Logger, o
 		Data:     newServer(cfg.Listen.Data, httpmw.Wrap(proxy.NewMux(handler, drain), opts), log),
 		Admin:    newServer(cfg.Listen.Admin, httpmw.Wrap(adminMux, opts), log),
 		Drain:    drain,
+		Inflight: handler.InflightStreams,
 		Registry: reg,
 		tls:      cfg.Listen.TLS,
 	}

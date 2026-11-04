@@ -94,12 +94,18 @@ func TestMetricsInflightStreamsCountsWhileStreaming(t *testing.T) {
 
 	resp := e.do(t, "POST", "/v1/messages", `{"stream":true}`, auth()...)
 	<-started
+	if n := e.handler.InflightStreams(); n != 1 {
+		t.Errorf("InflightStreams = %d while a stream is open, want 1", n)
+	}
 	if v := gather(t, m)[MetricInflightStreams].GetMetric()[0].GetGauge().GetValue(); v != 1 {
 		t.Errorf("inflight_streams = %g while a stream is open, want 1", v)
 	}
 	close(release)
 	_ = readAll(t, resp.Body)
 	e.rec.next(t)
+	if n := e.handler.InflightStreams(); n != 0 {
+		t.Errorf("InflightStreams = %d after the stream ended, want 0", n)
+	}
 	if v := gather(t, m)[MetricInflightStreams].GetMetric()[0].GetGauge().GetValue(); v != 0 {
 		t.Errorf("inflight_streams = %g after the stream ended, want 0", v)
 	}

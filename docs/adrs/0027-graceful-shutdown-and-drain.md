@@ -1,6 +1,6 @@
 # ADR 0027: Graceful shutdown and drain
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
