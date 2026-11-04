@@ -100,7 +100,9 @@ func TestPlanesServeTheirRoutes(t *testing.T) {
 		{"HEAD", dataLn.Addr().String(), "/api/hello", http.StatusOK},
 		{"GET", dataLn.Addr().String(), "/api/hello", http.StatusNotFound},
 		{"GET", dataLn.Addr().String(), "/admin/requests", http.StatusNotFound},
-		{"GET", adminLn.Addr().String(), "/admin/requests", http.StatusNotImplemented},
+		{"GET", adminLn.Addr().String(), "/admin/requests", http.StatusNotFound},
+		{"GET", adminLn.Addr().String(), "/admin/calls", http.StatusServiceUnavailable}, // no store wired (ADR 0028)
+		{"GET", adminLn.Addr().String(), "/admin/openapi.json", http.StatusOK},
 		{"GET", adminLn.Addr().String(), "/metrics", http.StatusOK},
 		{"GET", adminLn.Addr().String(), "/healthz", http.StatusOK},
 		{"GET", adminLn.Addr().String(), "/readyz", http.StatusServiceUnavailable}, // no store wired

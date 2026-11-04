@@ -597,7 +597,7 @@ Dependency rules:
 - `family/*` imports `core` and `gjson`. No `net/http` server types, no I/O.
 - `proxy` imports `core`, `family/*` and `config` types, and defines small interfaces for what it needs (`KeyLookup`, `Recorder`). It imports no `store` package.
 - `httpmw` imports `core` and `family/anthropic` (for the protocol error bodies), and no `store` package. `proxy` and `api` build their muxes; `cmd/llm-proxy` wraps them with `httpmw`.
-- `recorder`, `keyring` and `api` import `core` (and `api` imports `recorder` for subscribing). None imports `store/postgres` or a database driver.
+- `recorder`, `keyring` and `api` import `core` (and `api` imports `recorder` for subscribing, and `config` for the read-only view of `GET /admin/config`). None imports `store/postgres` or a database driver.
 - `store/postgres` imports `core` and its drivers, and nothing else from the module.
 - **Only `cmd/llm-proxy` (the wiring) imports `store/postgres`.** It builds the adapter from config, passes it to each consumer as the port it needs, applies migrations and starts the retention job. Tests wire fakes the same way.
 - `family/anthropic` is the only package that decodes provider body formats. It returns call records and keeps no bytes.

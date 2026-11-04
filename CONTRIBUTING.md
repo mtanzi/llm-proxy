@@ -13,7 +13,7 @@ One Go module, one static binary `llm-proxy` built from `cmd/llm-proxy`. Everyth
 | `family/anthropic` | Anthropic protocol knowledge (pure) | `core`, `gjson` |
 | `recorder`, `keyring` | Application use cases | `core` |
 | `proxy` | Data-plane adapter | `core`, application packages, `family/*`, `config`; no `store` package |
-| `api` | Admin-plane adapter | `core`, `recorder`; no database driver |
+| `api` | Admin-plane adapter | `core`, `recorder`, `config`; no database driver |
 | `ui` | Embedded web UI | `core`, application packages |
 | `config` | Configuration | `core`, `yaml` (`go.yaml.in/yaml/v3`) |
 | `store/postgres` | Postgres adapter | `core`, drivers (`pgx`, goose); its tests and `pgtest` also `testcontainers-go` |
@@ -29,6 +29,7 @@ make vet
 make test
 make lint           # golangci-lint, including depguard rules (.golangci.yml)
 make check-imports  # depguard rules only
+make check-openapi  # lint api/openapi.yaml with Redocly (needs Node)
 make goldens        # rewrite the golden call records under testdata/fixtures; read the diff
 ```
 
@@ -43,7 +44,7 @@ LLM_PROXY_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgre
 
 CI runs it in the `postgres` job against a Postgres service container. A new filter, port method or behaviour starts as a case in a group under `internal/store/storetest`; the suite also scans every stored text and `jsonb` value for the fake prompt, response and tool text of its record generator.
 
-The `depguard` rules in `.golangci.yml` encode the table above. CI runs build, vet and tests on the latest two Go releases, and lint and the import check once.
+The `depguard` rules in `.golangci.yml` encode the table above. CI runs build, vet and tests on the latest two Go releases, and lint, the import check and the OpenAPI lint once.
 
 ## Version
 
