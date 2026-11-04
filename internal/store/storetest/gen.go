@@ -193,3 +193,27 @@ func contains(s string, texts []string) (string, bool) {
 	}
 	return "", false
 }
+
+// WithPrevToolDurations sets the raw x-claude-code-prev-tool-durations value.
+func WithPrevToolDurations(raw string) CallOpt {
+	return func(c *core.CallRecord) { c.PrevToolDurations = raw }
+}
+
+// WithAgentType sets the agent type only.
+func WithAgentType(typ string) CallOpt { return func(c *core.CallRecord) { c.AgentType = typ } }
+
+// WithPrompt sets the prompt id.
+func WithPrompt(id string) CallOpt { return func(c *core.CallRecord) { c.PromptID = id } }
+
+// WithServerTool adds a server-side tool to the response of the call: a use and
+// its result, both timed at response end. The sizes are those of the fake text.
+func (g *Gen) WithServerTool(toolCallID, name string, isError bool) CallOpt {
+	return func(c *core.CallRecord) {
+		c.ToolUses = append(c.ToolUses, core.ToolUse{
+			Source: core.ToolSourceServer, ToolCallID: toolCallID, Name: name, ArgBytes: len(g.bodies.ToolArgs),
+		})
+		c.ToolResults = append(c.ToolResults, core.ToolResult{
+			Source: core.ToolSourceServer, ToolCallID: toolCallID, IsError: isError, ResultBytes: len(g.bodies.ToolResult),
+		})
+	}
+}

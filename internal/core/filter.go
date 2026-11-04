@@ -122,6 +122,11 @@ type ToolCallFilter struct {
 	Statuses    []ToolCallStatus
 	IsError     *bool
 	MinDuration time.Duration
+	// MinArgBytes and MinResultBytes select tool calls whose argument or
+	// result is at least that large. A tool call without a result has no
+	// result size (zero) and never matches MinResultBytes.
+	MinArgBytes    int
+	MinResultBytes int
 }
 
 // Validate reports whether the time range is explicit and non-empty.
@@ -152,6 +157,10 @@ func (f ToolCallFilter) Match(t ToolCall) bool {
 	case f.IsError != nil && (t.IsError == nil || *t.IsError != *f.IsError):
 		return false
 	case f.MinDuration > 0 && t.Duration < f.MinDuration:
+		return false
+	case f.MinArgBytes > 0 && t.ArgBytes < f.MinArgBytes:
+		return false
+	case f.MinResultBytes > 0 && t.ResultBytes < f.MinResultBytes:
 		return false
 	}
 	return true
@@ -212,9 +221,12 @@ type Page struct {
 }
 
 // Cursor is the position of the last item of a page. The api package encodes it on the wire.
+// Idx breaks ties for lists whose items can share (TS, ID): tool calls, where
+// one call carries several tool halves. It is zero for the other lists.
 type Cursor struct {
-	TS time.Time
-	ID ID
+	TS  time.Time
+	ID  ID
+	Idx int
 }
 
 func validateRange(from, to time.Time) error {
