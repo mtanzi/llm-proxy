@@ -106,6 +106,7 @@ func TestParseCallParamsErrors(t *testing.T) {
 		{"tool_error not a bool", "tool_error=1", ErrInvalidParameter, "tool_error"},
 		{"latency negative", "latency_ms_gte=-1", ErrInvalidParameter, "latency_ms_gte"},
 		{"latency not a number", "latency_ms_gte=1.5", ErrInvalidParameter, "latency_ms_gte"},
+		{"latency overflows a duration", "latency_ms_gte=10000000000000", ErrInvalidParameter, "latency_ms_gte"},
 		{"cost negative", "cost_micro_usd_gte=-5", ErrInvalidParameter, "cost_micro_usd_gte"},
 		{"limit zero", "limit=0", ErrInvalidParameter, "limit"},
 		{"limit too large", "limit=501", ErrInvalidParameter, "limit"},

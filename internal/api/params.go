@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
 	"time"
@@ -103,7 +104,7 @@ func parseCallParams(q url.Values, now time.Time) (callParams, *apiError) {
 	if f.PromptID, err = stringParam(q, "prompt"); err != nil {
 		return p, err
 	}
-	ms, err := intParam(q, "latency_ms_gte", 0, 1<<53)
+	ms, err := intParam(q, "latency_ms_gte", 0, int64(math.MaxInt64/int64(time.Millisecond)))
 	if err != nil {
 		return p, err
 	}
