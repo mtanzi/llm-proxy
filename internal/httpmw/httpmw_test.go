@@ -82,7 +82,7 @@ func TestMaxBytes(t *testing.T) {
 		}
 		w.WriteHeader(204)
 	})
-	h := Wrap(read, Options{Logger: discard(), MaxRequestBytes: 10})
+	h := Wrap(read, Options{Logger: discard(), MaxRequestBytes: func() int64 { return 10 }})
 
 	t.Run("declared length", func(t *testing.T) {
 		rec := httptest.NewRecorder()

@@ -212,17 +212,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rp.ServeHTTP(w, r.WithContext(outCtx))
 }
 
-// pickProvider returns the one Anthropic provider of v1.
+// pickProvider returns the one provider of v1. Config validation guarantees
+// exactly one, of kind anthropic; the length check guards a snapshot built
+// without validation.
 func pickProvider(snap *config.Snapshot) (config.Provider, bool) {
-	if snap == nil {
+	if snap == nil || len(snap.Config().Providers) != 1 {
 		return config.Provider{}, false
 	}
-	for _, p := range snap.Config().Providers {
-		if p.Kind == config.KindAnthropic {
-			return p, true
-		}
-	}
-	return config.Provider{}, false
+	return snap.Config().Providers[0], true
 }
 
 // rewrite points the outbound request at the provider and applies the

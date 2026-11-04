@@ -393,3 +393,53 @@ func TestKeyBuildFailureRejectsReload(t *testing.T) {
 		t.Errorf("failures = %d", h.Reloads(ResultFailure))
 	}
 }
+
+func TestAllRestartOnlySettingsWarnAndAreKept(t *testing.T) {
+	file := base + `
+database: { max_conns: 5 }
+retention: { calls: 30d }
+server: { drain_timeout: 1m }
+log: { level: info, format: json }
+`
+	// base already holds the database key; merge max_conns into it.
+	file = strings.Replace(file, "database: { max_conns: 5 }\n", "", 1)
+	file = strings.Replace(file, "database: { url: { env: DB } }", "database: { url: { env: DB }, max_conns: 5 }", 1)
+	h, m, logs := newHolder(t, file)
+
+	changed := strings.NewReplacer(
+		"max_conns: 5", "max_conns: 9",
+		"calls: 30d", "calls: 60d",
+		"drain_timeout: 1m", "drain_timeout: 2m",
+		"level: info", "level: debug",
+		"format: json", "format: text",
+	).Replace(file)
+	m.set(cfgPath, changed)
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	cfg := h.Current().Config()
+	if cfg.Database.MaxConns != 5 || cfg.Retention.Calls.Std() != 30*24*time.Hour ||
+		cfg.Server.DrainTimeout.Std() != time.Minute || cfg.Log.Level != "info" || cfg.Log.Format != "json" {
+		t.Errorf("restart-only settings changed: %+v %+v %+v %+v", cfg.Database, cfg.Retention, cfg.Server, cfg.Log)
+	}
+	out := logs.String()
+	for _, want := range []string{"level=WARN", "database.max_conns", "retention.calls", "server.drain_timeout", "log.level", "log.format"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("warning lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestMaxRequestBytesReloads(t *testing.T) {
+	h, m, logs := newHolder(t, base+"server: { max_request_bytes: 1MiB }\n")
+	m.set(cfgPath, base+"server: { max_request_bytes: 2MiB }\n")
+	if err := h.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.Current().Config().Server.MaxRequestBytes; got != 2<<20 {
+		t.Errorf("max_request_bytes = %d, want %d", int64(got), 2<<20)
+	}
+	if strings.Contains(logs.String(), "level=WARN") {
+		t.Errorf("reloadable change warned:\n%s", logs)
+	}
+}

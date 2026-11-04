@@ -59,7 +59,7 @@ func BuildServers(cfg *config.Config, snaps proxy.Snapshots, log *slog.Logger, o
 	if !config.IsLoopback(cfg.Listen.Admin) {
 		return nil, fmt.Errorf("listen.admin %q is not a loopback address; the admin plane must listen on 127.0.0.1, ::1 or localhost", cfg.Listen.Admin)
 	}
-	opts := httpmw.Options{Logger: log, MaxRequestBytes: int64(cfg.Server.MaxRequestBytes)}
+	opts := httpmw.Options{Logger: log, MaxRequestBytes: maxRequestBytes(cfg, snaps)}
 	pm := proxy.NewMetrics()
 	reg := api.NewRegistry(append([]prometheus.Collector{pm}, obs.Collectors...)...)
 	drain := &httpmw.Drain{}
@@ -76,6 +76,18 @@ func BuildServers(cfg *config.Config, snaps proxy.Snapshots, log *slog.Logger, o
 		s.Data.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
 	return s, nil
+}
+
+// maxRequestBytes returns the size limit for each request: the current
+// snapshot's server.max_request_bytes, so a SIGHUP reload applies to the next
+// request. Before the first snapshot it is the value of cfg.
+func maxRequestBytes(cfg *config.Config, snaps proxy.Snapshots) func() int64 {
+	return func() int64 {
+		if snap := snaps.Current(); snap != nil {
+			return int64(snap.Config().Server.MaxRequestBytes)
+		}
+		return int64(cfg.Server.MaxRequestBytes)
+	}
 }
 
 func newServer(addr string, h http.Handler, log *slog.Logger) *http.Server {

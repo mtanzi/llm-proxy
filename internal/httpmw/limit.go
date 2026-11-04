@@ -8,12 +8,19 @@ import (
 	"github.com/mtanzi/llm-proxy/internal/family/anthropic"
 )
 
-// MaxBytes enforces the one request-size limit (server.max_request_bytes). A
-// declared Content-Length above the limit gets the protocol 413 at once; any
-// other body is wrapped in http.MaxBytesReader, so the reader fails once the
-// limit is crossed. Handlers report that failure with WriteBodyError.
-func MaxBytes(limit int64, next http.Handler) http.Handler {
+// MaxBytes enforces the one request-size limit (server.max_request_bytes). It
+// calls limitFn for each request, so a reloaded value applies to the next
+// request; a limit of zero or less means no limit. A declared Content-Length
+// above the limit gets the protocol 413 at once; any other body is wrapped in
+// http.MaxBytesReader, so the reader fails once the limit is crossed. Handlers
+// report that failure with WriteBodyError.
+func MaxBytes(limitFn func() int64, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		limit := limitFn()
+		if limit <= 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if r.ContentLength > limit {
 			WriteError(w, anthropic.OversizeBodyError(w.Header().Get(HeaderRequestID)))
 			return

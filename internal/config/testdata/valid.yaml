@@ -16,15 +16,6 @@ providers:
     auth_mode: proxy_key
     credential: { file: /run/secrets/anthropic_api_key }
     idle_timeout: 90s
-  - name: local-vllm
-    kind: openai_compatible
-    base_url: http://vllm.internal:8000
-    credential: none
-    headers_to_add: { OpenAI-Project: proj_1 }
-  - name: passthrough-only
-    kind: anthropic
-    base_url: https://api.anthropic.com
-    auth_mode: client_passthrough
 
 keys:
   - name: alice
@@ -37,7 +28,6 @@ pricing:
   - { provider: anthropic, model: claude-opus-4-8, from: 2026-10-01,
       input: 5.00, output: 25.00, cache_read: 0.50, cache_write_5m: 6.25, cache_write_1h: 10.00 }
   - { provider: anthropic, model: claude-opus-4-8, from: 2027-01-01, input: 4.5, output: 22.5 }
-  - { provider: local-vllm, model: llama, from: 2026-01-01 }
 
 retention:
   calls: 90d

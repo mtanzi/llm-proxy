@@ -21,7 +21,7 @@ Providers, pricing and virtual keys live in one YAML config file (decisions D7, 
 ## Consequences
 
 - The file holds hashes, not secrets, so it can sit in version control. Anyone who can edit it can add a key: write access needs the usual deploy-config care.
-- Listener addresses need a restart; everything else reloads (ADR 0005).
+- Settings read once at start need a restart; everything else reloads (ADR 0005 lists them).
 - A new setting must justify itself against the "constants in code until measured" rule.
 
 ## Work required

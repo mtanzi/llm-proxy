@@ -62,15 +62,12 @@ func TestGoldenValid(t *testing.T) {
 	if cfg.Database.MaxConns != 8 || cfg.Database.URL.Secret().Reveal() != "postgres://u:dbpass@db/llm" {
 		t.Errorf("database not resolved: %+v", cfg.Database)
 	}
-	if len(cfg.Providers) != 3 {
+	if len(cfg.Providers) != 1 {
 		t.Fatalf("providers = %d", len(cfg.Providers))
 	}
 	p := cfg.Providers[0]
 	if p.AuthMode != AuthProxyKey || p.IdleTimeout.Std() != 90*time.Second || p.Credential.Ref.Secret().Reveal() != "sk-ant-secret" {
 		t.Errorf("provider[0] = %+v", p)
-	}
-	if p := cfg.Providers[1]; p.AuthMode != AuthProxyKey || p.IdleTimeout.Std() != 120*time.Second || !p.Credential.None {
-		t.Errorf("provider[1] defaults not applied: %+v", p)
 	}
 	if want := (core.Key{Name: "ci", SHA256: hashB, Disabled: true}); cfg.Keys[1] != want {
 		t.Errorf("keys[1] = %+v; want %+v", cfg.Keys[1], want)
@@ -104,7 +101,7 @@ func TestGoldenValid(t *testing.T) {
 }
 
 func TestDefaults(t *testing.T) {
-	cfg, err := Parse([]byte("database: { url: { env: DB } }\n"), fakeOpts(map[string]string{"DB": "postgres://x"}, nil))
+	cfg, err := Parse([]byte(base), fakeOpts(map[string]string{"DB": "postgres://x", "KEY": "k"}, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,9 +192,12 @@ func TestRejections(t *testing.T) {
 		{name: "auth_mode both", old: "auth_mode: proxy_key", new: "auth_mode: both", wantErr: `unknown auth_mode "both"`},
 		{name: "bad base_url", old: "https://api.anthropic.com", new: "api.anthropic.com", wantErr: "base_url"},
 		{name: "base_url with credentials", old: "https://api.anthropic.com", new: "https://u:p@api.anthropic.com", wantErr: "base_url"},
-		{name: "duplicate provider", old: "keys:", new: "  - { name: anthropic, kind: anthropic, base_url: 'http://x', credential: { env: KEY } }\nkeys:", wantErr: "duplicate name"},
+		{name: "two providers", old: "keys:", new: "  - { name: second, kind: anthropic, base_url: 'http://x', credential: { env: KEY } }\nkeys:", wantErr: "exactly one provider"},
+		{name: "no providers", old: "providers:\n  - name: anthropic\n    kind: anthropic\n    base_url: https://api.anthropic.com\n    auth_mode: proxy_key\n    credential: { env: KEY }\n", new: "", wantErr: "exactly one provider"},
+		{name: "openai_compatible kind", old: "kind: anthropic", new: "kind: openai_compatible", wantErr: "kind openai_compatible is v2"},
+		{name: "headers_to_add", old: "kind: anthropic", new: "kind: anthropic\n    headers_to_add: { X-Org: o }", wantErr: "headers_to_add is v2"},
 		{name: "missing credential", old: "    credential: { env: KEY }\n", new: "", wantErr: "credential is required"},
-		{name: "credential none for anthropic", old: "{ env: KEY }", new: "none", wantErr: "credential none is only valid"},
+		{name: "credential none for anthropic", old: "{ env: KEY }", new: "none", wantErr: "credential none is v2"},
 		{name: "inlined credential", old: "{ env: KEY }", new: "sk-ant-inline", wantErr: "secrets are never inlined"},
 		{name: "credential unknown field", old: "{ env: KEY }", new: "{ env: KEY, value: x }", wantErr: "field value not found"},
 		{name: "credential env and file", old: "{ env: KEY }", new: "{ env: KEY, file: /f }", wantErr: "only one of env and file"},

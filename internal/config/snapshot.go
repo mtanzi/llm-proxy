@@ -171,8 +171,11 @@ func (h *Holder) ReloadOnSIGHUP(ctx context.Context) {
 }
 
 // keepRestartOnly copies the restart-only settings of the running config into
-// next, and returns the names of those that differ. These settings are read at
-// start: listener addresses, TLS files, database URL and queue capacity. The
+// next, and returns the names of those that differ. These settings go into
+// constructors or listeners once, at start: listener addresses, TLS files,
+// database URL and pool size, queue capacity, call retention, log level and
+// format, and the drain timeout. Everything else reloads, among it
+// server.max_request_bytes, which each request reads from its snapshot. The
 // names are safe to log; the database URL is compared by source and value but
 // never printed.
 func keepRestartOnly(next, running *Config) []string {
@@ -188,10 +191,18 @@ func keepRestartOnly(next, running *Config) []string {
 	note("listen.tls.key_file", next.Listen.TLS.KeyFile != running.Listen.TLS.KeyFile)
 	note("database.url", next.Database.URL.String() != running.Database.URL.String() ||
 		next.Database.URL.Secret().Reveal() != running.Database.URL.Secret().Reveal())
+	note("database.max_conns", next.Database.MaxConns != running.Database.MaxConns)
 	note("queue_capacity", next.QueueCapacity != running.QueueCapacity)
+	note("retention.calls", next.Retention.Calls != running.Retention.Calls)
+	note("server.drain_timeout", next.Server.DrainTimeout != running.Server.DrainTimeout)
+	note("log.level", next.Log.Level != running.Log.Level)
+	note("log.format", next.Log.Format != running.Log.Format)
 
 	next.Listen = running.Listen
-	next.Database.URL = running.Database.URL
+	next.Database = running.Database
 	next.QueueCapacity = running.QueueCapacity
+	next.Retention = running.Retention
+	next.Server.DrainTimeout = running.Server.DrainTimeout
+	next.Log = running.Log
 	return changed
 }
