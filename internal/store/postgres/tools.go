@@ -265,49 +265,65 @@ func toolCallsSQL(w *where, f core.ToolCallFilter, now time.Time, after *core.Cu
 	// never applies.
 	return `
 SELECT u.tool_call_id, u.tool_name AS name, u.source,
-	CASE WHEN r.call_id IS NOT NULL THEN 'paired'
+	CASE WHEN u.rcall IS NOT NULL THEN 'paired'
 	     WHEN u.ts <= ` + idleCutoff + ` THEN 'use_only'
 	     ELSE 'pending' END AS status,
-	u.session_key, u.agent_id, u.call_id AS use_call_id, r.call_id AS result_call_id,
-	u.ts AS use_ts, r.ts AS result_ts,
-	CASE WHEN r.call_id IS NULL THEN NULL
-	     ELSE coalesce(h.ms, greatest(0, round(extract(epoch FROM r.ts - u.ts) * 1000))::bigint) END AS dur_ms,
-	CASE WHEN r.call_id IS NULL THEN NULL
-	     WHEN h.ms IS NOT NULL THEN 'header'
+	u.session_key, u.agent_id, u.call_id AS use_call_id, u.rcall AS result_call_id,
+	u.ts AS use_ts, u.rts AS result_ts,
+	CASE WHEN u.rcall IS NULL THEN NULL
+	     ELSE coalesce(u.hms, greatest(0, round(extract(epoch FROM u.rts - u.ts) * 1000))::bigint) END AS dur_ms,
+	CASE WHEN u.rcall IS NULL THEN NULL
+	     WHEN u.hms IS NOT NULL THEN 'header'
 	     ELSE 'estimated' END AS dur_src,
-	r.is_error, u.bytes AS arg_bytes, coalesce(r.bytes, 0) AS result_bytes,
+	u.ris_error AS is_error, u.bytes AS arg_bytes, coalesce(u.rbytes, 0) AS result_bytes,
 	u.ts AS sort_ts, u.call_id AS sort_call, u.idx AS sort_idx
-FROM (SELECT * FROM tool_events u WHERE ` + joinAnd(useConds) + order + `) u
-LEFT JOIN LATERAL (
-	SELECT re.call_id, re.ts, re.is_error, re.bytes FROM tool_events re
-	WHERE re.kind = 'result' AND re.tool_call_id = u.tool_call_id AND re.ts < ` + lookahead + `
-	ORDER BY re.ts, re.call_id, re.idx LIMIT 1
-) r ON true
-LEFT JOIN LATERAL (
-	SELECT CASE WHEN e.ms::numeric <= ` + fmt.Sprint(maxHeaderMS) + ` THEN e.ms::numeric::bigint END AS ms
-	FROM calls rc
-	CROSS JOIN LATERAL (
-		SELECT x.ms, row_number() OVER (ORDER BY x.ord) AS k
+FROM (
+	WITH paired AS MATERIALIZED (
+		SELECT u.*, r.call_id AS rcall, r.ts AS rts, r.is_error AS ris_error, r.bytes AS rbytes
+		FROM (SELECT * FROM tool_events u WHERE ` + joinAnd(useConds) + order + `) u
+		LEFT JOIN LATERAL (
+			SELECT re.call_id, re.ts, re.is_error, re.bytes FROM tool_events re
+			WHERE re.kind = 'result' AND re.tool_call_id = u.tool_call_id AND re.ts < ` + lookahead + `
+			ORDER BY re.ts, re.call_id, re.idx LIMIT 1
+		) r ON true
+	), resolving AS MATERIALIZED (
+		SELECT DISTINCT rcall FROM paired WHERE rcall IS NOT NULL AND source = 'client'
+	), ranked AS MATERIALIZED (
+		-- The rank of each client use among the uses its resolving call answers,
+		-- per tool name, in use order. Computed once per resolving call.
+		SELECT x.rcall, x.call_id, x.idx,
+			row_number() OVER (PARTITION BY x.rcall, x.name ORDER BY x.ts, x.call_id, x.idx) AS k
 		FROM (
-			SELECT split_part(s.entry, '=', 1) AS name, split_part(s.entry, '=', 2) AS ms, s.ord
-			FROM string_to_table(rc.prev_tool_durations, ';') WITH ORDINALITY AS s(entry, ord)
-			WHERE s.entry ~ '^([^%=]|%[0-9A-Fa-f]{2})+=[0-9]+$'
+			SELECT DISTINCT re.call_id AS rcall, u2.call_id, u2.idx, u2.ts, convert_to(u2.tool_name, 'UTF8') AS name
+			FROM tool_events re
+			JOIN tool_events u2 ON u2.kind = 'use' AND u2.source = 'client' AND u2.tool_call_id = re.tool_call_id
+			WHERE re.call_id IN (SELECT rcall FROM resolving) AND re.kind = 'result'
+			  AND NOT EXISTS (SELECT 1 FROM tool_events r3 WHERE r3.kind = 'result' AND r3.tool_call_id = re.tool_call_id
+				AND (r3.ts, r3.call_id, r3.idx) < (re.ts, re.call_id, re.idx))
 		) x
-		WHERE (SELECT string_agg(CASE WHEN left(m.p[1], 1) = '%' THEN decode(substr(m.p[1], 2), 'hex')
-		                              ELSE convert_to(m.p[1], 'UTF8') END, ''::bytea ORDER BY m.o)
-		       FROM regexp_matches(x.name, '%[0-9A-Fa-f]{2}|[^%]+', 'g') WITH ORDINALITY AS m(p, o))
-		      = convert_to(u.tool_name, 'UTF8')
-	) e
-	WHERE rc.id = r.call_id AND u.source = 'client'
-	  AND e.k = (
-		SELECT count(*) FROM tool_events re2
-		JOIN tool_events u2 ON u2.kind = 'use' AND u2.tool_call_id = re2.tool_call_id
-		WHERE re2.call_id = r.call_id AND re2.kind = 'result'
-		  AND u2.source = 'client' AND u2.tool_name = u.tool_name
-		  AND (u2.ts, u2.call_id, u2.idx) <= (u.ts, u.call_id, u.idx)
-		  AND NOT EXISTS (SELECT 1 FROM tool_events r3 WHERE r3.kind = 'result' AND r3.tool_call_id = re2.tool_call_id
-			AND (r3.ts, r3.call_id, r3.idx) < (re2.ts, re2.call_id, re2.idx)))
-) h ON true
+	), header AS MATERIALIZED (
+		-- The well-formed entries of each resolving call's header, parsed once,
+		-- with the percent-encoded name decoded, ranked per name in header order.
+		SELECT e.call_id, e.name, e.ms,
+			row_number() OVER (PARTITION BY e.call_id, e.name ORDER BY e.ord) AS k
+		FROM (
+			SELECT c.id AS call_id, s.ord,
+				(SELECT string_agg(CASE WHEN left(m.p[1], 1) = '%' THEN decode(substr(m.p[1], 2), 'hex')
+				                        ELSE convert_to(m.p[1], 'UTF8') END, ''::bytea ORDER BY m.o)
+				 FROM regexp_matches(split_part(s.entry, '=', 1), '%[0-9A-Fa-f]{2}|[^%]+', 'g') WITH ORDINALITY AS m(p, o)) AS name,
+				CASE WHEN split_part(s.entry, '=', 2)::numeric <= ` + fmt.Sprint(maxHeaderMS) + `
+				     THEN split_part(s.entry, '=', 2)::numeric::bigint END AS ms
+			FROM calls c
+			CROSS JOIN LATERAL string_to_table(c.prev_tool_durations, ';') WITH ORDINALITY AS s(entry, ord)
+			WHERE c.id IN (SELECT rcall FROM resolving)
+			  AND s.entry ~ '^([^%=]|%[0-9A-Fa-f]{2})+=[0-9]+$'
+		) e
+	)
+	SELECT p.*, h.ms AS hms
+	FROM paired p
+	LEFT JOIN ranked k ON p.source = 'client' AND k.rcall = p.rcall AND k.call_id = p.call_id AND k.idx = p.idx
+	LEFT JOIN header h ON h.call_id = k.rcall AND h.name = convert_to(p.tool_name, 'UTF8') AND h.k = k.k
+) u
 UNION ALL
 SELECT r.tool_call_id, NULL::text, r.source, 'result_only',
 	r.session_key, r.agent_id, NULL::uuid, r.call_id,
