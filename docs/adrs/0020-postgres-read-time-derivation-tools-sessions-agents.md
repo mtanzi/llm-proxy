@@ -42,16 +42,17 @@ A proxy never sees a tool run. It sees the model request the tool in response N 
 
 ## Plan check
 
-Checked by hand with `EXPLAIN (ANALYZE, BUFFERS)` on Postgres 16 against a generated, `ANALYZE`d dataset: 5,000,000 calls over 30 days, with 1,666,667 use and 1,583,333 result `tool_events` (95% of uses answered by the next call, half of those with a `prev_tool_durations` value), about 100,000 sessions. The generator is not in the repository. No new index or migration was needed.
+Checked by hand with `EXPLAIN (ANALYZE, BUFFERS)` on Postgres 16 against a generated, `ANALYZE`d dataset: 5,000,000 calls over 30 days, with 1,666,667 use and 1,583,333 result `tool_events` (95% of uses answered by the next call, half of those answered by a call with a `prev_tool_durations` value of the form `Name=1200`), about 100,000 sessions. The generator is not in the repository. The figures are for the final query, on a laptop with the database in a container. No new index or migration was needed.
 
-- A first plan joined every use of the range before the sort: 1.6 s for a day and 7.1 s for a month. The query now cuts the use branch and the result-only branch to the page size before the joins when the filter needs no pairing. A use page then reads `tool_events_ts_idx` under an Incremental Sort, probes `tool_events_tool_call_id_idx` and `calls_pkey` per row, and takes about 3 ms.
-- `ListToolCalls`, no pairing filter, first page: 0.2-0.4 s for a day and 0.4 s for a month. Nearly all of it is the result-only branch: it must check every result in the range for a use, and the planner hash-anti-joins a sequential scan of the uses. This cost grows with the range.
-- Name, argument size and session filters: 1-56 ms for a day, 0.2 s for a month with a session.
-- Filters known only after pairing (status, error, duration, result size) read the whole range: 0.4-0.8 s for a day, 2.0 s for `IsError` over a month.
-- `ToolSummary`: 1.3 s for a day, 5.6 s for a week, 6.8 s for a month. It pairs every tool call of the range.
-- `ListSessions`: 0.24 s for a day, 1.5 s for a week, 2.3 s for a month, one pass over `calls` with `GROUP BY session_key`. `GetSession` reads one session by `calls_session_key_ts_idx` in under 1 ms.
+- A first plan joined every use of the range before the sort: 1.6 s for a day and 7.1 s for a month. The query now cuts the use branch and the result-only branch to the page size before the joins when the filter needs no pairing.
+- The header is read once per resolving call, and the rank of each use among the uses that call answers is computed once per resolving call, not once per use or per header entry. Only calls with a header are read for either.
+- `ListToolCalls`, no pairing filter, first page: 50 ms for a day (30 ms after a cursor) and 1.0 s for a month. The month figure is almost all the result-only branch: it must check each of the 580,000 results in the range for a use.
+- Name and argument-size filters: 2 ms for a day. A session filter: 0.1 s for a day, 0.3 s for a month.
+- Filters known only after pairing (status, error, duration, result size) read the whole range: 0.9-1.4 s for a day, 2.9 s for `IsError` over a month.
+- `ToolSummary`: 1.8 s for a day, 8.7 s for a week, 10.8 s for a month. It pairs every tool call of the range, and about half of its time is the header and rank steps.
+- `ListSessions`: 0.25 s for a day, 1.6 s for a week, 2.2 s for a month, one pass over `calls` with `GROUP BY session_key`. `GetSession` reads one session by `calls_session_key_ts_idx` in under 1 ms.
 
-The slow cases are the ones the Consequences section names: a long range in the tool explorer. The trigger for a materialised pairing table stays tool explorer p95 above about 1 s.
+The slow cases are the ones the Consequences section names: a long range in the tool explorer, most of all `ToolSummary`. The trigger for a materialised pairing table stays tool explorer p95 above about 1 s.
 
 ## Depends on
 

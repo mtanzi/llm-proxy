@@ -287,7 +287,8 @@ FROM (
 			ORDER BY re.ts, re.call_id, re.idx LIMIT 1
 		) r ON true
 	), resolving AS MATERIALIZED (
-		SELECT DISTINCT rcall FROM paired WHERE rcall IS NOT NULL AND source = 'client'
+		SELECT DISTINCT p.rcall FROM paired p JOIN calls c ON c.id = p.rcall
+		WHERE p.source = 'client' AND c.prev_tool_durations IS NOT NULL
 	), ranked AS MATERIALIZED (
 		-- The rank of each client use among the uses its resolving call answers,
 		-- per tool name, in use order. Computed once per resolving call.
