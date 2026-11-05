@@ -2,27 +2,41 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/mtanzi/llm-proxy/internal/core"
 	"github.com/mtanzi/llm-proxy/internal/fakeupstream"
+	"github.com/mtanzi/llm-proxy/internal/family/anthropic"
 )
 
 const fixtures = "../../testdata/fixtures"
 
-func TestPlaceholderKeepsByteLength(t *testing.T) {
-	for _, s := range []string{"", "a", "short", "exactly eleven", "héllo wörld, ünïcode ✓ and more text", strings.Repeat("é", 40)} {
-		got := placeholder(s)
-		if len(got) != len(s) {
-			t.Errorf("placeholder(%q) has %d bytes, want %d", s, len(got), len(s))
+func TestPlaceholderKeepsEncodedAndDecodedLength(t *testing.T) {
+	for _, s := range []string{"", "a", "short", "exactly eleven", "héllo wörld, ünïcode ✓ and more text", strings.Repeat("é", 40),
+		`line one\nline \"two\"\t\\ end`, `caf\u00fc \u4e2d \ud83d\ude00 \ud800 lone`} {
+		lit := []byte(`"` + s + `"`)
+		var want string
+		if err := json.Unmarshal(lit, &want); err != nil {
+			t.Fatalf("%q: %v", s, err)
 		}
-		if s != "" && strings.ContainsAny(got, "éöüï✓") {
+		got := placeholder([]byte(s))
+		var dec string
+		if err := json.Unmarshal([]byte(`"`+string(got)+`"`), &dec); err != nil {
+			t.Fatalf("placeholder(%q) = %q is not a JSON string: %v", s, got, err)
+		}
+		if len(got) != len(s) || len(dec) != len(want) {
+			t.Errorf("placeholder(%q) = %q: %d encoded and %d decoded bytes, want %d and %d", s, got, len(got), len(dec), len(s), len(want))
+		}
+		if s != "" && (strings.ContainsAny(dec, "öüï✓中") || strings.Contains(dec, "line") || strings.Contains(dec, "caf")) {
 			t.Errorf("placeholder(%q) = %q keeps content", s, got)
 		}
 	}
@@ -40,9 +54,103 @@ func TestScrubJSONKeepsStructureAndDropsText(t *testing.T) {
 			t.Errorf("scrubbed JSON still has %q:\n%s", leak, s)
 		}
 	}
-	for _, keep := range []string{`"claude-opus-4-8"`, `"role": "user"`, `"name": "Read"`, `"max_tokens": 1024`, `"type": "text"`} {
+	for _, keep := range []string{`"claude-opus-4-8"`, `"role":"user"`, `"name":"Read"`, `"max_tokens":1024`, `"type":"text"`} {
 		if !strings.Contains(s, keep) {
 			t.Errorf("scrubbed JSON lost %s:\n%s", keep, s)
+		}
+	}
+	if len(out) != len(in) {
+		t.Errorf("scrubbed JSON has %d bytes, want %d", len(out), len(in))
+	}
+}
+
+// The facts the proxy records from a fixture (tool argument and result sizes,
+// tool names and ids) are the same before and after scrubbing it.
+func TestScrubKeepsRecordedFacts(t *testing.T) {
+	for _, name := range []string{"short_chat", "parallel_tool_calls", "long_thinking", "midstream_error", "server_tool_error", "tool_results_next_request", "abort"} {
+		f, err := fakeupstream.Load(filepath.Join(fixtures, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req, err := scrubJSON(f.Request)
+		if err != nil {
+			t.Fatalf("%s request: %v", name, err)
+		}
+		resp, err := scrubJSON(f.Response)
+		if f.Meta.Streamed {
+			resp, err = scrubSSE(f.Response)
+		}
+		if err != nil {
+			t.Fatalf("%s response: %v", name, err)
+		}
+		before, after := recordedFacts(f.Request, f.Response, f.Meta.Streamed), recordedFacts(req, resp, f.Meta.Streamed)
+		if !reflect.DeepEqual(before, after) {
+			t.Errorf("%s: facts changed by the scrub:\nbefore %+v\nafter  %+v", name, before, after)
+		}
+	}
+}
+
+func recordedFacts(req, resp []byte, streamed bool) core.CallRecord {
+	rec := core.CallRecord{Endpoint: "/v1/messages"}
+	anthropic.ExtractRequest(&rec, req)
+	sc := anthropic.NewScanner(streamed)
+	sc.Write(resp)
+	facts := sc.Facts()
+	rec.ToolUses, rec.ToolResults = facts.ToolUses, append(rec.ToolResults, facts.ToolResults...)
+	rec.StopReason, rec.ErrorType = facts.StopReason, facts.ErrorType
+	return rec
+}
+
+// Streamed tool arguments arrive as partial_json fragments. Scrubbed, the
+// fragments keep their lengths and still join into valid JSON.
+func TestScrubSSEKeepsToolArgumentsJSON(t *testing.T) {
+	f, err := fakeupstream.Load(filepath.Join(fixtures, "parallel_tool_calls"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := scrubSSE(f.Response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fragments := func(sse []byte) map[int64][]string {
+		m := map[int64][]string{}
+		for _, line := range strings.Split(string(sse), "\n") {
+			payload, ok := strings.CutPrefix(line, "data:")
+			if !ok {
+				continue
+			}
+			var ev struct {
+				Index int64 `json:"index"`
+				Delta struct {
+					Type        string `json:"type"`
+					PartialJSON string `json:"partial_json"`
+				} `json:"delta"`
+			}
+			if err := json.Unmarshal([]byte(payload), &ev); err != nil {
+				t.Fatal(err)
+			}
+			if ev.Delta.Type == "input_json_delta" {
+				m[ev.Index] = append(m[ev.Index], ev.Delta.PartialJSON)
+			}
+		}
+		return m
+	}
+	in, scrubbed := fragments(f.Response), fragments(out)
+	if len(in) == 0 {
+		t.Fatal("the fixture has no tool argument fragments")
+	}
+	for i, fs := range in {
+		got := scrubbed[i]
+		if len(got) != len(fs) {
+			t.Fatalf("block %d: %d fragments, want %d", i, len(got), len(fs))
+		}
+		for j := range fs {
+			if len(got[j]) != len(fs[j]) {
+				t.Errorf("block %d fragment %d: %d bytes, want %d", i, j, len(got[j]), len(fs[j]))
+			}
+		}
+		if joined := strings.Join(got, ""); !json.Valid([]byte(joined)) {
+			t.Errorf("block %d: scrubbed arguments are not JSON: %s", i, joined)
 		}
 	}
 }

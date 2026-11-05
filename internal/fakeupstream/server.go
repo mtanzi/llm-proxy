@@ -33,9 +33,6 @@ type Reply struct {
 	// AbortAfter, when positive, cuts the connection after that many chunks
 	// have been sent: the client sees a body that ends early.
 	AbortAfter int
-	// Hold, when set, is waited on before the first chunk, so a test can hold
-	// the response open. The wait ends when Hold closes or the request ends.
-	Hold <-chan struct{}
 }
 
 // Request is what the upstream received.
@@ -131,13 +128,6 @@ func (rp Reply) write(w http.ResponseWriter, r *http.Request) {
 		delays = nil
 	}
 
-	if rp.Hold != nil {
-		select {
-		case <-rp.Hold:
-		case <-r.Context().Done():
-			return
-		}
-	}
 	w.WriteHeader(status)
 	flush := http.NewResponseController(w).Flush
 	_ = flush()

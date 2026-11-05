@@ -1,11 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,7 +14,12 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode/utf16"
+	"unicode/utf8"
+
+	"github.com/tidwall/gjson"
 )
 
 // keepKeys are the JSON keys whose string values are structure, not content:
@@ -178,45 +183,67 @@ func checkLeaks(name string, data []byte) error {
 	return nil
 }
 
-// scrubJSON replaces the content strings of a JSON document and writes it
-// indented, the way the committed fixtures are.
+// scrubJSON replaces the content strings of a JSON document in place. The
+// layout and the encoded length of every string stay as they were, so sizes
+// the proxy measures on the raw JSON survive.
 func scrubJSON(raw []byte) ([]byte, error) {
-	var v any
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	if err := dec.Decode(&v); err != nil {
-		return nil, err
+	if !json.Valid(raw) {
+		return nil, errors.New("not valid JSON")
 	}
-	return marshal(scrubValue("", v), " ")
+	return scrubRaw(raw, nil), nil
 }
 
 // scrubSSE scrubs the data line of every event and keeps the rest of the
-// stream (event names, ping events, blank lines, comments) as it is.
+// stream (event names, ping events, blank lines, comments) as it is. The
+// partial_json fragments of a tool_use block are joined, scrubbed as one JSON
+// text and cut again at the original fragment lengths, so the joined arguments
+// stay valid JSON of the original size.
 func scrubSSE(raw []byte) ([]byte, error) {
-	var out bytes.Buffer
-	sc := bufio.NewScanner(bytes.NewReader(raw))
-	sc.Buffer(make([]byte, 0, 64<<10), 16<<20)
-	for sc.Scan() {
-		line := sc.Text()
+	lines := strings.SplitAfter(string(raw), "\n")
+	frags := map[int64][]string{}
+	for _, line := range lines {
 		payload, ok := strings.CutPrefix(line, "data:")
 		if !ok {
-			out.WriteString(line + "\n")
 			continue
 		}
-		payload = strings.TrimSpace(payload)
-		var v any
-		dec := json.NewDecoder(strings.NewReader(payload))
-		dec.UseNumber()
-		if err := dec.Decode(&v); err != nil {
-			return nil, fmt.Errorf("data line is not JSON: %w", err)
+		if !json.Valid([]byte(payload)) {
+			return nil, errors.New("data line is not JSON")
 		}
-		b, err := marshal(scrubValue("", v), "")
-		if err != nil {
-			return nil, err
+		if d := gjson.Get(payload, "delta"); d.Get("type").String() == "input_json_delta" {
+			i := gjson.Get(payload, "index").Int()
+			frags[i] = append(frags[i], d.Get("partial_json").String())
 		}
-		out.WriteString("data: " + string(bytes.TrimSpace(b)) + "\n")
 	}
-	return out.Bytes(), sc.Err()
+	pieces := map[int64][]string{}
+	for i, fs := range frags {
+		joined := string(scrubRaw([]byte(strings.Join(fs, "")), nil))
+		for _, f := range fs {
+			pieces[i] = append(pieces[i], joined[:len(f)])
+			joined = joined[len(f):]
+		}
+	}
+
+	var out bytes.Buffer
+	for _, line := range lines {
+		payload, ok := strings.CutPrefix(line, "data:")
+		if !ok {
+			out.WriteString(line)
+			continue
+		}
+		var over map[string][]byte
+		if gjson.Get(payload, "delta.type").String() == "input_json_delta" {
+			i := gjson.Get(payload, "index").Int()
+			b, err := marshal(pieces[i][0], "")
+			if err != nil {
+				return nil, err
+			}
+			over = map[string][]byte{"partial_json": bytes.TrimSpace(b)}
+			pieces[i] = pieces[i][1:]
+		}
+		out.WriteString("data:")
+		out.Write(scrubRaw([]byte(payload), over))
+	}
+	return out.Bytes(), nil
 }
 
 func marshal(v any, indent string) ([]byte, error) {
@@ -230,43 +257,158 @@ func marshal(v any, indent string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// scrubValue walks a decoded JSON value. A string under a key in keepKeys
-// stays; every other string becomes placeholder text of the same byte length,
-// so sizes the proxy records (argument and result bytes) survive.
-func scrubValue(key string, v any) any {
-	switch x := v.(type) {
-	case map[string]any:
-		for k, child := range x {
-			x[k] = scrubValue(k, child)
+// scrubFrame is one open object or array while scrubRaw walks JSON text. key
+// is the key the next value belongs to: the last key read in an object, the
+// key the array sits under in an array.
+type scrubFrame struct {
+	object  bool
+	wantKey bool
+	key     string
+}
+
+// scrubRaw walks JSON text and copies it byte for byte, except string values.
+// A string under a key in keepKeys stays; a string under a key in over becomes
+// that literal; every other string becomes placeholder text. The text may end
+// early, as joined partial_json of a cut stream does.
+func scrubRaw(raw []byte, over map[string][]byte) []byte {
+	out := make([]byte, 0, len(raw))
+	var stack []scrubFrame
+	top := func() *scrubFrame {
+		if len(stack) == 0 {
+			return nil
 		}
-		return x
-	case []any:
-		for i, child := range x {
-			x[i] = scrubValue(key, child)
-		}
-		return x
-	case string:
-		if keepKeys[key] {
-			return x
-		}
-		return placeholder(x)
+		return &stack[len(stack)-1]
 	}
-	return v
+	key := func() string {
+		if f := top(); f != nil {
+			return f.key
+		}
+		return ""
+	}
+	for i := 0; i < len(raw); {
+		c := raw[i]
+		switch c {
+		case '{':
+			stack = append(stack, scrubFrame{object: true, wantKey: true})
+		case '[':
+			stack = append(stack, scrubFrame{key: key()})
+		case '}', ']':
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		case ',', ':':
+			if f := top(); f != nil && f.object {
+				f.wantKey = c == ','
+			}
+		case '"':
+			end, closed := stringEnd(raw, i)
+			lit := raw[i:end]
+			switch f := top(); {
+			case f != nil && f.object && f.wantKey:
+				var k string
+				_ = json.Unmarshal(lit, &k)
+				f.key = k
+				out = append(out, lit...)
+			case over[key()] != nil:
+				out = append(out, over[key()]...)
+			case keepKeys[key()]:
+				out = append(out, lit...)
+			default:
+				inner := lit[1:]
+				if closed {
+					inner = inner[:len(inner)-1]
+				}
+				out = append(out, '"')
+				out = append(out, placeholder(inner)...)
+				if closed {
+					out = append(out, '"')
+				}
+			}
+			i = end
+			continue
+		}
+		out = append(out, c)
+		i++
+	}
+	return out
+}
+
+// stringEnd returns the index after the string literal that starts at raw[i],
+// and whether its closing quote was there.
+func stringEnd(raw []byte, i int) (int, bool) {
+	for j := i + 1; j < len(raw); j++ {
+		switch raw[j] {
+		case '\\':
+			j++
+		case '"':
+			return j + 1, true
+		}
+	}
+	return len(raw), false
 }
 
 const placeholderPrefix = "FAKEPROMPT-"
 
-// placeholder returns text with the byte length of s that carries no content:
-// the marker prefix the other fixtures use, then x. An empty string stays empty.
-func placeholder(s string) string {
-	n := len(s)
-	if n == 0 {
-		return ""
+// unicodeStandIns hold an escape for a character of each UTF-8 length.
+var unicodeStandIns = [...]string{1: `\u0078`, 2: `\u00e9`, 3: `\u4e00`, 4: `\ud83d\ude00`}
+
+// placeholder returns text for the inside of a JSON string literal that
+// carries no content and keeps both sizes of s: its encoded bytes and the
+// bytes it decodes to. Plain bytes become x, and every escape becomes a
+// content-free escape of the same encoded and decoded length. A leading run of
+// x long enough takes the marker prefix the other fixtures use.
+func placeholder(s []byte) []byte {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); {
+		switch {
+		case s[i] != '\\' || i+1 >= len(s):
+			out = append(out, 'x')
+			i++
+		case s[i+1] != 'u':
+			out = append(out, `\n`...)
+			i += 2
+		default:
+			n, size := unicodeEscape(s[i:])
+			if n == 0 {
+				out = append(out, 'x')
+				i++
+				continue
+			}
+			out = append(out, unicodeStandIns[size]...)
+			i += n
+		}
 	}
-	if n < len(placeholderPrefix) {
-		return strings.Repeat("x", n)
+	run := len(out) - len(bytes.TrimLeft(out, "x"))
+	if run >= len(placeholderPrefix) {
+		copy(out, placeholderPrefix)
 	}
-	return placeholderPrefix + strings.Repeat("x", n-len(placeholderPrefix))
+	return out
+}
+
+// unicodeEscape reads the \u escape at the start of s, with its low surrogate
+// when it is a pair. It returns the encoded length and the UTF-8 length of
+// what it decodes to, or zero when the escape is cut short.
+func unicodeEscape(s []byte) (n, size int) {
+	hex4 := func(b []byte) (rune, bool) {
+		if len(b) < 6 {
+			return 0, false
+		}
+		v, err := strconv.ParseUint(string(b[2:6]), 16, 16)
+		return rune(v), err == nil
+	}
+	r, ok := hex4(s)
+	if !ok {
+		return 0, 0
+	}
+	if utf16.IsSurrogate(r) {
+		if r < 0xdc00 && len(s) >= 12 && s[6] == '\\' && s[7] == 'u' {
+			if lo, ok := hex4(s[6:]); ok && utf16.DecodeRune(r, lo) != utf8.RuneError {
+				return 12, 4
+			}
+		}
+		return 6, 3
+	}
+	return 6, utf8.RuneLen(r)
 }
 
 // fakeID maps a real identifier to a stable fake of the same kind.

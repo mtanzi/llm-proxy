@@ -27,7 +27,7 @@ One directory per exchange:
 Without `replay.json` the fake upstream sends one chunk per SSE event, or the
 whole body for a non-streamed exchange. A test can change the timing per call
 with `fakeupstream.Reply`: `Split` (fixed-size chunks that cut events), `Delay`,
-`Pings`, `AbortAfter`, `Hold`, `Status` and `Headers`.
+`Pings`, `AbortAfter`, `Status` and `Headers`.
 
 `claude-code-headers.json` holds two header sets of a Claude Code client, one
 without and one with the hint headers (ADR 0010). The values are placeholders
@@ -63,9 +63,11 @@ The capture tool is `cmd/fixturecap`. It has two steps.
    go run ./cmd/fixturecap scrub -in ~/captures/claude-code/0003 -out testdata/fixtures/NAME
    ```
 
-   Scrub replaces every string of the request and the response with
-   `FAKEPROMPT-` text of the same byte length (so recorded argument and result
-   sizes survive), keeps only structural fields (types, roles, model, tool names,
+   Scrub replaces every string of the request and the response in place with
+   `FAKEPROMPT-` text of the same encoded and decoded byte length, keeping the
+   JSON layout, so recorded argument and result sizes survive. Streamed tool
+   arguments are scrubbed as one JSON text and cut again at the original
+   fragment lengths. It keeps only structural fields (types, roles, model, tool names,
    ids), drops credentials, replaces session, agent and prompt ids with stable
    fakes, and refuses to write anything that still looks like a key, a bearer
    token, an email address or a home path.
