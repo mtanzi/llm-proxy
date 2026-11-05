@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -19,8 +20,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mtanzi/llm-proxy/internal/api"
 	"github.com/mtanzi/llm-proxy/internal/config"
 	"github.com/mtanzi/llm-proxy/internal/httpmw"
+	"github.com/mtanzi/llm-proxy/internal/proxy"
 )
 
 func testLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -38,6 +41,24 @@ func testConfig() *config.Config {
 	}
 }
 
+// testServers wires the planes the way buildApp does, with no recorder and no
+// store reader: forwarded calls are not recorded and /admin/calls answers 503.
+// ping is the admin readiness check; nil reports not-ready.
+func testServers(cfg *config.Config, snaps proxy.Snapshots, ping func(context.Context) error) (*Servers, error) {
+	drain := &httpmw.Drain{}
+	h := proxy.NewHandler(snaps, proxy.Options{Logger: testLogger()})
+	return BuildServers(ServerOptions{
+		Listen:          cfg.Listen,
+		Data:            proxy.NewMux(h, drain),
+		Admin:           api.NewMux(api.Options{Metrics: api.NewRegistry(), Ping: ping, Drain: drain}),
+		MaxRequestBytes: maxRequestBytes(cfg, snaps),
+		Drain:           drain,
+		Inflight:        h.InflightStreams,
+		InflightCalls:   h.InflightCalls,
+		Logger:          testLogger(),
+	})
+}
+
 func listen(t *testing.T) net.Listener {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -51,7 +72,7 @@ func TestBuildServersRefusesNonLoopbackAdmin(t *testing.T) {
 	for _, addr := range []string{":9090", "0.0.0.0:9090", "10.0.0.5:9090", "[::]:9090", "example.com:9090"} {
 		cfg := testConfig()
 		cfg.Listen.Admin = addr
-		s, err := BuildServers(cfg, noSnapshots{}, testLogger(), Observability{})
+		s, err := testServers(cfg, noSnapshots{}, nil)
 		if err == nil || s != nil {
 			t.Errorf("admin %q: got servers %v, err %v; want a refusal", addr, s, err)
 		} else if !strings.Contains(err.Error(), "loopback") {
@@ -61,14 +82,14 @@ func TestBuildServersRefusesNonLoopbackAdmin(t *testing.T) {
 	for _, addr := range []string{"127.0.0.1:9090", "[::1]:9090", "localhost:9090"} {
 		cfg := testConfig()
 		cfg.Listen.Admin = addr
-		if _, err := BuildServers(cfg, noSnapshots{}, testLogger(), Observability{}); err != nil {
+		if _, err := testServers(cfg, noSnapshots{}, nil); err != nil {
 			t.Errorf("admin %q: %v", addr, err)
 		}
 	}
 }
 
 func TestServerTimeouts(t *testing.T) {
-	s, err := BuildServers(testConfig(), noSnapshots{}, testLogger(), Observability{})
+	s, err := testServers(testConfig(), noSnapshots{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +104,7 @@ func TestServerTimeouts(t *testing.T) {
 }
 
 func TestPlanesServeTheirRoutes(t *testing.T) {
-	s, err := BuildServers(testConfig(), noSnapshots{}, testLogger(), Observability{})
+	s, err := testServers(testConfig(), noSnapshots{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +151,7 @@ func TestPlanesServeTheirRoutes(t *testing.T) {
 }
 
 func TestOversizeBodyRejected(t *testing.T) {
-	s, err := BuildServers(testConfig(), noSnapshots{}, testLogger(), Observability{})
+	s, err := testServers(testConfig(), noSnapshots{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +231,7 @@ func TestDataPlaneServesTLS(t *testing.T) {
 	certFile, keyFile := writeSelfSigned(t, dir)
 	cfg := testConfig()
 	cfg.Listen.TLS = config.TLS{CertFile: certFile, KeyFile: keyFile}
-	s, err := BuildServers(cfg, noSnapshots{}, testLogger(), Observability{})
+	s, err := testServers(cfg, noSnapshots{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
