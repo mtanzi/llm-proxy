@@ -1,6 +1,6 @@
 # ADR 0036: Container image and release build
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
