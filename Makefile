@@ -5,9 +5,9 @@ LDFLAGS := -X main.version=$(VERSION)
 # committed, so without it Go builds with the noui tag and a stub page, and a
 # fresh clone needs no Node. Run `make ui-build` first to embed the real UI.
 UI_DIST := internal/ui/dist/index.html
-GOTAGS := $(if $(wildcard $(UI_DIST)),,-tags noui)
+GOTAGS = $(shell test -f $(UI_DIST) || echo -tags noui)
 # Not ./...: that would walk web/node_modules, where npm packages may ship Go.
-PKGS := ./cmd/... ./internal/...
+PKGS := ./api/... ./cmd/... ./internal/...
 
 .PHONY: build test lint check-imports check-openapi vet goldens ui-build ui-dev ui-check
 
