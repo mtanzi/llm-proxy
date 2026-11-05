@@ -1,6 +1,6 @@
 # ADR 0022: Retention job
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
@@ -38,7 +38,7 @@ Landed:
 - `RetentionStats` returns the deleted-row count and last run time as plain values.
 - The contract cases are in `internal/store/storetest/retention.go`.
 
-Remaining:
+Also landed:
 
 - Config wiring and start: the composition root (ADR 0028) fills `Retention.Keep` from `retention.calls` and calls `StartRetention`.
 - Stop on shutdown: ADR 0027 calls `StopRetention`.

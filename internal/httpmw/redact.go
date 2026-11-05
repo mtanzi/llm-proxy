@@ -19,6 +19,13 @@ var redactedHeaders = map[string]bool{
 	"Set-Cookie":          true,
 }
 
+// IsCredentialHeader reports whether name is a header whose value is never
+// logged. The comparison ignores case. The logger setup uses it to redact log
+// attributes that carry such a header.
+func IsCredentialHeader(name string) bool {
+	return redactedHeaders[http.CanonicalHeaderKey(name)]
+}
+
 // RedactHeaders returns a copy of h, with the values of credential headers
 // replaced by Redacted and each header joined into one string. It is the only
 // place headers are prepared for logging.

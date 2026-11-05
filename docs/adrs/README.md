@@ -73,13 +73,13 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0019](0019-postgres-callreader-lists-filters-and-pagination.md) | Postgres `CallReader`: lists, filters, pagination and call detail | Completed | 0017, 0018 |
 | [0020](0020-postgres-read-time-derivation-tools-sessions-agents.md) | Postgres read-time derivation: tool pairing, sessions and agents | Completed | 0019 |
 | [0021](0021-postgres-usage-aggregation.md) | Postgres usage aggregation | Completed | 0019 |
-| [0022](0022-retention-job.md) | Retention job | Accepted | 0004, 0017, 0018 |
+| [0022](0022-retention-job.md) | Retention job | Completed | 0004, 0017, 0018 |
 | [0023](0023-admin-plane-skeleton-openapi-and-call-log-endpoints.md) | Admin plane skeleton, OpenAPI contract and call-log endpoints | Completed | 0003, 0004, 0006, 0015, 0019 |
 | [0024](0024-session-tool-call-and-usage-endpoints.md) | Session, tool-call and usage endpoints | Accepted | 0020, 0021, 0023 |
 | [0025](0025-live-tail-sse-stream.md) | Live tail (`GET /admin/stream`) | Accepted | 0003, 0016, 0023 |
 | [0026](0026-observability-health-readiness-and-metrics.md) | Observability: health, readiness and Prometheus metrics | Completed | 0006, 0016, 0017 |
 | [0027](0027-graceful-shutdown-and-drain.md) | Graceful shutdown and drain | Completed | 0006, 0011, 0016, 0026 |
-| [0028](0028-composition-root-and-serve-startup.md) | Composition root and `serve` startup | Accepted | 0005, 0008, 0011, 0016, 0017, 0022, 0023, 0026, 0027 |
+| [0028](0028-composition-root-and-serve-startup.md) | Composition root and `serve` startup | Completed | 0005, 0008, 0011, 0016, 0017, 0022, 0023, 0026, 0027 |
 | [0029](0029-ui-scaffold-embedding-and-serving.md) | UI scaffold, embedding and serving | Completed | 0001, 0006, 0023 |
 | [0030](0030-ui-foundation-routing-api-client-and-tables.md) | UI foundation: routing, typed API client, query state and tables | Accepted | 0023, 0029 |
 | [0031](0031-ui-v1-call-log-and-live-toggle.md) | UI view V1: call log and live toggle | Accepted | 0024, 0025, 0030 |

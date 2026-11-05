@@ -14,13 +14,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 
 	"github.com/mtanzi/llm-proxy/internal/config"
 	"github.com/mtanzi/llm-proxy/internal/core"
 	"github.com/mtanzi/llm-proxy/internal/keyring"
-	"github.com/mtanzi/llm-proxy/internal/recorder"
 	"github.com/mtanzi/llm-proxy/internal/store/postgres"
 )
 
@@ -84,7 +82,7 @@ func TestReadinessWhileStoreIsDown(t *testing.T) {
 	if err := store.Ping(context.Background()); err == nil {
 		t.Fatal("ping of a refused database succeeded")
 	}
-	s, err := BuildServers(testConfig(), loadedHolder(t, "http://127.0.0.1:1"), testLogger(), Observability{Ping: store.Ping})
+	s, err := testServers(testConfig(), loadedHolder(t, "http://127.0.0.1:1"), store.Ping)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,8 +100,8 @@ func TestReadinessWhileStoreIsDown(t *testing.T) {
 }
 
 func TestAdminReadyWhenStoreAnswers(t *testing.T) {
-	s, err := BuildServers(testConfig(), loadedHolder(t, "http://127.0.0.1:1"), testLogger(),
-		Observability{Ping: func(context.Context) error { return nil }})
+	s, err := testServers(testConfig(), loadedHolder(t, "http://127.0.0.1:1"),
+		func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +111,7 @@ func TestAdminReadyWhenStoreAnswers(t *testing.T) {
 }
 
 func TestAdminNotReadyWithoutStore(t *testing.T) {
-	s, err := BuildServers(testConfig(), loadedHolder(t, "http://127.0.0.1:1"), testLogger(), Observability{})
+	s, err := testServers(testConfig(), loadedHolder(t, "http://127.0.0.1:1"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,8 +123,8 @@ func TestAdminNotReadyWithoutStore(t *testing.T) {
 // Both /readyz endpoints flip to not-ready when shutdown starts, while
 // /healthz keeps saying alive.
 func TestReadinessFlipsOnShutdown(t *testing.T) {
-	s, err := BuildServers(testConfig(), loadedHolder(t, "http://127.0.0.1:1"), testLogger(),
-		Observability{Ping: func(context.Context) error { return nil }})
+	s, err := testServers(testConfig(), loadedHolder(t, "http://127.0.0.1:1"),
+		func(context.Context) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,9 +145,10 @@ func TestReadinessFlipsOnShutdown(t *testing.T) {
 	}
 }
 
-type nopWriter struct{}
+// discardStore is a store that drops every record it is given.
+type discardStore struct{ *postgres.Store }
 
-func (nopWriter) WriteBatch(context.Context, []core.CallRecord) error { return nil }
+func (discardStore) WriteBatch(context.Context, []core.CallRecord) error { return nil }
 
 // TestMetricsGolden pins the names, types, help and label names of every
 // metric ADR 0026 lists. A change to the list is a change to the dashboards and
@@ -162,18 +161,16 @@ func TestMetricsGolden(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 
-	rec := recorder.New(nopWriter{}, recorder.Options{})
-	t.Cleanup(func() { _ = rec.Close(context.Background()) })
 	holder := loadedHolder(t, upstream.URL)
-	store := downStore(t)
-
-	s, err := BuildServers(testConfig(), holder, testLogger(), Observability{
-		Ping:       store.Ping,
-		Collectors: []prometheus.Collector{rec.Collector(), holder.Collector(), store.RetentionCollector()},
-	})
+	// A real store whose database is down, with its writer replaced so the
+	// forwarded call below writes nothing.
+	a, err := buildApp(holder, discardStore{downStore(t)}, testLogger())
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(a.abort)
+	s := a.servers
+
 	// One forwarded call primes the labelled series.
 	req := httptest.NewRequest("POST", "/v1/messages", strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer "+testClientKey)
@@ -183,7 +180,7 @@ func TestMetricsGolden(t *testing.T) {
 		t.Fatalf("forwarded call = %d: %s", rr.Code, rr.Body)
 	}
 
-	fams, err := s.Registry.Gather()
+	fams, err := a.registry.Gather()
 	if err != nil {
 		t.Fatal(err)
 	}

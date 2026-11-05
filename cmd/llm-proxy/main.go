@@ -35,9 +35,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stdout, version)
 		return 0
 	case "serve":
-		// Startup wiring belongs to ADR 0028.
-		_, _ = fmt.Fprintln(stderr, "llm-proxy: serve is not implemented yet")
-		return 1
+		return runServe(args[1:], stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "llm-proxy: unknown command %q\n\n%s", args[0], usage)
 		return 2

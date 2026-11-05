@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"fmt"
 	"log/slog"
@@ -9,9 +8,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-
-	"github.com/mtanzi/llm-proxy/internal/api"
 	"github.com/mtanzi/llm-proxy/internal/config"
 	"github.com/mtanzi/llm-proxy/internal/httpmw"
 	"github.com/mtanzi/llm-proxy/internal/proxy"
@@ -23,16 +19,6 @@ const (
 	readHeaderTimeout = 10 * time.Second
 	idleTimeout       = 2 * time.Minute
 )
-
-// Observability is what the servers need from the rest of the binary for ADR
-// 0026. The composition root (ADR 0028) fills it.
-type Observability struct {
-	// Ping is the admin readiness check, Store.Ping. Nil reports not-ready.
-	Ping func(context.Context) error
-	// Collectors are registered next to the proxy's own: the recorder, the
-	// config holder and the store's retention job.
-	Collectors []prometheus.Collector
-}
 
 // Servers are the two listeners of the binary. The caller starts them with
 // ServeData and ServeAdmin and stops them with Shutdown.
@@ -50,36 +36,44 @@ type Servers struct {
 	// record has not reached the recorder yet. Shutdown waits for it after
 	// cutting streams.
 	InflightCalls func() int64
-	// Registry is served at /metrics on the admin plane.
-	Registry *prometheus.Registry
 
 	tls config.TLS
 }
 
-// BuildServers builds the data-plane and admin-plane servers from cfg, each
-// behind the request chain. It refuses a non-loopback listen.admin, so the
+// ServerOptions is what BuildServers needs. The composition root (serve.go)
+// builds every handler; BuildServers only puts each behind the request chain
+// and into an http.Server.
+type ServerOptions struct {
+	// Listen holds the listener addresses and the data-plane TLS pair.
+	Listen config.Listen
+	// Data and Admin are the finished handlers of the two planes.
+	Data, Admin http.Handler
+	// MaxRequestBytes returns the request size limit, read once per request.
+	MaxRequestBytes func() int64
+	// Drain is the flag the readiness checks of both planes read. Shutdown
+	// starts it.
+	Drain *httpmw.Drain
+	// Inflight and InflightCalls come from the proxy handler. Both may be nil.
+	Inflight, InflightCalls func() int64
+	Logger                  *slog.Logger
+}
+
+// BuildServers builds the data-plane and admin-plane servers, each behind the
+// request chain. It refuses a non-loopback listen.admin, so the
 // unauthenticated admin plane never leaves the host even when validation was
-// skipped. The data plane reads its providers and keys from snaps, one
-// snapshot per request. The /metrics registry holds the proxy collectors and
-// obs.Collectors.
-func BuildServers(cfg *config.Config, snaps proxy.Snapshots, log *slog.Logger, obs Observability) (*Servers, error) {
-	if !config.IsLoopback(cfg.Listen.Admin) {
-		return nil, fmt.Errorf("listen.admin %q is not a loopback address; the admin plane must listen on 127.0.0.1, ::1 or localhost", cfg.Listen.Admin)
+// skipped.
+func BuildServers(o ServerOptions) (*Servers, error) {
+	if !config.IsLoopback(o.Listen.Admin) {
+		return nil, fmt.Errorf("listen.admin %q is not a loopback address; the admin plane must listen on 127.0.0.1, ::1 or localhost", o.Listen.Admin)
 	}
-	opts := httpmw.Options{Logger: log, MaxRequestBytes: maxRequestBytes(cfg, snaps)}
-	pm := proxy.NewMetrics()
-	reg := api.NewRegistry(append([]prometheus.Collector{pm}, obs.Collectors...)...)
-	drain := &httpmw.Drain{}
-	handler := proxy.NewHandler(snaps, proxy.Options{Logger: log, Metrics: pm})
-	adminMux := api.NewMux(api.Options{Metrics: reg, Ping: obs.Ping, Drain: drain})
+	opts := httpmw.Options{Logger: o.Logger, MaxRequestBytes: o.MaxRequestBytes}
 	s := &Servers{
-		Data:          newServer(cfg.Listen.Data, httpmw.Wrap(proxy.NewMux(handler, drain), opts), log),
-		Admin:         newServer(cfg.Listen.Admin, httpmw.Wrap(adminMux, opts), log),
-		Drain:         drain,
-		Inflight:      handler.InflightStreams,
-		InflightCalls: handler.InflightCalls,
-		Registry:      reg,
-		tls:           cfg.Listen.TLS,
+		Data:          newServer(o.Listen.Data, httpmw.Wrap(o.Data, opts), o.Logger),
+		Admin:         newServer(o.Listen.Admin, httpmw.Wrap(o.Admin, opts), o.Logger),
+		Drain:         o.Drain,
+		Inflight:      o.Inflight,
+		InflightCalls: o.InflightCalls,
+		tls:           o.Listen.TLS,
 	}
 	if s.tls.Enabled() {
 		s.Data.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
