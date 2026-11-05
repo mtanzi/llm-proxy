@@ -9,7 +9,7 @@ GOTAGS = $(shell test -f $(UI_DIST) || echo -tags noui)
 # Not ./...: that would walk web/node_modules, where npm packages may ship Go.
 PKGS := ./api/... ./cmd/... ./internal/...
 
-.PHONY: build test lint check-imports check-openapi vet goldens ui-build ui-dev ui-check
+.PHONY: build test e2e lint check-imports check-openapi vet goldens ui-build ui-dev ui-check
 
 build:
 	CGO_ENABLED=0 go build $(GOTAGS) -trimpath -ldflags "$(LDFLAGS)" -o bin/llm-proxy ./cmd/llm-proxy
@@ -19,6 +19,12 @@ vet:
 
 test:
 	go test $(GOTAGS) $(PKGS)
+
+# The end-to-end tests (ADR 0038): the real wiring against a fake Anthropic
+# upstream and a test Postgres. They need Docker or LLM_PROXY_TEST_DATABASE_URL
+# and skip without either. `make test` runs them too when Postgres is there.
+e2e:
+	go test $(GOTAGS) -count=1 -run TestE2E ./cmd/llm-proxy
 
 lint:
 	golangci-lint run $(if $(GOTAGS),--build-tags noui) $(PKGS)

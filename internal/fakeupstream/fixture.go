@@ -52,7 +52,7 @@ func Load(dir string) (Fixture, error) {
 	f := Fixture{Name: filepath.Base(dir)}
 	read := func(name string, optional bool) ([]byte, error) {
 		b, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil && !(optional && os.IsNotExist(err)) {
+		if err != nil && (!optional || !os.IsNotExist(err)) {
 			return nil, fmt.Errorf("fixture %s: %w", f.Name, err)
 		}
 		return b, nil

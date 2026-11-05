@@ -92,3 +92,29 @@ jobs:
         with:
           go-version: stable
       - run: go test -count=1 -race ./internal/store/...
+
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      LLM_PROXY_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      # A skipped test would pass silently, so the job fails when none ran.
+      - run: make e2e GOFLAGS=-v | tee e2e.log
+      - run: "! grep -q -- '--- SKIP' e2e.log"
