@@ -76,6 +76,180 @@ paths:
           $ref: "#/components/responses/Error"
         "500":
           $ref: "#/components/responses/Error"
+  /admin/sessions:
+    get:
+      operationId: listSessions
+      summary: Session list
+      description: |
+        Sessions, which are groups of calls with the same session key, newest
+        first: ordered by the time of the last call in the range, then by call id,
+        descending. A session matches when at least one of its calls in the range
+        satisfies the filters, and its totals cover the calls in the range. Calls
+        without a session header belong to no session and are not listed. The time
+        range, repeated filter parameters and the forward keyset cursor work as in
+        `/admin/calls`. There is no count: a session list is short.
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Key"
+        - $ref: "#/components/parameters/Client"
+        - $ref: "#/components/parameters/Provider"
+        - $ref: "#/components/parameters/Model"
+        - $ref: "#/components/parameters/ErrorClass"
+        - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/CostMicroUsdGte"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+        "400":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /admin/sessions/{key}:
+    get:
+      operationId: getSession
+      summary: One session
+      description: |
+        Summary, agent tree, prompts and calls (metadata only) of one session.
+        The key is the session header exactly as the client sent it and can hold
+        characters such as `:` or `/`: percent-encode it in the path, for example
+        `team%2Fa%3A1`.
+      parameters:
+        - name: key
+          in: path
+          required: true
+          description: Session key, percent-encoded.
+          schema: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionDetail"
+        "404":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /admin/tool-calls:
+    get:
+      operationId: listToolCalls
+      summary: Tool-call explorer list
+      description: |
+        Tool calls, each a use paired with its result when read, newest first,
+        ordered by (use time, call id, index) descending; a result with no use
+        sorts by the time of the result. `session` filters to one session. The
+        time range applies to the use, or to the result of a `result_only` call.
+        Pairing and the two thresholds are fixed: a use with no result is
+        `pending` for one hour and then `use_only`, and a result is looked up to
+        24 hours past `to`. Unmatched halves are a `status` value, not an error.
+        There is no count.
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/Agent"
+        - $ref: "#/components/parameters/Tool"
+        - $ref: "#/components/parameters/ToolSource"
+        - $ref: "#/components/parameters/ToolCallStatus"
+        - $ref: "#/components/parameters/ToolIsError"
+        - $ref: "#/components/parameters/DurationMsGte"
+        - $ref: "#/components/parameters/ArgBytesGte"
+        - $ref: "#/components/parameters/ResultBytesGte"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of tool calls.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolCallList"
+        "400":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /admin/tool-calls/summary:
+    get:
+      operationId: getToolSummary
+      summary: Tool statistics
+      description: |
+        One row per (tool name, agent type) over the same filters as the
+        tool-call list, without a page. `count` includes unmatched halves;
+        `errors` counts results with `is_error`; the durations cover the tool
+        calls that have one.
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/Agent"
+        - $ref: "#/components/parameters/Tool"
+        - $ref: "#/components/parameters/ToolSource"
+        - $ref: "#/components/parameters/ToolCallStatus"
+        - $ref: "#/components/parameters/ToolIsError"
+        - $ref: "#/components/parameters/DurationMsGte"
+        - $ref: "#/components/parameters/ArgBytesGte"
+        - $ref: "#/components/parameters/ResultBytesGte"
+      responses:
+        "200":
+          description: The statistics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ToolSummary"
+        "400":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
+  /admin/usage:
+    get:
+      operationId: getUsage
+      summary: Usage time series
+      description: |
+        Tokens, cost and latency percentiles per time bucket, computed from raw
+        call rows with the call-log filters. Buckets are aligned in UTC to `grain`.
+        A bucket exists only when a call falls in it: gaps are not filled. With
+        `group_by`, there is one bucket per group and time. A long range can take
+        several seconds.
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Key"
+        - $ref: "#/components/parameters/Client"
+        - $ref: "#/components/parameters/Provider"
+        - $ref: "#/components/parameters/Model"
+        - $ref: "#/components/parameters/Endpoint"
+        - $ref: "#/components/parameters/Streamed"
+        - $ref: "#/components/parameters/Status"
+        - $ref: "#/components/parameters/ErrorClass"
+        - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/Agent"
+        - $ref: "#/components/parameters/AgentType"
+        - $ref: "#/components/parameters/Prompt"
+        - $ref: "#/components/parameters/RequestClass"
+        - $ref: "#/components/parameters/Tool"
+        - $ref: "#/components/parameters/ToolError"
+        - $ref: "#/components/parameters/LatencyMsGte"
+        - $ref: "#/components/parameters/CostMicroUsdGte"
+        - $ref: "#/components/parameters/GroupBy"
+        - $ref: "#/components/parameters/Grain"
+      responses:
+        "200":
+          description: The series.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageSeries"
+        "400":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
   /admin/config:
     get:
       operationId: getConfig
@@ -232,6 +406,53 @@ components:
       in: query
       description: The `next_cursor` of the previous page. Opaque; do not build it.
       schema: { $ref: "#/components/schemas/Cursor" }
+    ToolSource:
+      name: source
+      in: query
+      description: Who ran the tool, `client` or `server`. Repeat to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { type: string, enum: [client, server] } }
+    ToolCallStatus:
+      name: status
+      in: query
+      description: |
+        Pairing state: `paired`, `pending` (a use with no result yet), `use_only`
+        (no result after an hour) or `result_only` (a result with no use). Repeat
+        to match several.
+      style: form
+      explode: true
+      schema: { type: array, items: { $ref: "#/components/schemas/ToolCallStatus" } }
+    ToolIsError:
+      name: is_error
+      in: query
+      description: Only tool calls whose result is an error (true) or is not (false). A tool call with no result never matches.
+      schema: { type: boolean }
+    DurationMsGte:
+      name: duration_ms_gte
+      in: query
+      description: Tool calls whose duration is at least this many milliseconds.
+      schema: { type: integer, minimum: 0, maximum: 1099511627776 }
+    ArgBytesGte:
+      name: arg_bytes_gte
+      in: query
+      description: Tool calls whose arguments are at least this many bytes.
+      schema: { type: integer, minimum: 0, maximum: 2147483647 }
+    ResultBytesGte:
+      name: result_bytes_gte
+      in: query
+      description: Tool calls whose result is at least this many bytes. A tool call with no result never matches.
+      schema: { type: integer, minimum: 0, maximum: 2147483647 }
+    GroupBy:
+      name: group_by
+      in: query
+      description: Dimension to group the series by. Default is no grouping.
+      schema: { type: string, enum: [key, model, client, provider, session, error_class] }
+    Grain:
+      name: grain
+      in: query
+      description: Width of one bucket. Default `hour`.
+      schema: { type: string, enum: [minute, hour, day], default: hour }
   responses:
     Error:
       description: |
@@ -253,10 +474,10 @@ components:
       type: string
       enum: [invalid_parameter, invalid_cursor, invalid_id, not_found, internal]
       description: |
-        invalid_parameter: an unknown or malformed query parameter (see `parameter`).
+        invalid_parameter: an unknown or malformed query parameter, or a `group_by`, `grain`, `source` or `status` value outside its list (see `parameter`).
         invalid_cursor: the cursor is not one this API issued.
         invalid_id: the path id is not a call id.
-        not_found: no such call or route.
+        not_found: no such call, session or route.
         internal: the server failed; retry later.
     ErrorResponse:
       type: object
@@ -448,6 +669,205 @@ components:
         tool_results:
           type: array
           items: { $ref: "#/components/schemas/ToolResult" }
+    SessionSummary:
+      type: object
+      description: One session, grouped from its calls in the time range.
+      required: [session_key, key, client, first_ts, last_ts, calls, errors, agent_count, models, usage, cost_micro_usd]
+      properties:
+        session_key: { type: string }
+        key: { type: string, description: Virtual key name of the session. }
+        client: { type: string }
+        first_ts: { type: string, format: date-time }
+        last_ts: { type: string, format: date-time }
+        calls: { type: integer }
+        errors: { type: integer, description: Calls with an error class. }
+        agent_count: { type: integer }
+        models:
+          type: array
+          items: { type: string }
+        usage: { $ref: "#/components/schemas/Usage" }
+        cost_micro_usd:
+          type: [integer, "null"]
+          description: Sum of the known costs. Null when no call of the session has a known cost.
+    SessionList:
+      type: object
+      required: [sessions, next_cursor]
+      properties:
+        sessions:
+          type: array
+          items: { $ref: "#/components/schemas/SessionSummary" }
+        next_cursor:
+          type: [string, "null"]
+          description: Cursor of the next page. Null on the last page.
+    Agent:
+      type: object
+      description: One distinct (agent id, parent agent id, agent type) of a session.
+      required: [agent_id, parent_agent_id, agent_type, calls]
+      properties:
+        agent_id: { type: string }
+        parent_agent_id: { type: string, description: Empty for the main agent. }
+        agent_type: { type: string }
+        calls: { type: integer }
+    Prompt:
+      type: object
+      description: The calls of one prompt id inside a session.
+      required: [prompt_id, first_ts, calls, usage, cost_micro_usd]
+      properties:
+        prompt_id: { type: string }
+        first_ts: { type: string, format: date-time }
+        calls: { type: integer }
+        usage: { $ref: "#/components/schemas/Usage" }
+        cost_micro_usd: { type: [integer, "null"] }
+    SessionDetail:
+      type: object
+      description: A session with its agents, prompts and calls (metadata only).
+      required: [summary, agents, prompts, calls]
+      properties:
+        summary: { $ref: "#/components/schemas/SessionSummary" }
+        agents:
+          type: array
+          items: { $ref: "#/components/schemas/Agent" }
+        prompts:
+          type: array
+          items: { $ref: "#/components/schemas/Prompt" }
+        calls:
+          type: array
+          description: Every call of the session.
+          items: { $ref: "#/components/schemas/CallSummary" }
+    ToolCallStatus:
+      type: string
+      enum: [paired, pending, use_only, result_only]
+    DurationSource:
+      type: string
+      enum: [header, estimated]
+      description: |
+        header: reported by the client in the prev_tool_durations header of the
+        call that returned the result. estimated: the gap between the use and the
+        result.
+    ToolCall:
+      type: object
+      description: A tool use paired with its result. A missing half reads as null.
+      required:
+        - tool_call_id
+        - name
+        - source
+        - status
+        - session_key
+        - agent_id
+        - use_call_id
+        - result_call_id
+        - use_ts
+        - result_ts
+        - duration_ms
+        - duration_source
+        - is_error
+        - arg_bytes
+        - result_bytes
+      properties:
+        tool_call_id: { type: string, description: "The provider id, for example toolu_..." }
+        name: { type: string, description: From the use. Empty for result_only. }
+        source: { type: string, enum: [client, server] }
+        status: { $ref: "#/components/schemas/ToolCallStatus" }
+        session_key: { type: string }
+        agent_id: { type: string }
+        use_call_id:
+          oneOf:
+            - $ref: "#/components/schemas/CallId"
+            - type: "null"
+        result_call_id:
+          oneOf:
+            - $ref: "#/components/schemas/CallId"
+            - type: "null"
+        use_ts: { type: [string, "null"], format: date-time }
+        result_ts: { type: [string, "null"], format: date-time }
+        duration_ms:
+          type: [integer, "null"]
+          description: Null when no duration is known, for example for an unmatched half.
+        duration_source:
+          oneOf:
+            - $ref: "#/components/schemas/DurationSource"
+            - type: "null"
+        is_error: { type: [boolean, "null"], description: Null without a result. }
+        arg_bytes: { type: integer }
+        result_bytes: { type: integer, description: Zero without a result. }
+    ToolCallList:
+      type: object
+      required: [tool_calls, next_cursor]
+      properties:
+        tool_calls:
+          type: array
+          items: { $ref: "#/components/schemas/ToolCall" }
+        next_cursor:
+          type: [string, "null"]
+          description: Cursor of the next page. Null on the last page.
+    ToolStat:
+      type: object
+      description: Statistics of one tool for one agent type.
+      required: [name, agent_type, count, errors, error_rate, duration_p50_ms, duration_p95_ms, total_duration_ms]
+      properties:
+        name: { type: string }
+        agent_type: { type: string, description: Empty when the calling agent has no type. }
+        count: { type: integer, description: "Every matching tool call, unmatched halves included." }
+        errors: { type: integer, description: Results with is_error. }
+        error_rate: { type: number, description: errors over count; 0 for an empty row. }
+        duration_p50_ms: { type: integer }
+        duration_p95_ms: { type: integer }
+        total_duration_ms: { type: integer }
+    ToolSummary:
+      type: object
+      required: [tools]
+      properties:
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/ToolStat" }
+    UsageBucket:
+      type: object
+      description: |
+        One point of the series. Unknown is not zero: tokens and cost sum what is
+        known, and the counters say how many calls are not fully known.
+      required:
+        - start
+        - group
+        - calls
+        - errors
+        - usage
+        - cost_micro_usd
+        - unpriced_calls
+        - estimated_calls
+        - no_usage_calls
+        - latency_p50_ms
+        - latency_p95_ms
+        - latency_p99_ms
+        - cache_hit_ratio
+      properties:
+        start: { type: string, format: date-time, description: "Start of the bucket, UTC, aligned to the grain." }
+        group: { type: string, description: Value of the group_by dimension. Empty when ungrouped or not known. }
+        calls: { type: integer }
+        errors: { type: integer, description: Calls with an error class. }
+        usage: { $ref: "#/components/schemas/Usage" }
+        cost_micro_usd: { type: integer, description: Sum over the calls with a known cost. }
+        unpriced_calls: { type: integer, description: "Calls with no cost, left out of cost_micro_usd." }
+        estimated_calls: { type: integer, description: "Calls whose usage was estimated, for example after a client abort." }
+        no_usage_calls: { type: integer, description: Calls with no provider usage object; their tokens are zero. }
+        latency_p50_ms: { type: integer, description: Zero when no call of the bucket has a duration. }
+        latency_p95_ms: { type: integer }
+        latency_p99_ms: { type: integer }
+        cache_hit_ratio:
+          type: [number, "null"]
+          description: cache_read over all input columns. Null when the bucket has no input tokens.
+    UsageSeries:
+      type: object
+      required: [group_by, grain, buckets]
+      properties:
+        group_by:
+          type: [string, "null"]
+          enum: [key, model, client, provider, session, error_class, null]
+          description: The grouping used. Null when ungrouped.
+        grain: { type: string, enum: [minute, hour, day] }
+        buckets:
+          type: array
+          description: Ordered by start, then group.
+          items: { $ref: "#/components/schemas/UsageBucket" }
     ConfigView:
       type: object
       required: [providers, pricing, keys]

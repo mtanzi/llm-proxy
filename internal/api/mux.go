@@ -25,7 +25,7 @@ type Options struct {
 	Ping func(context.Context) error
 	// Drain is the shutdown flag shared with the data plane. Nil never drains.
 	Drain *httpmw.Drain
-	// Calls serves the call-log endpoints.
+	// Calls serves the call-log, session, tool-call and usage endpoints.
 	Calls core.CallReader
 	// Config returns the redacted config view of the running snapshot for
 	// GET /admin/config.
@@ -51,7 +51,8 @@ func NewRegistry(cs ...prometheus.Collector) *prometheus.Registry {
 // /healthz says the process is alive, /readyz says the store answers and drain
 // has not started, and /metrics serves the registry (ADR 0026). Under /admin/
 // it serves the call-log endpoints, the config view and the OpenAPI document
-// (ADR 0023). Under /ui/ it serves the embedded web UI (ADR 0029).
+// (ADR 0023), and the session, tool-call and usage endpoints (ADR 0024). Under
+// /ui/ it serves the embedded web UI (ADR 0029).
 func NewMux(o Options) *http.ServeMux {
 	now := o.Now
 	if now == nil {
@@ -62,6 +63,11 @@ func NewMux(o Options) *http.ServeMux {
 	mux.HandleFunc("/admin/", notFound)
 	mux.HandleFunc("GET /admin/calls", h.listCalls)
 	mux.HandleFunc("GET /admin/calls/{id}", h.getCall)
+	mux.HandleFunc("GET /admin/sessions", h.listSessions)
+	mux.HandleFunc("GET /admin/sessions/{key}", h.getSession)
+	mux.HandleFunc("GET /admin/tool-calls", h.listToolCalls)
+	mux.HandleFunc("GET /admin/tool-calls/summary", h.toolSummary)
+	mux.HandleFunc("GET /admin/usage", h.getUsage)
 	mux.HandleFunc("GET /admin/config", h.getConfig)
 	mux.HandleFunc("GET /admin/openapi.json", h.getOpenAPI)
 	ui.Mount(mux)

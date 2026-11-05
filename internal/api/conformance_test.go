@@ -128,6 +128,37 @@ func TestResponsesConformToOpenAPI(t *testing.T) {
 		Pricing:   []config.PricingView{{Provider: "anthropic", Model: "m", From: config.Date(testNow), Price: config.PriceView{Input: 5_000_000}}},
 		Keys:      []config.KeyView{{Name: "alice"}, {Name: "ci", Disabled: true}},
 	}
+	rd.Sessions = []core.SessionSummary{
+		{SessionKey: "s", KeyName: "alice", Client: "claude-code", FirstTS: testNow, LastTS: testNow, Calls: 2, Errors: 1,
+			AgentCount: 2, Models: []string{"m"}, Usage: core.Usage{Output: 5}, Cost: &cost},
+		{SessionKey: "bare"},
+	}
+	rd.SessionMap = map[string]core.SessionDetail{
+		"team/a:1": {
+			SessionSummary: rd.Sessions[0],
+			Agents:         []core.AgentNode{{AgentID: "a", AgentType: "Explore", Calls: 1}, {AgentID: "b", ParentAgentID: "a", Calls: 1}},
+			Prompts:        []core.PromptSummary{{PromptID: "p", FirstTS: testNow, Calls: 2, Usage: core.Usage{Output: 5}, Cost: &cost}},
+			Calls:          rd.Calls,
+		},
+		"bare": {SessionSummary: rd.Sessions[1]},
+	}
+	yes := true
+	rd.ToolCalls = []core.ToolCall{
+		{ToolCallID: "toolu_1", Name: "Bash", Source: core.ToolSourceClient, Status: core.ToolCallPaired, SessionKey: "s", AgentID: "a",
+			UseCallID: id, ResultCallID: bare.ID, UseTS: testNow, ResultTS: testNow.Add(time.Second), Duration: time.Second,
+			DurationSource: core.DurationHeader, IsError: &yes, ArgBytes: 3, ResultBytes: 4},
+		{ToolCallID: "toolu_2", Name: "Read", Source: core.ToolSourceServer, Status: core.ToolCallPending, UseCallID: id, UseTS: testNow},
+		{ToolCallID: "toolu_3", Source: core.ToolSourceClient, Status: core.ToolCallResultOnly, ResultCallID: bare.ID, ResultTS: testNow, IsError: &yes},
+	}
+	rd.ToolStats = []core.ToolStat{
+		{Name: "Bash", AgentType: "Explore", Count: 4, Errors: 1, DurationP50: time.Second, DurationP95: 2 * time.Second, TotalDuration: 9 * time.Second},
+		{Name: "Read"},
+	}
+	rd.Buckets = []core.UsageBucket{
+		{Start: testNow, Group: "alice", Calls: 3, Errors: 1, Usage: core.Usage{InputUncached: 5, CacheRead: 5, Output: 2}, Cost: 99,
+			UnpricedCalls: 1, EstimatedCalls: 1, NoUsageCalls: 1, LatencyP50: time.Second, LatencyP95: 2 * time.Second, LatencyP99: 3 * time.Second},
+		{Start: testNow.Add(time.Hour), Calls: 1},
+	}
 	h := newTestMux(t, rd, view)
 
 	samples := []struct {
@@ -140,6 +171,22 @@ func TestResponsesConformToOpenAPI(t *testing.T) {
 		{"/admin/calls/" + id.String(), "/admin/calls/{id}", 200},
 		{"/admin/calls/" + bare.ID.String(), "/admin/calls/{id}", 200},
 		{"/admin/config", "/admin/config", 200},
+		{"/admin/sessions", "/admin/sessions", 200},
+		{"/admin/sessions?model=a&key=alice&cost_micro_usd_gte=5&session=s&limit=5", "/admin/sessions", 200},
+		{"/admin/sessions/team%2Fa%3A1", "/admin/sessions/{key}", 200},
+		{"/admin/sessions/bare", "/admin/sessions/{key}", 200},
+		{"/admin/sessions/missing", "/admin/sessions/{key}", 404},
+		{"/admin/sessions?nope=1", "/admin/sessions", 400},
+		{"/admin/tool-calls", "/admin/tool-calls", 200},
+		{"/admin/tool-calls?session=s&tool=Bash&source=client&status=paired&status=use_only&is_error=true&duration_ms_gte=5", "/admin/tool-calls", 200},
+		{"/admin/tool-calls?status=nope", "/admin/tool-calls", 400},
+		{"/admin/tool-calls?cursor=zzz", "/admin/tool-calls", 400},
+		{"/admin/tool-calls/summary", "/admin/tool-calls/summary", 200},
+		{"/admin/tool-calls/summary?limit=5", "/admin/tool-calls/summary", 400},
+		{"/admin/usage", "/admin/usage", 200},
+		{"/admin/usage?group_by=model&grain=day&status=529&tool=Bash", "/admin/usage", 200},
+		{"/admin/usage?group_by=nope", "/admin/usage", 400},
+		{"/admin/usage?grain=week", "/admin/usage", 400},
 		{"/admin/calls?nope=1", "/admin/calls", 400},
 		{"/admin/calls?cursor=zzz", "/admin/calls", 400},
 		{"/admin/calls/not-an-id", "/admin/calls/{id}", 400},
@@ -159,6 +206,11 @@ func TestResponsesConformToOpenAPI(t *testing.T) {
 	for _, sm := range []struct{ target, path string }{
 		{"/admin/calls", "/admin/calls"},
 		{"/admin/calls/" + id.String(), "/admin/calls/{id}"},
+		{"/admin/sessions", "/admin/sessions"},
+		{"/admin/sessions/bare", "/admin/sessions/{key}"},
+		{"/admin/tool-calls", "/admin/tool-calls"},
+		{"/admin/tool-calls/summary", "/admin/tool-calls/summary"},
+		{"/admin/usage", "/admin/usage"},
 	} {
 		rr := httptest.NewRecorder()
 		failing.ServeHTTP(rr, httptest.NewRequest("GET", sm.target, nil))
@@ -167,39 +219,97 @@ func TestResponsesConformToOpenAPI(t *testing.T) {
 }
 
 // TestSpecQueryParametersMatchParser fails when the OpenAPI document and the
-// parameter parser drift apart: every documented parameter must be one the
+// parameter parsers drift apart: every documented parameter must be one the
 // parser accepts, and every parameter the parser accepts must be documented.
 func TestSpecQueryParametersMatchParser(t *testing.T) {
 	s := loadSpec(t)
 	params := s.doc["components"].(map[string]any)["parameters"].(map[string]any)
-	op := s.doc["paths"].(map[string]any)["/admin/calls"].(map[string]any)["get"].(map[string]any)
-	var documented []string
-	for _, p := range op["parameters"].([]any) {
-		ref := p.(map[string]any)["$ref"].(string)
-		def := params[strings.TrimPrefix(ref, "#/components/parameters/")].(map[string]any)
-		documented = append(documented, def["name"].(string))
+	for path, known := range map[string]map[string]bool{
+		"/admin/calls":              knownCallParams,
+		"/admin/sessions":           knownSessionParams,
+		"/admin/tool-calls":         knownToolCallParams,
+		"/admin/tool-calls/summary": knownToolSummaryParams,
+		"/admin/usage":              knownUsageParams,
+	} {
+		op := s.doc["paths"].(map[string]any)[path].(map[string]any)["get"].(map[string]any)
+		var documented, parser []string
+		for _, p := range op["parameters"].([]any) {
+			ref := p.(map[string]any)["$ref"].(string)
+			def := params[strings.TrimPrefix(ref, "#/components/parameters/")].(map[string]any)
+			documented = append(documented, def["name"].(string))
+		}
+		for name := range known {
+			parser = append(parser, name)
+		}
+		slices.Sort(documented)
+		slices.Sort(parser)
+		if !slices.Equal(documented, parser) {
+			t.Errorf("%s: documented parameters %v\nparser parameters     %v", path, documented, parser)
+		}
 	}
-	var known []string
-	for name := range knownCallParams {
-		known = append(known, name)
+}
+
+// TestSpecEnumsMatchWhitelists keeps the documented value lists and the
+// whitelists of the parser in step.
+func TestSpecEnumsMatchWhitelists(t *testing.T) {
+	s := loadSpec(t)
+	params := s.doc["components"].(map[string]any)["parameters"].(map[string]any)
+	enum := func(name string) []string {
+		sch := params[name].(map[string]any)["schema"].(map[string]any)
+		if items, ok := sch["items"].(map[string]any); ok {
+			sch = items
+		}
+		var out []string
+		for _, v := range sch["enum"].([]any) {
+			out = append(out, v.(string))
+		}
+		return out
 	}
-	slices.Sort(documented)
-	slices.Sort(known)
-	if !slices.Equal(documented, known) {
-		t.Errorf("documented parameters %v\nparser parameters     %v", documented, known)
+	var groups, grains, sources []string
+	for _, g := range usageGroups {
+		groups = append(groups, string(g))
+	}
+	for _, g := range usageGrains {
+		grains = append(grains, string(g))
+	}
+	for _, g := range toolSources {
+		sources = append(sources, string(g))
+	}
+	for name, want := range map[string][]string{"GroupBy": groups, "Grain": grains, "ToolSource": sources} {
+		if got := enum(name); !slices.Equal(got, want) {
+			t.Errorf("%s: document %v, parser %v", name, got, want)
+		}
+	}
+	var statuses []string
+	for _, st := range toolStatuses {
+		statuses = append(statuses, string(st))
+	}
+	schema := s.doc["components"].(map[string]any)["schemas"].(map[string]any)["ToolCallStatus"].(map[string]any)
+	var got []string
+	for _, v := range schema["enum"].([]any) {
+		got = append(got, v.(string))
+	}
+	slices.Sort(got)
+	slices.Sort(statuses)
+	if !slices.Equal(got, statuses) {
+		t.Errorf("ToolCallStatus: document %v, parser %v", got, statuses)
 	}
 }
 
 func TestSpecRoutesMatchMux(t *testing.T) {
 	s := loadSpec(t)
 	paths := s.doc["paths"].(map[string]any)
-	for _, want := range []string{"/admin/calls", "/admin/calls/{id}", "/admin/config", "/admin/openapi.json"} {
+	want9 := []string{
+		"/admin/calls", "/admin/calls/{id}", "/admin/config", "/admin/openapi.json", "/admin/sessions",
+		"/admin/sessions/{key}", "/admin/tool-calls", "/admin/tool-calls/summary", "/admin/usage",
+	}
+	for _, want := range want9 {
 		if _, ok := paths[want]; !ok {
 			t.Errorf("OpenAPI document lacks %s", want)
 		}
 	}
-	if len(paths) != 4 {
-		t.Errorf("document has %d paths, want the 4 this ADR delivers", len(paths))
+	if len(paths) != len(want9) {
+		t.Errorf("document has %d paths, want %d", len(paths), len(want9))
 	}
 }
 
