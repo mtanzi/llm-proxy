@@ -179,6 +179,9 @@ func TestPassthroughCredentialAppearsNowhereTheProxyWrites(t *testing.T) {
 	if bytes.Contains(tapped, []byte(oauthToken)) {
 		t.Errorf("tap request holds a credential: %s", tapped)
 	}
+	// The access log line is written after the handler returns, which can be
+	// after the record is finished. Close waits for the handler to complete.
+	e.proxy.Close()
 	out := logs.String()
 	if out == "" {
 		t.Fatal("no logs captured")
