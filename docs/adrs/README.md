@@ -80,7 +80,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0026](0026-observability-health-readiness-and-metrics.md) | Observability: health, readiness and Prometheus metrics | Completed | 0006, 0016, 0017 |
 | [0027](0027-graceful-shutdown-and-drain.md) | Graceful shutdown and drain | Completed | 0006, 0011, 0016, 0026 |
 | [0028](0028-composition-root-and-serve-startup.md) | Composition root and `serve` startup | Accepted | 0005, 0008, 0011, 0016, 0017, 0022, 0023, 0026, 0027 |
-| [0029](0029-ui-scaffold-embedding-and-serving.md) | UI scaffold, embedding and serving | Accepted | 0001, 0006, 0023 |
+| [0029](0029-ui-scaffold-embedding-and-serving.md) | UI scaffold, embedding and serving | Completed | 0001, 0006, 0023 |
 | [0030](0030-ui-foundation-routing-api-client-and-tables.md) | UI foundation: routing, typed API client, query state and tables | Accepted | 0023, 0029 |
 | [0031](0031-ui-v1-call-log-and-live-toggle.md) | UI view V1: call log and live toggle | Accepted | 0024, 0025, 0030 |
 | [0032](0032-ui-v3-call-detail.md) | UI view V3: call detail | Accepted | 0023, 0030 |

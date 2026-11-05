@@ -1,6 +1,6 @@
 # ADR 0029: UI scaffold, embedding and serving
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

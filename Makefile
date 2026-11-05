@@ -1,22 +1,46 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -X main.version=$(VERSION)
 
-.PHONY: build test lint check-imports check-openapi vet goldens
+# The web UI is embedded from internal/ui/dist (ADR 0029). dist is not
+# committed, so without it Go builds with the noui tag and a stub page, and a
+# fresh clone needs no Node. Run `make ui-build` first to embed the real UI.
+UI_DIST := internal/ui/dist/index.html
+GOTAGS = $(shell test -f $(UI_DIST) || echo -tags noui)
+# Not ./...: that would walk web/node_modules, where npm packages may ship Go.
+PKGS := ./api/... ./cmd/... ./internal/...
+
+.PHONY: build test lint check-imports check-openapi vet goldens ui-build ui-dev ui-check
 
 build:
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/llm-proxy ./cmd/llm-proxy
+	CGO_ENABLED=0 go build $(GOTAGS) -trimpath -ldflags "$(LDFLAGS)" -o bin/llm-proxy ./cmd/llm-proxy
 
 vet:
-	go vet ./...
+	go vet $(GOTAGS) $(PKGS)
 
 test:
-	go test ./...
+	go test $(GOTAGS) $(PKGS)
 
 lint:
-	golangci-lint run ./...
+	golangci-lint run $(if $(GOTAGS),--build-tags noui) $(PKGS)
 
 check-imports:
-	golangci-lint run --enable-only depguard ./...
+	golangci-lint run $(if $(GOTAGS),--build-tags noui) --enable-only depguard $(PKGS)
+
+# Build the web UI and copy it to internal/ui/dist, where `make build` embeds
+# it. Needs Node 22 or later.
+ui-build:
+	cd web && npm ci && npm run build
+	rm -rf internal/ui/dist
+	cp -R web/dist internal/ui/dist
+
+# Run the Vite dev server with hot reload. It proxies /admin to a local
+# `llm-proxy serve` on localhost:9090.
+ui-dev:
+	cd web && npm ci && npm run dev
+
+# Lint, type-check and unit-test the web UI. CI runs it.
+ui-check:
+	cd web && npm ci && npm run lint && npm run typecheck && npm test
 
 # Lint the OpenAPI document with a pinned linter. Needs Node; CI runs it.
 check-openapi:

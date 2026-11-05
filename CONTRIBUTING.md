@@ -30,8 +30,13 @@ make test
 make lint           # golangci-lint, including depguard rules (.golangci.yml)
 make check-imports  # depguard rules only
 make check-openapi  # lint api/openapi.yaml with Redocly (needs Node)
+make ui-build       # build the web UI into internal/ui/dist (needs Node 22+); make build then embeds it
+make ui-dev         # Vite dev server, proxies /admin to localhost:9090
+make ui-check       # lint, type-check and unit-test web/
 make goldens        # rewrite the golden call records under testdata/fixtures; read the diff
 ```
+
+Without `internal/ui/dist`, `make build`, `make vet`, `make test` and `make lint` use the `noui` build tag, so a fresh clone needs no Node and the binary serves a stub page at `/ui/`.
 
 The store tests in `internal/store/...` need a real Postgres. They start a `postgres:16-alpine` container with testcontainers-go when Docker is running, or use the server in `LLM_PROXY_TEST_DATABASE_URL` (a URL whose user may create databases); without either they skip. Each test gets its own throwaway database.
 
@@ -44,7 +49,7 @@ LLM_PROXY_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgre
 
 CI runs it in the `postgres` job against a Postgres service container. A new filter, port method or behaviour starts as a case in a group under `internal/store/storetest`; the suite also scans every stored text and `jsonb` value for the fake prompt, response and tool text of its record generator.
 
-The `depguard` rules in `.golangci.yml` encode the table above. CI runs build, vet and tests on the latest two Go releases, and lint, the import check and the OpenAPI lint once.
+The `depguard` rules in `.golangci.yml` encode the table above. CI runs build, vet and tests on the latest two Go releases, and lint, the import check and the OpenAPI lint once. The `web` job runs `make ui-check`, then builds and tests Go with the real UI embedded.
 
 ## Version
 

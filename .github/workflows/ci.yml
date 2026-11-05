@@ -50,6 +50,25 @@ jobs:
           node-version: 22
       - run: make check-openapi
 
+  web:
+    name: Web UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: make ui-check
+      - run: make ui-build
+      # With dist in place the Go build and tests embed the real UI.
+      - run: make build
+      - run: make test
+
   postgres:
     name: Postgres store tests
     runs-on: ubuntu-latest
