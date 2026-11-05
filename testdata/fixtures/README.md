@@ -35,7 +35,8 @@ until a real capture replaces them.
 
 ## Refresh from real traffic
 
-The capture tool is `cmd/fixturecap`. It has two steps.
+The capture tool is `cmd/fixturecap`, with two subcommands, `record` and
+`scrub`. A refresh takes three steps.
 
 1. Record. Start the pass-through recorder with a directory outside this
    repository (the tool refuses one inside a checkout):
