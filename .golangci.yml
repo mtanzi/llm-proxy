@@ -27,6 +27,16 @@ linters:
               desc: no database driver outside store/postgres
             - pkg: github.com/pressly/goose
               desc: no migrations outside store/postgres
+        test-support:
+          files:
+            - $all
+            - "!$test"
+            - "!**/internal/fakeupstream/**"
+          deny:
+            - pkg: github.com/anthropics/anthropic-sdk-go
+              desc: the SDK is a test client only, never in the data path (ADR 0038)
+            - pkg: github.com/mtanzi/llm-proxy/internal/fakeupstream
+              desc: the fake upstream is test support (ADR 0038)
         core:
           list-mode: strict
           files:
