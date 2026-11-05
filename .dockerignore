@@ -1,0 +1,13 @@
+# Keep the build context small and the layer cache stable.
+.git
+.github
+bin/
+docs/
+testdata/
+**/node_modules
+web/dist
+internal/ui/dist
+**/*_test.go
+Dockerfile
+.dockerignore
+*.md

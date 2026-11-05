@@ -122,3 +122,23 @@ jobs:
         shell: bash
       - run: "! grep -q -- '--- SKIP' e2e.log && grep -q -- '--- PASS: TestE2E' e2e.log"
         shell: bash
+
+  image:
+    name: Container image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: llm-proxy:ci
+          build-args: VERSION=ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Check size and non-root user
+        run: scripts/check-image.sh llm-proxy:ci
+      - name: Smoke test against Postgres
+        run: scripts/smoke-image.sh llm-proxy:ci
