@@ -30,6 +30,9 @@ make test
 make lint           # golangci-lint, including depguard rules (.golangci.yml)
 make check-imports  # depguard rules only
 make check-openapi  # lint api/openapi.yaml with Redocly (needs Node)
+make ui-build       # build the web UI into internal/ui/dist (needs Node 22+); make build then embeds it
+make ui-dev         # Vite dev server, proxies /admin to localhost:9090
+make ui-check       # lint, type-check and unit-test web/
 make goldens        # rewrite the golden call records under testdata/fixtures; read the diff
 ```
 
@@ -47,5 +50,7 @@ CI runs it in the `postgres` job against a Postgres service container. A new fil
 The `depguard` rules in `.golangci.yml` encode the table above. CI runs build, vet and tests on the latest two Go releases, and lint, the import check and the OpenAPI lint once.
 
 ## Version
+
+Without `internal/ui/dist`, `make build`, `make vet`, `make test` and `make lint` use the `noui` build tag, so a fresh clone needs no Node and the binary serves a stub page at `/ui/`.
 
 `make build` sets `main.version` with `-ldflags "-X main.version=<version>"`. Override with `make build VERSION=v1.2.3`.

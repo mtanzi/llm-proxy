@@ -13,6 +13,7 @@ import (
 	"github.com/mtanzi/llm-proxy/internal/config"
 	"github.com/mtanzi/llm-proxy/internal/core"
 	"github.com/mtanzi/llm-proxy/internal/httpmw"
+	"github.com/mtanzi/llm-proxy/internal/ui"
 )
 
 // Options configures NewMux.
@@ -50,7 +51,7 @@ func NewRegistry(cs ...prometheus.Collector) *prometheus.Registry {
 // /healthz says the process is alive, /readyz says the store answers and drain
 // has not started, and /metrics serves the registry (ADR 0026). Under /admin/
 // it serves the call-log endpoints, the config view and the OpenAPI document
-// (ADR 0023). The UI (ADR 0029) is a placeholder until that ADR lands.
+// (ADR 0023). Under /ui/ it serves the embedded web UI (ADR 0029).
 func NewMux(o Options) *http.ServeMux {
 	now := o.Now
 	if now == nil {
@@ -63,7 +64,7 @@ func NewMux(o Options) *http.ServeMux {
 	mux.HandleFunc("GET /admin/calls/{id}", h.getCall)
 	mux.HandleFunc("GET /admin/config", h.getConfig)
 	mux.HandleFunc("GET /admin/openapi.json", h.getOpenAPI)
-	mux.HandleFunc("/ui/", notImplemented)
+	ui.Mount(mux)
 	mux.Handle("/metrics", promhttp.HandlerFor(o.Metrics, promhttp.HandlerOpts{}))
 	mux.Handle("/healthz", httpmw.Healthz())
 	ping := o.Ping
@@ -72,8 +73,4 @@ func NewMux(o Options) *http.ServeMux {
 	}
 	mux.Handle("/readyz", httpmw.Readyz(o.Drain, ping))
 	return mux
-}
-
-func notImplemented(w http.ResponseWriter, _ *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
 }
