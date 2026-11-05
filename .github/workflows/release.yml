@@ -29,8 +29,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Tags follow the git tag: v1.2.3 gives 1.2.3 and 1.2. No latest tag;
-      # deployments pin a version.
+      # Tags follow the git tag: v1.2.3 gives 1.2.3 only. No latest or other
+      # moving tag; deployments pin a version.
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -38,7 +38,17 @@ jobs:
           flavor: latest=false
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+      # Gate the push: build the amd64 image locally and run the CI checks.
+      - name: Check the image before push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: llm-proxy:release-check
+          build-args: VERSION=${{ github.ref_name }}
+          cache-from: type=gha
+      - run: scripts/check-image.sh llm-proxy:release-check && scripts/smoke-image.sh llm-proxy:release-check
       - uses: docker/build-push-action@v6
         with:
           context: .

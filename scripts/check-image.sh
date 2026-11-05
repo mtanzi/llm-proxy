@@ -8,9 +8,9 @@ max_bytes=${MAX_IMAGE_BYTES:-20971520} # 20 MiB; a build is about 6 MB with the 
 
 user=$(docker image inspect --format '{{.Config.User}}' "$image")
 case "$user" in
-65532 | 65532:65532 | nonroot | nonroot:nonroot) ;;
+65532:65532) ;;
 *)
-	echo "image runs as '$user', want uid 65532 (nonroot)" >&2
+	echo "image runs as '$user', want 65532:65532 (nonroot)" >&2
 	exit 1
 	;;
 esac
