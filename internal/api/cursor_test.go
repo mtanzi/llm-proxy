@@ -26,6 +26,14 @@ func TestCursorRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCursorRoundTripWithIndex(t *testing.T) {
+	c := core.Cursor{TS: time.Date(2026, 10, 21, 12, 0, 0, 5000, time.UTC), ID: core.NewID(), Idx: 3}
+	got, err := decodeCursor(encodeCursor(c))
+	if err != nil || !got.TS.Equal(c.TS) || got.ID != c.ID || got.Idx != 3 {
+		t.Errorf("round trip = %+v %v, want %+v", got, err, c)
+	}
+}
+
 func TestCursorRejectsTampering(t *testing.T) {
 	good := core.Cursor{TS: time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC), ID: core.NewID()}
 	raw := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
@@ -42,7 +50,11 @@ func TestCursorRejectsTampering(t *testing.T) {
 		"plus sign ts":       raw("+123." + good.ID.String()),
 		"bad id":             raw("123.not-an-id"),
 		"upper case id":      raw("123." + upper(good.ID.String())),
-		"extra field":        raw("123." + good.ID.String() + ".1"),
+		"extra field":        raw("123." + good.ID.String() + ".1.2"),
+		"zero index":         raw("123." + good.ID.String() + ".0"),
+		"leading zero index": raw("123." + good.ID.String() + ".01"),
+		"negative index":     raw("123." + good.ID.String() + ".-1"),
+		"empty index":        raw("123." + good.ID.String() + "."),
 		"ts overflow":        raw("99999999999999999999." + good.ID.String()),
 		"json shaped cursor": raw(`{"ts":1,"id":"x"}`),
 	} {

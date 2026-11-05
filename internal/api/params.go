@@ -41,28 +41,89 @@ var knownCallParams = map[string]bool{
 // range: the last 24 hours up to now.
 func parseCallParams(q url.Values, now time.Time) (callParams, *apiError) {
 	var p callParams
+	var err *apiError
+	if p.Filter, err = parseCallFilter(q, now, knownCallParams); err != nil {
+		return p, err
+	}
+	p.Page, err = parsePage(q)
+	return p, err
+}
+
+// checkKnown refuses a parameter name outside known.
+func checkKnown(q url.Values, known map[string]bool) *apiError {
 	for name := range q {
-		if !knownCallParams[name] {
-			return p, badParam(name, "unknown parameter")
+		if !known[name] {
+			return badParam(name, "unknown parameter")
 		}
 	}
-	f := &p.Filter
-	var err *apiError
+	return nil
+}
 
-	if f.From, err = timeParam(q, "from"); err != nil {
-		return p, err
+// timeRange reads from and to and applies the default range ending at now.
+func timeRange(q url.Values, now time.Time) (from, to time.Time, err *apiError) {
+	if from, err = timeParam(q, "from"); err != nil {
+		return from, to, err
 	}
-	if f.To, err = timeParam(q, "to"); err != nil {
-		return p, err
+	if to, err = timeParam(q, "to"); err != nil {
+		return from, to, err
 	}
-	if f.To.IsZero() {
-		f.To = now
+	if to.IsZero() {
+		to = now
 	}
-	if f.From.IsZero() {
-		f.From = f.To.Add(-DefaultRange)
+	if from.IsZero() {
+		from = to.Add(-DefaultRange)
 	}
-	if !f.From.Before(f.To) {
-		return p, badParam("from", "from must be before to")
+	if !from.Before(to) {
+		return from, to, badParam("from", "from must be before to")
+	}
+	return from, to, nil
+}
+
+// nonEmpty refuses an empty value of any of the named repeated parameters.
+func nonEmpty(q url.Values, names ...string) *apiError {
+	for _, name := range names {
+		for _, v := range q[name] {
+			if v == "" {
+				return badParam(name, "empty value")
+			}
+		}
+	}
+	return nil
+}
+
+// parsePage reads limit and cursor.
+func parsePage(q url.Values) (core.Page, *apiError) {
+	var page core.Page
+	limit, err := intParam(q, "limit", 1, MaxLimit)
+	if err != nil {
+		return page, err
+	}
+	page.Limit = int(limit)
+	if _, set := q["limit"]; !set {
+		page.Limit = DefaultLimit
+	}
+	if s, err := stringParam(q, "cursor"); err != nil {
+		return page, err
+	} else if s != "" {
+		c, e := decodeCursor(s)
+		if e != nil {
+			return page, &apiError{status: 400, typ: ErrInvalidCursor, message: "cursor is not valid", parameter: "cursor"}
+		}
+		page.After = &c
+	}
+	return page, nil
+}
+
+// parseCallFilter maps the call-log filter parameters of q, which must all be
+// in known. The call list and the usage query share it.
+func parseCallFilter(q url.Values, now time.Time, known map[string]bool) (core.CallFilter, *apiError) {
+	var f core.CallFilter
+	if err := checkKnown(q, known); err != nil {
+		return f, err
+	}
+	var err *apiError
+	if f.From, f.To, err = timeRange(q, now); err != nil {
+		return f, err
 	}
 
 	f.Keys = q["key"]
@@ -74,64 +135,42 @@ func parseCallParams(q url.Values, now time.Time) (callParams, *apiError) {
 	f.AgentTypes = q["agent_type"]
 	f.RequestClasses = q["request_class"]
 	f.Tools = q["tool"]
-	for _, name := range []string{"key", "client", "provider", "model", "endpoint", "error_class", "agent_type", "request_class", "tool"} {
-		for _, v := range q[name] {
-			if v == "" {
-				return p, badParam(name, "empty value")
-			}
-		}
+	if err := nonEmpty(q, "key", "client", "provider", "model", "endpoint", "error_class", "agent_type", "request_class", "tool"); err != nil {
+		return f, err
 	}
 	for _, v := range q["status"] {
 		n, e := strconv.Atoi(v)
 		if e != nil || n < 100 || n > 599 {
-			return p, badParam("status", fmt.Sprintf("%q is not an HTTP status", v))
+			return f, badParam("status", fmt.Sprintf("%q is not an HTTP status", v))
 		}
 		f.Statuses = append(f.Statuses, n)
 	}
 	if f.Streamed, err = boolParam(q, "streamed"); err != nil {
-		return p, err
+		return f, err
 	}
 	if f.ToolError, err = boolParam(q, "tool_error"); err != nil {
-		return p, err
+		return f, err
 	}
 	if f.SessionKey, err = stringParam(q, "session"); err != nil {
-		return p, err
+		return f, err
 	}
 	if f.AgentID, err = stringParam(q, "agent"); err != nil {
-		return p, err
+		return f, err
 	}
 	if f.PromptID, err = stringParam(q, "prompt"); err != nil {
-		return p, err
+		return f, err
 	}
 	ms, err := intParam(q, "latency_ms_gte", 0, 1<<40)
 	if err != nil {
-		return p, err
+		return f, err
 	}
 	f.MinLatency = time.Duration(ms) * time.Millisecond
 	cost, err := intParam(q, "cost_micro_usd_gte", 0, 1<<62)
 	if err != nil {
-		return p, err
+		return f, err
 	}
 	f.MinCost = core.MicroUSD(cost)
-
-	limit, err := intParam(q, "limit", 1, MaxLimit)
-	if err != nil {
-		return p, err
-	}
-	p.Page.Limit = int(limit)
-	if _, set := q["limit"]; !set {
-		p.Page.Limit = DefaultLimit
-	}
-	if s, err := stringParam(q, "cursor"); err != nil {
-		return p, err
-	} else if s != "" {
-		c, e := decodeCursor(s)
-		if e != nil {
-			return p, &apiError{status: 400, typ: ErrInvalidCursor, message: "cursor is not valid", parameter: "cursor"}
-		}
-		p.Page.After = &c
-	}
-	return p, nil
+	return f, nil
 }
 
 // single returns the one value of name, whether it is present, or an error when

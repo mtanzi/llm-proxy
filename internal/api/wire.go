@@ -154,3 +154,166 @@ func usageRaw(raw json.RawMessage) json.RawMessage {
 	}
 	return raw
 }
+
+type sessionSummaryJSON struct {
+	SessionKey   string         `json:"session_key"`
+	Key          string         `json:"key"`
+	Client       string         `json:"client"`
+	FirstTS      time.Time      `json:"first_ts"`
+	LastTS       time.Time      `json:"last_ts"`
+	Calls        int            `json:"calls"`
+	Errors       int            `json:"errors"`
+	AgentCount   int            `json:"agent_count"`
+	Models       []string       `json:"models"`
+	Usage        usageJSON      `json:"usage"`
+	CostMicroUSD *core.MicroUSD `json:"cost_micro_usd"`
+}
+
+func toSessionSummary(s core.SessionSummary) sessionSummaryJSON {
+	models := s.Models
+	if models == nil {
+		models = []string{}
+	}
+	return sessionSummaryJSON{
+		SessionKey: s.SessionKey, Key: s.KeyName, Client: s.Client, FirstTS: s.FirstTS.UTC(), LastTS: s.LastTS.UTC(),
+		Calls: s.Calls, Errors: s.Errors, AgentCount: s.AgentCount, Models: models, Usage: toUsage(s.Usage), CostMicroUSD: s.Cost,
+	}
+}
+
+type sessionListJSON struct {
+	Sessions   []sessionSummaryJSON `json:"sessions"`
+	NextCursor *string              `json:"next_cursor"`
+}
+
+type agentJSON struct {
+	AgentID       string `json:"agent_id"`
+	ParentAgentID string `json:"parent_agent_id"`
+	AgentType     string `json:"agent_type"`
+	Calls         int    `json:"calls"`
+}
+
+type promptJSON struct {
+	PromptID     string         `json:"prompt_id"`
+	FirstTS      time.Time      `json:"first_ts"`
+	Calls        int            `json:"calls"`
+	Usage        usageJSON      `json:"usage"`
+	CostMicroUSD *core.MicroUSD `json:"cost_micro_usd"`
+}
+
+// sessionDetailJSON nests the summary: its calls count and the calls list
+// would otherwise share one name.
+type sessionDetailJSON struct {
+	Summary sessionSummaryJSON `json:"summary"`
+	Agents  []agentJSON        `json:"agents"`
+	Prompts []promptJSON       `json:"prompts"`
+	Calls   []callSummaryJSON  `json:"calls"`
+}
+
+func toSessionDetail(d core.SessionDetail) sessionDetailJSON {
+	out := sessionDetailJSON{
+		Summary: toSessionSummary(d.SessionSummary),
+		Agents:  make([]agentJSON, 0, len(d.Agents)),
+		Prompts: make([]promptJSON, 0, len(d.Prompts)),
+		Calls:   make([]callSummaryJSON, 0, len(d.Calls)),
+	}
+	for _, a := range d.Agents {
+		out.Agents = append(out.Agents, agentJSON{a.AgentID, a.ParentAgentID, a.AgentType, a.Calls})
+	}
+	for _, p := range d.Prompts {
+		out.Prompts = append(out.Prompts, promptJSON{p.PromptID, p.FirstTS.UTC(), p.Calls, toUsage(p.Usage), p.Cost})
+	}
+	for _, c := range d.Calls {
+		out.Calls = append(out.Calls, toCallSummary(c))
+	}
+	return out
+}
+
+// toolCallJSON is one tool call. A half that is missing reads as null, and a
+// duration with no source (an unmatched half) reads as null with it.
+type toolCallJSON struct {
+	ToolCallID     string               `json:"tool_call_id"`
+	Name           string               `json:"name"`
+	Source         core.ToolSource      `json:"source"`
+	Status         core.ToolCallStatus  `json:"status"`
+	SessionKey     string               `json:"session_key"`
+	AgentID        string               `json:"agent_id"`
+	UseCallID      *string              `json:"use_call_id"`
+	ResultCallID   *string              `json:"result_call_id"`
+	UseTS          *time.Time           `json:"use_ts"`
+	ResultTS       *time.Time           `json:"result_ts"`
+	DurationMs     *int64               `json:"duration_ms"`
+	DurationSource *core.DurationSource `json:"duration_source"`
+	IsError        *bool                `json:"is_error"`
+	ArgBytes       int                  `json:"arg_bytes"`
+	ResultBytes    int                  `json:"result_bytes"`
+}
+
+func toToolCall(t core.ToolCall) toolCallJSON {
+	out := toolCallJSON{
+		ToolCallID: t.ToolCallID, Name: t.Name, Source: t.Source, Status: t.Status, SessionKey: t.SessionKey,
+		AgentID: t.AgentID, IsError: t.IsError, ArgBytes: t.ArgBytes, ResultBytes: t.ResultBytes,
+	}
+	if !t.UseCallID.IsZero() {
+		s := t.UseCallID.String()
+		out.UseCallID = &s
+	}
+	if !t.ResultCallID.IsZero() {
+		s := t.ResultCallID.String()
+		out.ResultCallID = &s
+	}
+	if !t.UseTS.IsZero() {
+		ts := t.UseTS.UTC()
+		out.UseTS = &ts
+	}
+	if !t.ResultTS.IsZero() {
+		ts := t.ResultTS.UTC()
+		out.ResultTS = &ts
+	}
+	if t.DurationSource != "" {
+		ms, src := t.Duration.Milliseconds(), t.DurationSource
+		out.DurationMs, out.DurationSource = &ms, &src
+	}
+	return out
+}
+
+type toolCallListJSON struct {
+	ToolCalls  []toolCallJSON `json:"tool_calls"`
+	NextCursor *string        `json:"next_cursor"`
+}
+
+type toolStatJSON struct {
+	Name            string  `json:"name"`
+	AgentType       string  `json:"agent_type"`
+	Count           int     `json:"count"`
+	Errors          int     `json:"errors"`
+	ErrorRate       float64 `json:"error_rate"`
+	DurationP50Ms   int64   `json:"duration_p50_ms"`
+	DurationP95Ms   int64   `json:"duration_p95_ms"`
+	TotalDurationMs int64   `json:"total_duration_ms"`
+}
+
+type toolSummaryJSON struct {
+	Tools []toolStatJSON `json:"tools"`
+}
+
+type usageBucketJSON struct {
+	Start          time.Time `json:"start"`
+	Group          string    `json:"group"`
+	Calls          int       `json:"calls"`
+	Errors         int       `json:"errors"`
+	Usage          usageJSON `json:"usage"`
+	CostMicroUSD   int64     `json:"cost_micro_usd"`
+	UnpricedCalls  int       `json:"unpriced_calls"`
+	EstimatedCalls int       `json:"estimated_calls"`
+	NoUsageCalls   int       `json:"no_usage_calls"`
+	LatencyP50Ms   int64     `json:"latency_p50_ms"`
+	LatencyP95Ms   int64     `json:"latency_p95_ms"`
+	LatencyP99Ms   int64     `json:"latency_p99_ms"`
+	CacheHitRatio  *float64  `json:"cache_hit_ratio"`
+}
+
+type usageSeriesJSON struct {
+	GroupBy *core.UsageGroup  `json:"group_by"`
+	Grain   core.Grain        `json:"grain"`
+	Buckets []usageBucketJSON `json:"buckets"`
+}
