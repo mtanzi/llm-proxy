@@ -3,7 +3,7 @@ import { buildQuery } from '../api/client'
 import { insertLive } from '../views/callLogRows'
 import type { CallSummary, CallsQuery } from '../views/callLogRows'
 
-export type LiveStatus = 'off' | 'connecting' | 'live' | 'reconnecting'
+export type LiveStatus = 'off' | 'connecting' | 'live' | 'reconnecting' | 'closed'
 
 interface Held {
   url: string
@@ -16,18 +16,21 @@ interface Held {
  * kept. The server does not replay, so after a reconnect `onReconnect` runs
  * (the caller refetches the first page) and the caller de-duplicates by id.
  * Rows are tied to the stream URL: another filter starts with an empty list.
+ * A stream the browser gives up on is 'closed' until `retry` opens a new one.
  */
 export function useLiveCalls(
   enabled: boolean,
   query: CallsQuery,
   onReconnect: () => void,
-): { rows: CallSummary[]; status: LiveStatus } {
+): { rows: CallSummary[]; status: LiveStatus; retry: () => void } {
   const url = '/admin/stream' + buildQuery(query as Record<string, unknown>)
   const [held, setHeld] = useState<Held>({ url, rows: [] })
   const [connection, setConnection] = useState<{ url: string; status: LiveStatus }>({
     url,
     status: 'connecting',
   })
+  const [attempt, setAttempt] = useState(0)
+  const retry = useCallback(() => setAttempt((n) => n + 1), [])
   const reconnect = useRef(onReconnect)
   useEffect(() => {
     reconnect.current = onReconnect
@@ -43,7 +46,7 @@ export function useLiveCalls(
   useEffect(() => {
     if (!enabled) return
     const source = new EventSource(url)
-    let failed = false
+    let failed = attempt > 0
     source.onopen = () => {
       setConnection({ url, status: 'live' })
       if (failed) {
@@ -52,9 +55,9 @@ export function useLiveCalls(
       }
     }
     source.onerror = () => {
-      // The browser reconnects by itself; the next open triggers the refetch.
+      // The browser reconnects by itself unless it closed the source; the next open triggers the refetch.
       failed = true
-      setConnection({ url, status: 'reconnecting' })
+      setConnection({ url, status: source.readyState === EventSource.CLOSED ? 'closed' : 'reconnecting' })
     }
     source.addEventListener('call.finished', (event) => {
       try {
@@ -63,12 +66,17 @@ export function useLiveCalls(
         // A frame that is not a call is skipped.
       }
     })
-    return () => source.close()
-  }, [enabled, url, push])
+    return () => {
+      source.close()
+      setHeld({ url, rows: [] })
+      setConnection({ url, status: 'connecting' })
+    }
+  }, [enabled, url, push, attempt])
 
-  if (!enabled) return { rows: [], status: 'off' }
+  if (!enabled) return { rows: [], status: 'off', retry }
   return {
     rows: held.url === url ? held.rows : [],
     status: connection.url === url ? connection.status : 'connecting',
+    retry,
   }
 }

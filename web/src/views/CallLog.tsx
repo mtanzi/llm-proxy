@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
 import { infiniteListOptions, readQueryOptions } from '../api/queries'
 import { listQueryKey } from '../api/keys'
@@ -15,6 +15,7 @@ import {
 import { ErrorMessage } from '../components/states'
 import { TimeRangePicker } from '../components/TimeRangePicker'
 import { VolumeChart } from '../components/VolumeChart'
+import type { Grain } from '../components/VolumeChart'
 import { useLiveCalls } from '../hooks/useLiveCalls'
 import {
   formatCappedCount,
@@ -39,8 +40,6 @@ import type { CallSummary, LogRow } from './callLogRows'
 
 const PAGE_SIZE = 100
 
-type Grain = 'minute' | 'hour' | 'day'
-
 function grainFor(from: string, to: string): Grain {
   const span = Date.parse(to) - Date.parse(from)
   if (span <= 2 * 3_600_000) return 'minute'
@@ -48,8 +47,10 @@ function grainFor(from: string, to: string): Grain {
   return 'day'
 }
 
-function sumKnown(values: (number | null)[]): number | null {
-  const known = values.filter((v): v is number => v !== null)
+type Measure = (c: CallSummary) => number | null
+
+function sumKnown(calls: CallSummary[], measure: Measure): number | null {
+  const known = calls.map(measure).filter((v): v is number => v !== null)
   return known.length === 0 ? null : known.reduce((a, b) => a + b, 0)
 }
 
@@ -72,6 +73,29 @@ function turnsLabel(row: LogRow): string | null {
 const rowCalls = (row: LogRow): CallSummary[] => (row.kind === 'group' ? row.calls : [row.call])
 const first = (row: LogRow): CallSummary => rowCalls(row)[0]
 
+function promptLabel(row: LogRow): string {
+  const prompts = new Set(rowCalls(row).map((c) => c.prompt_id ?? ''))
+  return prompts.size > 1 ? `${prompts.size} prompts` : formatText([...prompts][0])
+}
+
+/** A group total over the known values; the turns whose value is not known are counted next to it. */
+function Total({ row, measure, format }: { row: LogRow; measure: Measure; format: (v: number | null) => string }) {
+  const calls = rowCalls(row)
+  const total = sumKnown(calls, measure)
+  const missing = calls.filter((c) => measure(c) === null).length
+  return (
+    <>
+      <Maybe text={format(total)} />
+      {total !== null && missing > 0 && <small className="unknown"> (+{missing} unknown)</small>}
+    </>
+  )
+}
+
+const latency: Measure = (c) => zeroAsUnknown(c.duration_ms)
+const inputTokens: Measure = (c) => zeroAsUnknown(tokensIn(c))
+const outputTokens: Measure = (c) => zeroAsUnknown(c.usage.output)
+const cost: Measure = (c) => c.cost_micro_usd
+
 const columns: ColumnDef<LogRow>[] = [
   {
     id: 'time',
@@ -82,23 +106,30 @@ const columns: ColumnDef<LogRow>[] = [
   },
   {
     id: 'session',
-    header: 'Session',
+    header: 'Session and prompt',
     size: 220,
     enableSorting: false,
     cell: ({ row }) => {
       const session = first(row.original).session_key
-      if (session === '') return <Unknown />
       const turns = turnsLabel(row.original)
       return (
         <>
-          <Link
-            to="/sessions/$key"
-            params={{ key: session }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {session}
-          </Link>
+          {session === '' ? (
+            <Unknown />
+          ) : (
+            <Link
+              to="/sessions/$key"
+              params={{ key: session }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {session}
+            </Link>
+          )}
           {turns && <span className="badge">{turns}</span>}
+          <br />
+          <small>
+            <Maybe text={promptLabel(row.original)} />
+          </small>
         </>
       )
     },
@@ -139,29 +170,29 @@ const columns: ColumnDef<LogRow>[] = [
     id: 'latency',
     header: 'Latency',
     size: 100,
-    accessorFn: (r) => sumKnown(rowCalls(r).map((c) => zeroAsUnknown(c.duration_ms))),
-    cell: ({ getValue }) => <Maybe text={formatDurationMs(getValue<number | null>())} />,
+    accessorFn: (r) => sumKnown(rowCalls(r), latency),
+    cell: ({ row }) => <Total row={row.original} measure={latency} format={formatDurationMs} />,
   },
   {
     id: 'tokens_in',
     header: 'Tokens in',
     size: 100,
-    accessorFn: (r) => sumKnown(rowCalls(r).map((c) => zeroAsUnknown(tokensIn(c)))),
-    cell: ({ getValue }) => <Maybe text={formatCount(getValue<number | null>())} />,
+    accessorFn: (r) => sumKnown(rowCalls(r), inputTokens),
+    cell: ({ row }) => <Total row={row.original} measure={inputTokens} format={formatCount} />,
   },
   {
     id: 'tokens_out',
     header: 'Tokens out',
     size: 100,
-    accessorFn: (r) => sumKnown(rowCalls(r).map((c) => zeroAsUnknown(c.usage.output))),
-    cell: ({ getValue }) => <Maybe text={formatCount(getValue<number | null>())} />,
+    accessorFn: (r) => sumKnown(rowCalls(r), outputTokens),
+    cell: ({ row }) => <Total row={row.original} measure={outputTokens} format={formatCount} />,
   },
   {
     id: 'cost',
     header: 'Cost',
     size: 100,
-    accessorFn: (r) => sumKnown(rowCalls(r).map((c) => c.cost_micro_usd)),
-    cell: ({ getValue }) => <Maybe text={formatCostMicroUsd(getValue<number | null>())} />,
+    accessorFn: (r) => sumKnown(rowCalls(r), cost),
+    cell: ({ row }) => <Total row={row.original} measure={cost} format={formatCostMicroUsd} />,
   },
   {
     id: 'tools',
@@ -180,21 +211,24 @@ export function CallLogView() {
   const navigate = useNavigate({ from: '/calls/' })
   const queryClient = useQueryClient()
 
-  // The window is fixed per set of search parameters, so the query key is stable.
+  // The window is fixed per set of search parameters and `now`, so the query key is stable.
+  // `now` moves when the list must catch up with calls the stream may have missed.
+  const [now, setNow] = useState(() => new Date())
   const rangeKey = `${search.range ?? ''}|${search.from ?? ''}|${search.to ?? ''}`
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const window = useMemo(() => resolveTimeRange(search, new Date()), [rangeKey])
+  const window = useMemo(() => resolveTimeRange(search, now), [rangeKey, now])
   const filterKey = JSON.stringify(filterQuery(search))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const filters = useMemo(() => filterQuery(search), [filterKey])
   const live = search.live === true
 
   const listQuery = { ...filters, ...window, limit: PAGE_SIZE }
+  const grain = grainFor(window.from, window.to)
   const list = useInfiniteQuery(infiniteListOptions('/admin/calls', listQuery, { live }))
   const usage = useQuery(
     readQueryOptions(
       '/admin/usage',
-      { query: { ...filters, ...window, grain: grainFor(window.from, window.to) } },
+      { query: { ...filters, ...window, grain } },
       { live },
     ),
   )
@@ -202,14 +236,12 @@ export function CallLogView() {
   const streamKey = JSON.stringify(streamQuery(search))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const streamParams = useMemo(() => streamQuery(search), [streamKey])
-  const stream = useLiveCalls(
-    live,
-    streamParams,
-    () => {
-      // The stream does not replay: reload the first page after a reconnect.
-      void queryClient.resetQueries({ queryKey: listQueryKey('/admin/calls', listQuery) })
-    },
-  )
+  // The stream does not replay: reload the first page, up to now, after a reconnect or when live starts.
+  const catchUp = () => {
+    if (search.to === undefined) setNow(new Date())
+    else void queryClient.resetQueries({ queryKey: listQueryKey('/admin/calls', listQuery) })
+  }
+  const stream = useLiveCalls(live, streamParams, catchUp)
 
   const paged = useMemo(() => list.data?.pages.flatMap((p) => p.calls) ?? [], [list.data])
   const calls = useMemo(() => mergeRows(stream.rows, paged), [stream.rows, paged])
@@ -273,14 +305,28 @@ export function CallLogView() {
           <input
             type="checkbox"
             checked={live}
-            onChange={(e) => update({ live: e.target.checked ? true : undefined })}
+            onChange={(e) => {
+              if (e.target.checked) catchUp()
+              update({ live: e.target.checked ? true : undefined })
+            }}
           />
           Live
         </label>
         {live && (
           <span className="state" role="status" aria-live="polite">
-            {stream.status === 'live' ? 'Live' : stream.status === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}
+            {stream.status === 'live'
+              ? 'Live'
+              : stream.status === 'reconnecting'
+                ? 'Reconnecting…'
+                : stream.status === 'closed'
+                  ? 'Stream closed'
+                  : 'Connecting…'}
           </span>
+        )}
+        {live && stream.status === 'closed' && (
+          <button type="button" onClick={stream.retry}>
+            Retry stream
+          </button>
         )}
       </div>
 
@@ -302,7 +348,7 @@ export function CallLogView() {
         )}
       </div>
 
-      {!usage.isError && <VolumeChart points={buckets} />}
+      {!usage.isError && <VolumeChart points={buckets} from={window.from} to={window.to} grain={grain} />}
 
       <DataTable<LogRow>
         label="Calls"

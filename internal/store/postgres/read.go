@@ -130,7 +130,7 @@ func (s *Store) GetCall(ctx context.Context, id core.ID) (core.CallDetail, error
 // costMicro reads cost_usd back as the exact count of millionths.
 const costMicro = `(c.cost_usd * 1000000)::bigint`
 
-const summaryColumns = `c.id, c.ts, c.key_name, c.client, c.session_key, c.agent_id, c.provider, c.model,
+const summaryColumns = `c.id, c.ts, c.key_name, c.client, c.session_key, c.agent_id, c.prompt_id, c.provider, c.model,
 	c.status, c.error_class, c.stop_reason, c.streamed, c.context_compacted, c.ttft_ms, c.duration_ms,
 	c.input_uncached, c.cache_read, c.cache_write_5m, c.cache_write_1h, c.output, c.reasoning, ` + costMicro + `,
 	(SELECT count(*) FROM tool_events u WHERE u.call_id = c.id AND u.kind = 'use')`
@@ -148,19 +148,19 @@ const detailColumns = `c.id, c.ts, c.key_name, c.client, c.client_raw, c.client_
 // scanSummary maps one row of summaryColumns to a core.CallSummary.
 func scanSummary(r pgx.CollectableRow) (core.CallSummary, error) {
 	var (
-		id                                         pgtype.UUID
-		ts                                         time.Time
-		key                                        string
-		client, session, agent, model, class, stop *string
-		provider                                   string
-		status                                     *int16
-		streamed, compacted                        bool
-		ttft, dur                                  *int32
-		u                                          core.Usage
-		costM                                      *int64
-		tools                                      int
+		id                                                 pgtype.UUID
+		ts                                                 time.Time
+		key                                                string
+		client, session, agent, prompt, model, class, stop *string
+		provider                                           string
+		status                                             *int16
+		streamed, compacted                                bool
+		ttft, dur                                          *int32
+		u                                                  core.Usage
+		costM                                              *int64
+		tools                                              int
 	)
-	err := r.Scan(&id, &ts, &key, &client, &session, &agent, &provider, &model,
+	err := r.Scan(&id, &ts, &key, &client, &session, &agent, &prompt, &provider, &model,
 		&status, &class, &stop, &streamed, &compacted, &ttft, &dur,
 		&u.InputUncached, &u.CacheRead, &u.CacheWrite5m, &u.CacheWrite1h, &u.Output, &u.Reasoning, &costM, &tools)
 	if err != nil {
@@ -168,7 +168,7 @@ func scanSummary(r pgx.CollectableRow) (core.CallSummary, error) {
 	}
 	return core.CallSummary{
 		ID: core.ID(id.Bytes), TS: ts.UTC(), KeyName: key, Client: str(client), SessionKey: str(session),
-		AgentID: str(agent), Provider: provider, Model: str(model), Status: code(status),
+		AgentID: str(agent), PromptID: str(prompt), Provider: provider, Model: str(model), Status: code(status),
 		ErrorClass: str(class), StopReason: str(stop), Streamed: streamed,
 		TTFT: ms(ttft), Duration: ms(dur), Usage: u, Cost: micro(costM), ToolCount: tools,
 		ContextCompacted: compacted,

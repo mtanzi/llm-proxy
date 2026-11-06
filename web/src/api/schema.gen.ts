@@ -295,6 +295,8 @@ export interface components {
             client: string;
             session_key: string;
             agent_id: string;
+            /** @description Prompt id; empty when not known. */
+            prompt_id?: string;
             provider: string;
             model: string;
             status: number;

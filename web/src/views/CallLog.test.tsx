@@ -9,7 +9,9 @@ import { call } from './callLogRows.test'
 import type { CallSummary } from './callLogRows'
 
 class FakeEventSource {
+  static CLOSED = 2
   static instances: FakeEventSource[] = []
+  readyState = 0
   onopen: (() => void) | null = null
   onerror: (() => void) | null = null
   closed = false
@@ -27,6 +29,10 @@ class FakeEventSource {
     act(() => this.onopen?.())
   }
   fail() {
+    act(() => this.onerror?.())
+  }
+  refuse() {
+    this.readyState = FakeEventSource.CLOSED
     act(() => this.onerror?.())
   }
   finish(c: CallSummary) {
@@ -100,13 +106,20 @@ beforeEach(() => {
   })
 })
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 test('shows rows, summary strip and capped count; a row opens V3 and a session opens V2', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-01T12:00:00Z'))
   stubApi(() =>
-    new Response(JSON.stringify(list([call('c1', { session_key: 'sess/1', cost_micro_usd: null })], { count: 10000, count_capped: true }))),
+    new Response(
+      JSON.stringify(
+        list([call('c1', { session_key: 'sess/1', prompt_id: 'prompt-7', cost_micro_usd: null })], { count: 10000, count_capped: true }),
+      ),
+    ),
   )
   const { router, container } = await renderAt('/ui/calls')
   await screen.findByText('claude-code')
@@ -115,6 +128,7 @@ test('shows rows, summary strip and capped count; a row opens V3 and a session o
   expect(within(strip).getByText('$2.50')).toBeTruthy()
   expect(within(strip).getByText(/1 calls unpriced/)).toBeTruthy()
   expect(screen.getByRole('img', { name: /3 calls, 1 with errors/ })).toBeTruthy()
+  expect(within(tableRows()[0]).getByText('prompt-7')).toBeTruthy()
   // Unknown cost is not zero.
   expect(within(tableRows()[0]).getAllByText('unknown').length).toBeGreaterThan(0)
   expect((await axe.run(container)).violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([])
@@ -161,21 +175,27 @@ test('group by session folds consecutive calls and is kept in the URL', async ()
     new Response(
       JSON.stringify(
         list([
-          call('c1', { session_key: 's1', cost_micro_usd: 1_000_000 }),
-          call('c2', { session_key: 's1', cost_micro_usd: 2_000_000 }),
+          call('c1', { session_key: 's1', prompt_id: 'p1', cost_micro_usd: 1_000_000 }),
+          call('c2', { session_key: 's1', prompt_id: 'p2', cost_micro_usd: 2_000_000 }),
           call('c3', { session_key: '' }),
+          call('c4', { session_key: 's2', cost_micro_usd: 1_000_000 }),
+          call('c5', { session_key: 's2', cost_micro_usd: null }),
         ]),
       ),
     ),
   )
   const { router } = await renderAt('/ui/calls')
   await screen.findAllByText('claude-code')
-  expect(tableRows()).toHaveLength(3)
+  expect(tableRows()).toHaveLength(5)
   fireEvent.click(screen.getByLabelText('Group by session'))
   await waitFor(() => expect(search(router).group).toBe('session'))
-  await waitFor(() => expect(tableRows()).toHaveLength(2))
-  expect(screen.getByText('2 turns')).toBeTruthy()
+  await waitFor(() => expect(tableRows()).toHaveLength(3))
+  expect(screen.getAllByText('2 turns')).toHaveLength(2)
   expect(within(tableRows()[0]).getByText('$3.00')).toBeTruthy()
+  expect(within(tableRows()[0]).getByText('2 prompts')).toBeTruthy()
+  // A turn with an unknown cost is not counted as zero.
+  expect(within(tableRows()[2]).getByText('$1.00')).toBeTruthy()
+  expect(within(tableRows()[2]).getByText(/\+1 unknown/)).toBeTruthy()
   // A group row opens the session.
   fireEvent.click(tableRows()[0])
   await waitFor(() => expect(router.state.location.pathname).toBe('/sessions/s1'))
@@ -210,9 +230,47 @@ test('live toggle opens the stream with the filters, inserts at the top and caps
   fireEvent.click(screen.getByLabelText('Live'))
   await waitFor(() => expect(es.closed).toBe(true))
   await waitFor(() => expect(body.getAttribute('aria-rowcount')).toBe('2'))
+
+  // Live again with the same filters: a new stream, no rows or status from the old one.
+  fireEvent.click(screen.getByLabelText('Live'))
+  await waitFor(() => expect(FakeEventSource.instances).toHaveLength(2))
+  expect(screen.getByRole('status').textContent).toBe('Connecting…')
+  await waitFor(() => expect(body.getAttribute('aria-rowcount')).toBe('2'))
+})
+
+test('turning live on reloads the first page up to now', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-01T10:00:00Z'))
+  const urls = stubApi(() => new Response(JSON.stringify(list([call('old')]))))
+  await renderAt('/ui/calls')
+  await screen.findByText('claude-code')
+  expect(new URL(listUrls(urls)[0], 'http://x').searchParams.get('to')).toBe('2026-11-01T10:00:00.000Z')
+  vi.setSystemTime(new Date('2026-11-01T11:00:00Z'))
+  fireEvent.click(screen.getByLabelText('Live'))
+  await waitFor(() =>
+    expect(new URL(listUrls(urls).at(-1)!, 'http://x').searchParams.get('to')).toBe('2026-11-01T11:00:00.000Z'),
+  )
+})
+
+test('a stream the browser closes shows it and can be retried', async () => {
+  const urls = stubApi(() => new Response(JSON.stringify(list([call('old')]))))
+  await renderAt('/ui/calls?live=true')
+  await screen.findByText('claude-code')
+  await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1))
+  FakeEventSource.instances[0].refuse()
+  await screen.findByText('Stream closed')
+  const before = listUrls(urls).length
+  fireEvent.click(screen.getByRole('button', { name: 'Retry stream' }))
+  await waitFor(() => expect(FakeEventSource.instances).toHaveLength(2))
+  expect(FakeEventSource.instances[0].closed).toBe(true)
+  FakeEventSource.instances[1].open()
+  await screen.findByText('Live', { selector: '[role=status]' })
+  await waitFor(() => expect(listUrls(urls).length).toBe(before + 1))
 })
 
 test('reconnect refetches the first page and de-duplicates live rows by call id', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-01T10:00:00Z'))
   let page = [call('old')]
   const urls = stubApi(() => new Response(JSON.stringify(list(page))))
   await renderAt('/ui/calls?live=true')
@@ -228,13 +286,28 @@ test('reconnect refetches the first page and de-duplicates live rows by call id'
   page = [call('missed', { client: 'dup-client' }), call('old')]
   es.fail()
   await screen.findByText('Reconnecting…')
+  vi.setSystemTime(new Date('2026-11-01T10:32:00Z'))
   es.open()
   await waitFor(() => expect(listUrls(urls).length).toBe(before + 1))
-  expect(new URL(listUrls(urls).at(-1)!, 'http://x').searchParams.get('cursor')).toBeNull()
+  const refetched = new URL(listUrls(urls).at(-1)!, 'http://x').searchParams
+  expect(refetched.get('cursor')).toBeNull()
+  // The reloaded page reaches the reconnect time, not the mount time.
+  expect(refetched.get('to')).toBe('2026-11-01T10:32:00.000Z')
   await waitFor(() => expect(screen.getByRole('table', { name: 'Calls' }).getAttribute('aria-rowcount')).toBe('3'))
   expect(screen.getAllByText('dup-client')).toHaveLength(1)
   // A first open without an error does not refetch.
   expect(FakeEventSource.instances).toHaveLength(1)
+})
+
+test('the volume chart has one slot per interval, empty intervals included', async () => {
+  stubApi(() => new Response(JSON.stringify(list([call('c1')]))))
+  const { container } = await renderAt('/ui/calls?from=2026-11-01T00:00:00Z&to=2026-11-02T00:00:00Z')
+  await screen.findByText('claude-code')
+  await screen.findByRole('img', { name: /3 calls, 1 with errors, in 24 intervals/ })
+  const bars = container.querySelectorAll('.volume-chart rect.bar')
+  expect(bars).toHaveLength(1)
+  // The 10:00 bucket is the eleventh of 24 hours.
+  expect(bars[0].getAttribute('x')).toBe('250')
 })
 
 test('virtualises 5,000 rows', async () => {

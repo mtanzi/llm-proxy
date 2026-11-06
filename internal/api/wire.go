@@ -30,6 +30,7 @@ type callSummaryJSON struct {
 	Client           string         `json:"client"`
 	SessionKey       string         `json:"session_key"`
 	AgentID          string         `json:"agent_id"`
+	PromptID         string         `json:"prompt_id"`
 	Provider         string         `json:"provider"`
 	Model            string         `json:"model"`
 	Status           int            `json:"status"`
@@ -47,7 +48,7 @@ type callSummaryJSON struct {
 func toCallSummary(c core.CallSummary) callSummaryJSON {
 	return callSummaryJSON{
 		ID: c.ID.String(), TS: c.TS.UTC(), Key: c.KeyName, Client: c.Client, SessionKey: c.SessionKey,
-		AgentID: c.AgentID, Provider: c.Provider, Model: c.Model, Status: c.Status, ErrorClass: c.ErrorClass,
+		AgentID: c.AgentID, PromptID: c.PromptID, Provider: c.Provider, Model: c.Model, Status: c.Status, ErrorClass: c.ErrorClass,
 		StopReason: c.StopReason, Streamed: c.Streamed, TTFTMs: c.TTFT.Milliseconds(), DurationMs: c.Duration.Milliseconds(),
 		Usage: toUsage(c.Usage), CostMicroUSD: c.Cost, ToolCount: c.ToolCount, ContextCompacted: c.ContextCompacted,
 	}

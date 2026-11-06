@@ -30,6 +30,7 @@ type CallSummary struct {
 	Client     string
 	SessionKey string
 	AgentID    string
+	PromptID   string
 	Provider   string
 	Model      string
 	Status     int
