@@ -1,6 +1,6 @@
 # ADR 0030: UI foundation: routing, typed API client, query state and tables
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

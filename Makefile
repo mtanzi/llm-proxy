@@ -9,7 +9,7 @@ GOTAGS = $(shell test -f $(UI_DIST) || echo -tags noui)
 # Not ./...: that would walk web/node_modules, where npm packages may ship Go.
 PKGS := ./api/... ./cmd/... ./internal/...
 
-.PHONY: build test e2e lint check-imports check-openapi vet goldens ui-build ui-dev ui-check
+.PHONY: build test e2e lint check-imports check-openapi vet goldens ui-build ui-dev ui-check ui-gen
 
 build:
 	CGO_ENABLED=0 go build $(GOTAGS) -trimpath -ldflags "$(LDFLAGS)" -o bin/llm-proxy ./cmd/llm-proxy
@@ -44,9 +44,16 @@ ui-build:
 ui-dev:
 	cd web && npm ci && npm run dev
 
-# Lint, type-check and unit-test the web UI. CI runs it.
+# Regenerate web/src/api/schema.gen.ts from api/openapi.yaml (ADR 0030). Commit
+# the result. The container build does not run it: it copies only web/.
+ui-gen:
+	cd web && npm ci && npm run gen:api
+
+# Lint, type-check and unit-test the web UI, and check that the committed
+# generated API types match api/openapi.yaml. CI runs it.
 ui-check:
-	cd web && npm ci && npm run lint && npm run typecheck && npm test
+	cd web && npm ci && npm run gen:api && git diff --exit-code -- src/api/schema.gen.ts
+	cd web && npm run lint && npm run typecheck && npm test
 
 # Lint the OpenAPI document with a pinned linter. Needs Node; CI runs it.
 check-openapi:

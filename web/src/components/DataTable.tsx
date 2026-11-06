@@ -1,0 +1,198 @@
+import {
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable,
+} from '@tanstack/react-table'
+import type { ColumnDef, SortingState, VisibilityState } from '@tanstack/react-table'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { useEffect, useRef, useState } from 'react'
+import { EmptyState, ErrorMessage, LoadingState } from './states'
+
+export interface DataTableProps<T> {
+  data: T[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  columns: ColumnDef<T, any>[]
+  getRowId: (row: T) => string
+  /** Accessible name of the table. */
+  label: string
+  isLoading?: boolean
+  error?: unknown
+  onRetry?: () => void
+  emptyMessage?: React.ReactNode
+  onRowClick?: (row: T) => void
+  /** Called when the last rows scroll into view: fetch the next page. */
+  onEndReached?: () => void
+  isFetchingNextPage?: boolean
+  rowHeight?: number
+  /** Height of the scroll area in px. */
+  height?: number
+}
+
+const OVERSCAN = 8
+const END_THRESHOLD = 5
+
+/**
+ * Table for long lists (ADR 0030): TanStack Table for columns, sorting of the
+ * loaded rows, visibility and sizing; TanStack Virtual keeps only visible rows
+ * in the DOM.
+ */
+export function DataTable<T>({
+  data,
+  columns,
+  getRowId,
+  label,
+  isLoading = false,
+  error,
+  onRetry,
+  emptyMessage = 'No rows.',
+  onRowClick,
+  onEndReached,
+  isFetchingNextPage = false,
+  rowHeight = 36,
+  height = 480,
+}: DataTableProps<T>) {
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // TanStack Table returns unmemoizable functions; the React Compiler skips this component.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data,
+    columns,
+    getRowId,
+    state: { sorting, columnVisibility },
+    onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  })
+  const rows = table.getRowModel().rows
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => rowHeight,
+    overscan: OVERSCAN,
+  })
+  const items = virtualizer.getVirtualItems()
+  const lastIndex = items.length > 0 ? items[items.length - 1].index : -1
+
+  useEffect(() => {
+    if (onEndReached && !isFetchingNextPage && lastIndex >= rows.length - END_THRESHOLD && rows.length > 0) {
+      onEndReached()
+    }
+  }, [lastIndex, rows.length, onEndReached, isFetchingNextPage])
+
+  const leaf = table.getVisibleLeafColumns()
+  const gridTemplate = leaf.map((c) => `${c.getSize()}px`).join(' ')
+  const totalWidth = leaf.reduce((sum, c) => sum + c.getSize(), 0)
+
+  return (
+    <div className="data-table">
+      <details className="column-menu">
+        <summary>Columns</summary>
+        {table.getAllLeafColumns().map((column) => (
+          <label key={column.id}>
+            <input
+              type="checkbox"
+              checked={column.getIsVisible()}
+              onChange={column.getToggleVisibilityHandler()}
+            />
+            {typeof column.columnDef.header === 'string' ? column.columnDef.header : column.id}
+          </label>
+        ))}
+      </details>
+      <div
+        role="table"
+        aria-label={label}
+        aria-rowcount={rows.length + 1}
+        aria-busy={isLoading || isFetchingNextPage}
+        style={{ minWidth: totalWidth }}
+      >
+        <div role="rowgroup" className="thead">
+          {table.getHeaderGroups().map((group) => (
+            <div role="row" key={group.id} className="tr" style={{ gridTemplateColumns: gridTemplate }}>
+              {group.headers.map((header) => {
+                const sorted = header.column.getIsSorted()
+                return (
+                  <div
+                    role="columnheader"
+                    key={header.id}
+                    className="th"
+                    aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'}
+                  >
+                    {header.column.getCanSort() ? (
+                      <button type="button" onClick={header.column.getToggleSortingHandler()}>
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {sorted === 'asc' ? ' ▲' : sorted === 'desc' ? ' ▼' : ''}
+                      </button>
+                    ) : (
+                      flexRender(header.column.columnDef.header, header.getContext())
+                    )}
+                    {header.column.getCanResize() && (
+                      <div
+                        className="resizer"
+                        aria-hidden="true"
+                        onMouseDown={header.getResizeHandler()}
+                        onTouchStart={header.getResizeHandler()}
+                      />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+        {error ? (
+          <ErrorMessage error={error} onRetry={onRetry} />
+        ) : isLoading ? (
+          <LoadingState />
+        ) : rows.length === 0 ? (
+          <EmptyState>{emptyMessage}</EmptyState>
+        ) : (
+          <div ref={scrollRef} className="scroll" style={{ height, overflow: 'auto' }}>
+            <div role="rowgroup" style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+              {items.map((item) => {
+                const row = rows[item.index]
+                return (
+                  <div
+                    role="row"
+                    key={row.id}
+                    aria-rowindex={item.index + 2}
+                    className={onRowClick ? 'tr clickable' : 'tr'}
+                    tabIndex={onRowClick ? 0 : undefined}
+                    onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                    onKeyDown={
+                      onRowClick
+                        ? (e) => {
+                            if (e.key === 'Enter') onRowClick(row.original)
+                          }
+                        : undefined
+                    }
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      height: item.size,
+                      transform: `translateY(${item.start}px)`,
+                      gridTemplateColumns: gridTemplate,
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <div role="cell" key={cell.id} className="td">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+            {isFetchingNextPage && <LoadingState label="Loading more" />}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

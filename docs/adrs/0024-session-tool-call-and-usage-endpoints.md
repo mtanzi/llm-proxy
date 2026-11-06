@@ -1,6 +1,6 @@
 # ADR 0024: Session, tool-call and usage endpoints
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

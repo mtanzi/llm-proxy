@@ -1,8 +1,73 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import { createMemoryHistory } from '@tanstack/react-router'
+import axe from 'axe-core'
 import { expect, test } from 'vitest'
 import { App } from './App'
+import { createQueryClient } from './queryClient'
+import { createAppRouter } from './router'
 
-test('renders the placeholder heading', () => {
-  render(<App />)
-  expect(screen.getByRole('heading', { name: 'llm-proxy' })).toBeTruthy()
+async function renderAt(path: string) {
+  const queryClient = createQueryClient()
+  const history = createMemoryHistory({ initialEntries: [path] })
+  const router = createAppRouter(queryClient, history)
+  const view = render(<App queryClient={queryClient} router={router} />)
+  await waitFor(() => expect(screen.getByRole('main')).toBeTruthy())
+  return { router, ...view }
+}
+
+test('/ui/ redirects to /ui/calls', async () => {
+  const { router } = await renderAt('/ui/')
+  await waitFor(() => expect(router.state.location.pathname).toBe('/calls'))
+  expect(screen.getByRole('heading', { name: 'Calls' })).toBeTruthy()
+})
+
+test.each([
+  ['/ui/calls', 'Calls'],
+  ['/ui/calls/0190a1b2-0000-7000-8000-000000000000', 'Call'],
+  ['/ui/sessions', 'Sessions'],
+  ['/ui/sessions/a%2Fb%3Ac', 'Session'],
+  ['/ui/tools', 'Tools'],
+  ['/ui/cost', 'Cost'],
+  ['/ui/admin/config', 'Config'],
+])('route %s renders', async (path, title) => {
+  await renderAt(path)
+  await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: title })).toBeTruthy())
+})
+
+test('an unknown path falls back to the call log', async () => {
+  const { router } = await renderAt('/ui/nope')
+  await waitFor(() => expect(router.state.location.pathname).toBe('/calls'))
+})
+
+test('a stale URL degrades to defaults instead of failing', async () => {
+  const { router } = await renderAt('/ui/calls?range=%22nope%22&group=%22model%22&status=%5B%22x%22%5D')
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'Calls' })).toBeTruthy())
+  // location.search is the raw URL; the match holds the validated search.
+  expect(router.state.matches.at(-1)?.search).toEqual({})
+})
+
+test('the session key survives the URL with / and : in it', async () => {
+  const { router } = await renderAt('/ui/sessions/a%2Fb%3Ac')
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'Session' })).toBeTruthy())
+  expect(router.state.matches.at(-1)?.params).toEqual({ key: 'a/b:c' })
+})
+
+test('the layout has landmarks, a skip link and current-page navigation', async () => {
+  await renderAt('/ui/sessions')
+  expect(screen.getByRole('navigation', { name: 'Main' })).toBeTruthy()
+  expect(screen.getByRole('banner')).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Skip to content' }).getAttribute('href')).toBe('#main')
+  await waitFor(() =>
+    expect(screen.getByRole('link', { name: 'Sessions' }).getAttribute('aria-current')).toBe('page'),
+  )
+  expect(screen.getByRole('link', { name: 'Calls' }).getAttribute('aria-current')).toBeNull()
+  expect(screen.getByRole('note').textContent).toBe('Content is not stored')
+})
+
+test('the layout has no accessibility violations', async () => {
+  const { container } = await renderAt('/ui/calls')
+  await waitFor(() => expect(screen.getByRole('heading', { name: 'Calls' })).toBeTruthy())
+  // jsdom has no layout or styles, so colour contrast cannot be computed.
+  const results = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+  expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([])
 })

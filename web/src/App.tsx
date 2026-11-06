@@ -1,10 +1,18 @@
-// Placeholder app. Routing, the API client and the views come with ADR 0030
-// and ADRs 0031 to 0035.
-export function App() {
+import { QueryClientProvider } from '@tanstack/react-query'
+import { RouterProvider } from '@tanstack/react-router'
+import type { QueryClient } from '@tanstack/react-query'
+import type { createAppRouter } from './router'
+
+export function App({
+  queryClient,
+  router,
+}: {
+  queryClient: QueryClient
+  router: ReturnType<typeof createAppRouter>
+}) {
   return (
-    <main>
-      <h1>llm-proxy</h1>
-      <p>The UI is under construction.</p>
-    </main>
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
   )
 }

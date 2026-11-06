@@ -33,7 +33,8 @@ make check-imports  # depguard rules only
 make check-openapi  # lint api/openapi.yaml with Redocly (needs Node)
 make ui-build       # build the web UI into internal/ui/dist (needs Node 22+); make build then embeds it
 make ui-dev         # Vite dev server, proxies /admin to localhost:9090
-make ui-check       # lint, type-check and unit-test web/
+make ui-check       # lint, type-check and unit-test web/, and check the generated API types
+make ui-gen         # regenerate web/src/api/schema.gen.ts after changing api/openapi.yaml
 make goldens        # rewrite the golden call records under testdata/fixtures; read the diff
 make e2e            # end-to-end tests: real wiring, fake upstream, test Postgres (needs Docker)
 ```

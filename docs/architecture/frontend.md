@@ -152,10 +152,12 @@ Search is withdrawn. Older calls stay browsable by filters. Where a reader might
 ```
 web/                          React + Vite source
 ├── src/
-│   ├── routes/               one file per route (TanStack Router file routes)
+│   ├── router.tsx            route tree (code-based) and per-route search validators from search/
+│   ├── routes/               one component per route
+│   ├── search/               search-parameter validators: time range, filters, tabs
 │   ├── views/                V1 to V5 and admin pages
-│   ├── components/           tables, tree, waterfall
-│   ├── api/                  generated types (openapi-typescript) and the typed client
+│   ├── components/           layout, table, time-range and filter primitives; tree, waterfall
+│   ├── api/                  generated types (schema.gen.ts, `make ui-gen`), typed client, query keys
 │   └── main.tsx
 ├── index.html
 ├── package.json              pinned versions, lockfile committed
