@@ -1,0 +1,242 @@
+import { render, screen, waitFor, within } from '@testing-library/react'
+import { createMemoryHistory } from '@tanstack/react-router'
+import axe from 'axe-core'
+import { afterEach, expect, test, vi } from 'vitest'
+import { App } from '../App'
+import { createQueryClient } from '../queryClient'
+import { createAppRouter } from '../router'
+import { buildToolRows } from './CallDetail'
+import type { CallDetail, ToolCall } from './CallDetail'
+
+const ID = '0190a1b2-0000-7000-8000-000000000001'
+const OTHER = '0190a1b2-0000-7000-8000-000000000002'
+
+function detail(over: Partial<CallDetail> = {}): CallDetail {
+  return {
+    id: ID,
+    ts: '2026-11-01T10:00:00Z',
+    key: 'fm:task-1',
+    client: 'claude-code',
+    client_raw: '',
+    client_request_id: '',
+    session_key: 'sess/1:a',
+    agent_id: 'agent-1',
+    parent_agent_id: 'agent-0',
+    agent_type: '',
+    prompt_id: 'p-1',
+    request_class: '',
+    compaction: false,
+    context_compacted: false,
+    trace_id: '',
+    family: 'anthropic',
+    endpoint: '/v1/messages',
+    auth_mode: 'proxy_key',
+    provider: 'anthropic',
+    model: 'claude-x',
+    upstream_request_id: 'req_1',
+    status: 200,
+    error_class: '',
+    error_type: '',
+    stop_reason: 'end_turn',
+    streamed: true,
+    ttfb_ms: 10,
+    ttft_ms: 120,
+    duration_ms: 2500,
+    ended_at: '2026-11-01T10:00:02Z',
+    usage: { input_uncached: 10, cache_read: 20, cache_write_5m: 30, cache_write_1h: 0, output: 40, reasoning: 5 },
+    usage_raw: { input_tokens: 10 },
+    usage_estimated: false,
+    extraction_partial: false,
+    cost_micro_usd: 1234,
+    pricing_version: '2026-01-01',
+    prev_tool_durations: '',
+    tool_uses: [],
+    tool_results: [],
+    ...over,
+  } as CallDetail
+}
+
+function pair(over: Partial<ToolCall>): ToolCall {
+  return {
+    tool_call_id: 't1',
+    name: 'Read',
+    source: 'client',
+    status: 'paired',
+    session_key: 'sess/1:a',
+    agent_id: 'agent-1',
+    use_call_id: ID,
+    result_call_id: OTHER,
+    use_ts: null,
+    result_ts: null,
+    duration_ms: 300,
+    duration_source: 'header',
+    is_error: false,
+    arg_bytes: 100,
+    result_bytes: 2048,
+    ...over,
+  } as ToolCall
+}
+
+function stubApi(call: CallDetail, pairs: ToolCall[] = []) {
+  const urls: string[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      urls.push(url)
+      if (url.startsWith('/admin/calls/')) return new Response(JSON.stringify(call))
+      return new Response(JSON.stringify({ tool_calls: pairs, next_cursor: null }))
+    }),
+  )
+  return urls
+}
+
+async function renderAt(path: string) {
+  const queryClient = createQueryClient()
+  const router = createAppRouter(queryClient, createMemoryHistory({ initialEntries: [path] }))
+  const view = render(<App queryClient={queryClient} router={router} />)
+  await waitFor(() => expect(screen.getByRole('main')).toBeTruthy())
+  return { router, ...view }
+}
+
+afterEach(() => vi.unstubAllGlobals())
+
+test('overview shows who, outcome and links the session to V2', async () => {
+  stubApi(detail())
+  await renderAt(`/ui/calls/${ID}`)
+  await screen.findByText('claude-code')
+  expect(screen.getByRole('link', { name: 'sess/1:a' }).getAttribute('href')).toBe(
+    '/ui/sessions/sess%2F1%3Aa',
+  )
+  expect(screen.getByText('2.50 s')).toBeTruthy()
+  expect(screen.getByText('120 ms')).toBeTruthy()
+  expect(screen.getByText('end_turn')).toBeTruthy()
+  expect(screen.queryByText('Usage estimated')).toBeNull()
+  expect(screen.getAllByText('Content is not stored')).toHaveLength(1)
+})
+
+test('partial data renders as unknown, with visible badges', async () => {
+  stubApi(
+    detail({
+      session_key: '',
+      upstream_request_id: '',
+      error_type: '',
+      stop_reason: '',
+      ttft_ms: 0,
+      status: 0,
+      usage_estimated: true,
+      extraction_partial: true,
+      cost_micro_usd: null,
+      usage_raw: null,
+      pricing_version: '',
+    }),
+  )
+  const { router } = await renderAt(`/ui/calls/${ID}`)
+  await screen.findByText('Usage estimated')
+  expect(screen.getByText('Extraction partial')).toBeTruthy()
+  expect(screen.queryByRole('link', { name: /sess/ })).toBeNull()
+  expect(within(screen.getByRole('region', { name: 'Outcome' })).getAllByText('unknown').length).toBeGreaterThanOrEqual(4)
+  await router.navigate({ to: '/calls/$id', params: { id: ID }, search: { tab: 'usage' } })
+  await screen.findByRole('heading', { name: 'Usage and cost' })
+  expect(screen.getByText('Cost', { selector: 'dt' }).nextSibling?.textContent).toBe('unknown')
+  expect(screen.getByText('Pricing version').nextSibling?.textContent).toBe('unknown')
+  expect(screen.getByText('Raw usage').parentElement?.textContent).toContain('unknown')
+})
+
+test('the tab is a search parameter: URL selects it and tab links set it', async () => {
+  stubApi(detail())
+  const { router } = await renderAt(`/ui/calls/${ID}?tab=%22usage%22`)
+  await screen.findByRole('heading', { name: 'Usage and cost' })
+  expect(screen.getByRole('link', { name: 'Usage and cost' }).getAttribute('aria-current')).toBe('page')
+  expect(screen.getByText('Cache read').closest('table')?.textContent).toContain('20')
+  expect(screen.getByText('$0.001234')).toBeTruthy()
+  expect(screen.getByText('2026-01-01')).toBeTruthy()
+  expect(screen.getByText(/input_tokens/)).toBeTruthy()
+  const tabs = within(screen.getByRole('navigation', { name: 'Call detail tabs' }))
+  expect(tabs.getByRole('link', { name: 'Overview' }).getAttribute('href')).toBe(`/ui/calls/${ID}`)
+  expect(tabs.getByRole('link', { name: 'Tools' }).getAttribute('href')).toBe(`/ui/calls/${ID}?tab=tools`)
+  tabs.getByRole('link', { name: 'Tools' }).click()
+  await waitFor(() => expect(router.state.location.search).toEqual({ tab: 'tools' }))
+})
+
+test('an unknown tab value degrades to overview', async () => {
+  stubApi(detail())
+  await renderAt(`/ui/calls/${ID}?tab=%22nope%22`)
+  await screen.findByRole('heading', { name: 'Who' })
+})
+
+test('the detail query is cached for the session across tabs', async () => {
+  const urls = stubApi(detail())
+  const { router } = await renderAt(`/ui/calls/${ID}`)
+  await screen.findByRole('heading', { name: 'Who' })
+  await router.navigate({ to: '/calls/$id', params: { id: ID }, search: { tab: 'usage' } })
+  await screen.findByRole('heading', { name: 'Usage and cost' })
+  await router.navigate({ to: '/calls/$id', params: { id: ID }, search: {} })
+  await screen.findByRole('heading', { name: 'Who' })
+  expect(urls.filter((u) => u.startsWith('/admin/calls/'))).toHaveLength(1)
+})
+
+test('tools rows link to the other call and show unmatched halves', async () => {
+  const call = detail({
+    tool_uses: [
+      { source: 'client', tool_call_id: 't1', name: 'Read', arg_bytes: 100 },
+      { source: 'client', tool_call_id: 't2', name: 'Bash', arg_bytes: 50 },
+    ],
+    tool_results: [{ source: 'client', tool_call_id: 't9', is_error: true, result_bytes: 10 }],
+  })
+  const urls = stubApi(call, [
+    pair({}),
+    pair({ tool_call_id: 't2', name: 'Bash', status: 'pending', result_call_id: null, duration_ms: null, duration_source: null, is_error: null, result_bytes: 0 }),
+  ])
+  await renderAt(`/ui/calls/${ID}?tab=%22tools%22`)
+  await screen.findByText('2.0 KiB')
+  const toolsUrl = urls.find((u) => u.startsWith('/admin/tool-calls'))!
+  expect(toolsUrl).toContain('session=sess%2F1%3Aa')
+  const rows = screen.getAllByRole('row').slice(1)
+  expect(rows).toHaveLength(3)
+  const [read, bash, orphan] = rows.map((r) => within(r))
+  expect(read.getByText('2.0 KiB')).toBeTruthy()
+  expect(read.getByText('300 ms (header)')).toBeTruthy()
+  expect(read.getByText('Success')).toBeTruthy()
+  expect(read.getByRole('link', { name: 'Resolving call' }).getAttribute('href')).toBe(`/ui/calls/${OTHER}`)
+  expect(bash.getByText('Pending')).toBeTruthy()
+  expect(bash.getByText('none yet')).toBeTruthy()
+  expect(bash.queryByRole('link')).toBeNull()
+  // A result whose use the pairing query did not return: name and use call unknown.
+  expect(orphan.getByText('Error')).toBeTruthy()
+  expect(orphan.getAllByText('unknown').length).toBeGreaterThanOrEqual(2)
+  expect(orphan.queryByRole('link')).toBeNull()
+  expect(screen.queryByText('Content is not stored', { selector: 'h2' })).toBeNull()
+})
+
+test('a result carried by this call links to the requesting call', () => {
+  const call = detail({ tool_results: [{ source: 'client', tool_call_id: 't1', is_error: false, result_bytes: 2048 }] })
+  const rows = buildToolRows(call, [pair({ use_call_id: OTHER, result_call_id: ID })])
+  expect(rows).toHaveLength(1)
+  expect(rows[0]).toMatchObject({ role: 'resolved', name: 'Read', otherCallId: OTHER, argBytes: 100, resultBytes: 2048 })
+})
+
+test('a call without a session skips the pairing query', async () => {
+  const urls = stubApi(
+    detail({ session_key: '', tool_uses: [{ source: 'client', tool_call_id: 't1', name: 'Read', arg_bytes: 1 }] }),
+  )
+  await renderAt(`/ui/calls/${ID}?tab=%22tools%22`)
+  await screen.findByText('Read')
+  expect(urls.some((u) => u.startsWith('/admin/tool-calls'))).toBe(false)
+})
+
+test('an API error shows a message', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ error: { type: 'not_found', message: 'no such call' } }), { status: 404 })),
+  )
+  await renderAt(`/ui/calls/${ID}`)
+  await screen.findByRole('alert')
+})
+
+test('detail page has no accessibility violations', async () => {
+  stubApi(detail({ tool_uses: [{ source: 'client', tool_call_id: 't1', name: 'Read', arg_bytes: 1 }] }))
+  const { container } = await renderAt(`/ui/calls/${ID}?tab=%22tools%22`)
+  await screen.findByText('Read')
+  const results = await axe.run(container)
+  expect(results.violations).toEqual([])
+})
