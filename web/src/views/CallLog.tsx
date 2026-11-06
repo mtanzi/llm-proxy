@@ -74,7 +74,7 @@ const rowCalls = (row: LogRow): CallSummary[] => (row.kind === 'group' ? row.cal
 const first = (row: LogRow): CallSummary => rowCalls(row)[0]
 
 function promptLabel(row: LogRow): string {
-  const prompts = new Set(rowCalls(row).map((c) => c.prompt_id ?? ''))
+  const prompts = new Set(rowCalls(row).map((c) => c.prompt_id ?? '').filter((id) => id !== ''))
   return prompts.size > 1 ? `${prompts.size} prompts` : formatText([...prompts][0])
 }
 

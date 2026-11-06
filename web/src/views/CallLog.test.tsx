@@ -178,7 +178,7 @@ test('group by session folds consecutive calls and is kept in the URL', async ()
           call('c1', { session_key: 's1', prompt_id: 'p1', cost_micro_usd: 1_000_000 }),
           call('c2', { session_key: 's1', prompt_id: 'p2', cost_micro_usd: 2_000_000 }),
           call('c3', { session_key: '' }),
-          call('c4', { session_key: 's2', cost_micro_usd: 1_000_000 }),
+          call('c4', { session_key: 's2', prompt_id: 'p9', cost_micro_usd: 1_000_000 }),
           call('c5', { session_key: 's2', cost_micro_usd: null }),
         ]),
       ),
@@ -193,6 +193,8 @@ test('group by session folds consecutive calls and is kept in the URL', async ()
   expect(screen.getAllByText('2 turns')).toHaveLength(2)
   expect(within(tableRows()[0]).getByText('$3.00')).toBeTruthy()
   expect(within(tableRows()[0]).getByText('2 prompts')).toBeTruthy()
+  // A turn with no prompt id is not another prompt.
+  expect(within(tableRows()[2]).getByText('p9')).toBeTruthy()
   // A turn with an unknown cost is not counted as zero.
   expect(within(tableRows()[2]).getByText('$1.00')).toBeTruthy()
   expect(within(tableRows()[2]).getByText(/\+1 unknown/)).toBeTruthy()
