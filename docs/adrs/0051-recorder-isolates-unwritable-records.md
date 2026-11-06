@@ -1,6 +1,6 @@
 # ADR 0051: Recorder isolates unwritable records
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-11-05
 

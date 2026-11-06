@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -61,8 +62,13 @@ var writeCases = []testCase{
 		// call rows are inserted.
 		bad := g.Call(g.WithUse("toolu_c", "Edit"))
 		bad.ToolUses[0].ArgBytes = 1 << 40
-		if err := e.WriteBatch(context.Background(), []core.CallRecord{good, bad}); err == nil {
+		err := e.WriteBatch(context.Background(), []core.CallRecord{good, bad})
+		if err == nil {
 			t.Fatal("WriteBatch accepted a record the store cannot hold")
+		}
+		// The recorder isolates and drops such a record (ADR 0051).
+		if !errors.Is(err, core.ErrUnwritable) {
+			t.Fatalf("WriteBatch error = %v, want one that matches core.ErrUnwritable", err)
 		}
 		e.wantCounts(t, 1, 1)
 

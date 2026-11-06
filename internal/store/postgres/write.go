@@ -40,6 +40,8 @@ var toolEventColumns = []string{
 // WriteBatch inserts the calls with their tool halves in one transaction and
 // returns after commit. A call whose id is already stored is skipped with its
 // halves, so replaying a batch inserts nothing. A failed batch leaves nothing.
+// An error caused by the content of a record matches core.ErrUnwritable
+// (classify); every other error is transient.
 func (s *Store) WriteBatch(ctx context.Context, calls []core.CallRecord) error {
 	if len(calls) == 0 {
 		return nil
@@ -90,7 +92,7 @@ func insert(ctx context.Context, tx pgx.Tx, table string, cols []string, rows []
 		}
 		sql.WriteString(" ON CONFLICT DO NOTHING")
 		if _, err := tx.Exec(ctx, sql.String(), args...); err != nil {
-			return fmt.Errorf("insert %s: %w", table, err)
+			return fmt.Errorf("insert %s: %w", table, classify(err, cols))
 		}
 	}
 	return nil

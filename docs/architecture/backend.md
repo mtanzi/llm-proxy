@@ -81,7 +81,7 @@ Everything between the Go components and Postgres goes through the store ports. 
 Two properties hold for every arrow out of the data plane:
 
 - **The hot path never waits on storage.** Nothing between the client and the upstream calls a store port. Auth reads the in-memory key map and routing reads the config snapshot. The key map is built from that snapshot, so a key change takes effect on `SIGHUP`.
-- **Logging never fails a request.** A full queue drops the call record and increments a counter. A failed batch write is retried, logged and counted. A store outage (for example Postgres down) fills the queue, and records past its capacity are dropped and counted.
+- **Logging never fails a request.** A full queue drops the call record and increments a counter. A batch write that fails for a transient reason is retried, logged and counted. A record the store will never accept is isolated, dropped and counted, so it cannot block the writer. A store outage (for example Postgres down) fills the queue, and records past its capacity are dropped and counted.
 
 ## Layers and the dependency rule
 
@@ -218,14 +218,18 @@ A path or method the data plane does not serve gets a proxy-generated 404 with `
 The one "finished call" use case. It receives `Finished` events from the proxy and does three things, none of them blocking:
 
 1. **Live fan-out.** Each subscriber of the live tail (the SSE handler in `api`) gets a bounded channel. A slow subscriber loses events, and the loss is counted (`llm_proxy_live_events_dropped_total`).
-2. **Bounded queue.** `Finished` goes to the queue with a non-blocking `select`. When the queue is full the recorder drops the record and increments `llm_proxy_calls_dropped_total` with a `reason` label (`queue_full`, `shutdown`).
+2. **Bounded queue.** `Finished` goes to the queue with a non-blocking `select`. When the queue is full the recorder drops the record and increments `llm_proxy_calls_dropped_total` with a `reason` label (`queue_full`, `shutdown`, or `unwritable` for a record the store rejects; see Failure below).
 3. **Batch writer.** One goroutine drains the queue and hands batches to `CallWriter.WriteBatch`. There is no intermediate store: the queue is the only buffer. The recorder contains no SQL.
 
 Writer details:
 
 - **Batching:** a batch closes at 500 records or 500 ms, whichever comes first. These are constants in code. Only `queue_capacity` (default 10,000) is configurable until measurement says otherwise.
 - **Write path in `store/postgres`:** one transaction, a multi-row `INSERT … ON CONFLICT DO NOTHING` into `calls` and `tool_events`. At 0.14 to 0.58 calls per second on average this is ample. The call id is a UUIDv7 assigned at request start, so a retried batch inserts nothing twice (gap review B5). The port contract is "idempotent on call id and atomic per batch"; the SQL is the adapter's choice.
-- **Failure:** a failed `WriteBatch` is retried with backoff and counted (`llm_proxy_writer_errors_total`). While the store is down the queue fills; the recorder then drops and counts new records. The data plane never notices. A crash loses the queue contents, at most `queue_capacity` records; this is the accepted cost of having no durable buffer.
+- **Failure (ADR 0051):** every failed `WriteBatch` call is counted (`llm_proxy_writer_errors_total`). The store adapter classifies the error; the recorder never inspects a driver error.
+  - A **transient** error (connection, timeout, outage, and every error the adapter does not recognize) retries the same batch with backoff. While the store is down the queue fills; the recorder then drops and counts new records as `queue_full`. The data plane never notices.
+  - An error that matches `core.ErrUnwritable` means the batch holds a record the store will never accept. Postgres classes 22 (data exception), 23 (integrity constraint violation) and 54 (program limit exceeded), and a value `pgx` cannot encode, are unwritable. The recorder splits the batch in halves until each rejected record stands alone. The other records commit. When the split is done, each rejected record is dropped, counted as `llm_proxy_calls_dropped_total{reason="unwritable"}` and logged with its call id, key name, SQLSTATE and constraint or column, never a body field. A rate above zero on that reason is the alert: it points to a cause the write-path sanitizing (ADR 0017) does not cover.
+  - **Systematic failure:** when every record of a batch of at least 8 records (`recorder.SystematicMinRecords`) is unwritable, the cause is taken as a bug, not as bad records. The recorder drops nothing, keeps the batch and retries it with backoff, and `llm_proxy_writer_systematic_failure` is 1 until a write commits. A value of 1 is the alert: the writer is blocked and the queue fills. Smaller all-fail batches are dropped per record.
+  - A crash loses the queue contents, at most `queue_capacity` records; this is the accepted cost of having no durable buffer. On a shutdown abort, every record of the batch in hand that is not yet stored or dropped counts as `reason="shutdown"`, with the queue.
 - **Shutdown:** on SIGTERM, after in-flight streams finish or the drain deadline passes, the queue is closed and the writer flushes what remains within 30 seconds, then exits. See [Listener and router](#listener-and-router).
 - **Appends only.** The writer does no joins, no read-modify-write and no session or agent updates. It also does not publish to the live tail after commit: the fan-out happens at `Finished`, before the commit, as an in-process event.
 
@@ -408,7 +412,7 @@ One suite, `internal/store/storetest`, is the definition of correct behaviour: `
 
 The suite covers:
 
-- **Write.** A batch inserts exactly once; replaying a batch inserts nothing; a failed batch leaves nothing visible; halves arriving in any order produce the same read result.
+- **Write.** A batch inserts exactly once; replaying a batch inserts nothing; a failed batch leaves nothing visible, and a record the store cannot hold fails with an error that matches `core.ErrUnwritable`; halves arriving in any order produce the same read result.
 - **Tool-call pairing at read.** A use then its result resolves; a result before its use resolves once the use arrives; a use with no result after 1 hour reads as `use_only`; a result with no use reads as `result_only`; a result up to 24 hours past the query's `To` bound still pairs.
 - **Sessions and agents.** `ListSessions` and `GetSession` group by session key; the agent tree is the same parent and child structure from the call rows.
 - **Pagination.** Ordering by `(ts, id)` is total, including calls with equal `ts`; cursors return no duplicates and no gaps while rows are inserted; the time bound is honoured; counts cap at the stated maximum.
@@ -479,7 +483,7 @@ sequenceDiagram
 
 Read flow: `api` maps query parameters to `core.CallFilter`, calls `CallReader`, encodes the cursor. For the stream, `api` subscribes to `recorder`, applies `core.CallFilter.Match` to each event, and writes SSE. On reconnect the UI refetches page one.
 
-If the store is down, `WriteBatch` fails, the writer retries with backoff and the queue fills. Records that arrive when it is full are dropped and counted. Nothing on the data plane notices. A process crash loses the records still in the queue.
+If the store is down, `WriteBatch` fails, the writer retries with backoff and the queue fills. A record the store rejects is isolated and dropped as `unwritable` instead (ADR 0051). Records that arrive when it is full are dropped and counted. Nothing on the data plane notices. A process crash loses the records still in the queue.
 
 ## Data model
 

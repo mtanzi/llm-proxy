@@ -2,6 +2,7 @@ package recorder
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math/rand/v2"
 	"sync"
@@ -22,6 +23,11 @@ const (
 	// DefaultCloseTimeout is the flush deadline of Close when its context has none.
 	DefaultCloseTimeout = 30 * time.Second
 
+	// SystematicMinRecords is the smallest batch whose failure is taken as
+	// systematic when every record in it is unwritable: the batch is kept and
+	// retried instead of dropped (ADR 0051).
+	SystematicMinRecords = 8
+
 	subscriberBuffer = 256
 	retryBase        = 100 * time.Millisecond
 	retryMax         = 10 * time.Second
@@ -29,8 +35,9 @@ const (
 
 // Drop reasons, the values of the reason label of MetricCallsDropped.
 const (
-	ReasonQueueFull = "queue_full"
-	ReasonShutdown  = "shutdown"
+	ReasonQueueFull  = "queue_full"
+	ReasonShutdown   = "shutdown"
+	ReasonUnwritable = "unwritable"
 )
 
 // Options configures a Recorder. The zero value uses the defaults.
@@ -72,10 +79,12 @@ type Recorder struct {
 	done      chan struct{}
 	closeOnce sync.Once
 
-	droppedFull     atomic.Uint64
-	droppedShutdown atomic.Uint64
-	writerErrors    atomic.Uint64
-	liveDropped     atomic.Uint64
+	droppedFull       atomic.Uint64
+	droppedShutdown   atomic.Uint64
+	droppedUnwritable atomic.Uint64
+	writerErrors      atomic.Uint64
+	liveDropped       atomic.Uint64
+	systematic        atomic.Bool
 }
 
 // New starts a Recorder that writes batches to w.
@@ -201,17 +210,24 @@ func (r *Recorder) Close(ctx context.Context) error {
 // QueueDepth is the number of records waiting for the writer (MetricQueueDepth).
 func (r *Recorder) QueueDepth() int { return len(r.queue) }
 
-// CallsDropped counts dropped calls by reason, ReasonQueueFull or ReasonShutdown
-// (MetricCallsDropped).
+// CallsDropped counts dropped calls by reason, ReasonQueueFull, ReasonShutdown
+// or ReasonUnwritable (MetricCallsDropped).
 func (r *Recorder) CallsDropped(reason string) uint64 {
 	switch reason {
 	case ReasonQueueFull:
 		return r.droppedFull.Load()
 	case ReasonShutdown:
 		return r.droppedShutdown.Load()
+	case ReasonUnwritable:
+		return r.droppedUnwritable.Load()
 	}
 	return 0
 }
+
+// SystematicFailure reports whether the writer holds a batch of at least
+// SystematicMinRecords records that all failed as unwritable
+// (MetricSystematicFailure). It is cleared when a write commits.
+func (r *Recorder) SystematicFailure() bool { return r.systematic.Load() }
 
 // WriterErrors counts failed WriteBatch calls (MetricWriterErrors).
 func (r *Recorder) WriterErrors() uint64 { return r.writerErrors.Load() }
@@ -251,34 +267,136 @@ func (r *Recorder) run() {
 	}
 }
 
-// flush writes one batch, retrying with capped exponential backoff and jitter
-// until it succeeds or Close aborts the writer. After an abort it drops the
-// batch and everything still queued.
+// flush writes one batch until every record is stored or dropped, or Close
+// aborts the writer. A transient error retries with capped exponential backoff
+// and jitter. An unwritable error splits the batch to find the records the
+// store rejects (write). When the split is done, the rejected records are
+// dropped, unless every record of a batch of at least SystematicMinRecords
+// failed: that failure is systematic, so the whole batch is kept and retried
+// with backoff. After an abort it drops what is not yet stored and everything
+// still queued.
 func (r *Recorder) flush(batch []core.CallRecord) {
 	if len(batch) == 0 {
 		return
 	}
+	f := flushState{pending: len(batch)}
 	delay := r.opts.retryBase
 	for {
-		if r.abortCtx.Err() != nil {
-			r.dropRest(len(batch))
+		f.failed = f.failed[:0]
+		if !r.write(batch, &f) {
+			r.dropRest(f.pending)
 			return
 		}
-		err := r.writer.WriteBatch(r.abortCtx, batch)
-		if err == nil {
+		if len(f.failed) == 0 {
 			return
 		}
-		if r.abortCtx.Err() != nil {
-			continue
+		if len(f.failed) < len(batch) || len(batch) < SystematicMinRecords {
+			r.dropUnwritable(&f)
+			return
 		}
-		r.writerErrors.Add(1)
-		r.log.Error("recorder: write batch failed", "err", err, "records", len(batch), "retry_in", delay)
-		select {
-		case <-time.After(delay/2 + rand.N(delay/2+1)):
-		case <-r.abortCtx.Done():
+		r.systematic.Store(true)
+		first := f.failed[0]
+		code, constraint, column := cause(first.err)
+		r.log.Error("recorder: every record of the batch is unwritable, keeping it",
+			"records", len(batch), "sqlstate", code, "constraint", constraint, "column", column, "retry_in", delay)
+		if !r.sleep(delay) {
+			r.dropRest(f.pending)
+			return
 		}
 		delay = min(delay*2, r.opts.retryMax)
 	}
+}
+
+// flushState tracks one original batch across its split.
+type flushState struct {
+	pending int       // records not yet stored or dropped
+	failed  []failure // records rejected alone with ErrUnwritable, in batch order
+}
+
+type failure struct {
+	call core.CallRecord
+	err  error
+}
+
+// write stores recs as one atomic batch. A transient error retries the same
+// slice with backoff. An unwritable error splits recs in two halves, written in
+// order through the same logic; a single unwritable record is added to
+// f.failed, and its drop is left to flush. It returns false when Close aborted
+// the writer.
+func (r *Recorder) write(recs []core.CallRecord, f *flushState) bool {
+	delay := r.opts.retryBase
+	for {
+		if r.abortCtx.Err() != nil {
+			return false
+		}
+		err := r.writer.WriteBatch(r.abortCtx, recs)
+		if err == nil {
+			f.pending -= len(recs)
+			r.systematic.Store(false)
+			return true
+		}
+		if r.abortCtx.Err() != nil {
+			return false
+		}
+		r.writerErrors.Add(1)
+		if errors.Is(err, core.ErrUnwritable) {
+			if len(recs) == 1 {
+				f.failed = append(f.failed, failure{call: recs[0], err: err})
+				return true
+			}
+			mid := len(recs) / 2
+			return r.write(recs[:mid], f) && r.write(recs[mid:], f)
+		}
+		r.log.Error("recorder: write batch failed", "err", err, "records", len(recs), "retry_in", delay)
+		if !r.sleep(delay) {
+			return false
+		}
+		delay = min(delay*2, r.opts.retryMax)
+	}
+}
+
+// sleep waits about delay, with jitter. It returns false when Close aborted
+// the writer.
+func (r *Recorder) sleep(delay time.Duration) bool {
+	select {
+	case <-time.After(delay/2 + rand.N(delay/2+1)):
+		return true
+	case <-r.abortCtx.Done():
+		return false
+	}
+}
+
+// dropUnwritable drops the records in f.failed and logs each one. The log
+// names the record and the cause, never a body field (ADR 0002).
+func (r *Recorder) dropUnwritable(f *flushState) {
+	for _, x := range f.failed {
+		code, constraint, column := cause(x.err)
+		r.log.Error("recorder: dropped unwritable call",
+			"call_id", x.call.ID.String(), "key_name", x.call.KeyName,
+			"sqlstate", code, "constraint", constraint, "column", column)
+	}
+	r.droppedUnwritable.Add(uint64(len(f.failed)))
+	f.pending -= len(f.failed)
+	f.failed = f.failed[:0]
+}
+
+// unwritableCause is implemented by a store error that names why the store
+// rejected a record. The recorder imports no driver, so it reads the cause
+// through this interface only.
+type unwritableCause interface {
+	error
+	SQLState() string
+	Constraint() string
+	Column() string
+}
+
+// cause returns the SQLSTATE, constraint and column of err, empty when the
+// store does not name them.
+func cause(err error) (sqlState, constraint, column string) {
+	if c, ok := errors.AsType[unwritableCause](err); ok {
+		return c.SQLState(), c.Constraint(), c.Column()
+	}
+	return "", "", ""
 }
 
 // dropRest counts inHand records and everything left in the queue as dropped.

@@ -1,7 +1,7 @@
 llm_proxy_call_queue_depth gauge {}
     Finished calls waiting for the batch writer.
 llm_proxy_calls_dropped_total counter {reason}
-    Finished calls dropped before they were written, by reason (queue_full, shutdown). Should stay zero.
+    Finished calls dropped before they were written, by reason (queue_full, shutdown, unwritable). Should stay zero.
 llm_proxy_config_reloads_total counter {result}
     Config reloads by result (success, failure). A failure keeps the previous snapshot.
 llm_proxy_inflight_streams gauge {}
@@ -22,3 +22,5 @@ llm_proxy_ttft_seconds histogram {}
     Seconds from the start of the upstream exchange to the first content of the response.
 llm_proxy_writer_errors_total counter {}
     Failed batch writes to the store.
+llm_proxy_writer_systematic_failure gauge {}
+    1 while the writer holds a batch in which every record failed as unwritable, else 0. Should stay zero.

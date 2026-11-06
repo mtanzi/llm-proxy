@@ -8,10 +8,17 @@ import (
 // ErrNotFound is returned by CallReader when a call or session does not exist.
 var ErrNotFound = errors.New("core: not found")
 
+// ErrUnwritable is matched by a CallWriter error caused by the content of the
+// records, not by the state of the store or the connection.
+var ErrUnwritable = errors.New("core: unwritable record")
+
 // CallWriter receives finished calls from the recorder. It inserts only.
 type CallWriter interface {
 	// WriteBatch inserts the calls with their tool halves.
 	// Idempotent on CallRecord.ID, atomic per batch. Returns after commit.
+	// A returned error that matches errors.Is(err, ErrUnwritable) means the
+	// batch holds at least one record the store will never accept. Any other
+	// error is transient: retry the same batch.
 	WriteBatch(ctx context.Context, calls []CallRecord) error
 }
 
