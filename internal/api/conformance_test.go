@@ -230,6 +230,7 @@ func TestSpecQueryParametersMatchParser(t *testing.T) {
 		"/admin/tool-calls":         knownToolCallParams,
 		"/admin/tool-calls/summary": knownToolSummaryParams,
 		"/admin/usage":              knownUsageParams,
+		"/admin/stream":             knownStreamParams,
 	} {
 		op := s.doc["paths"].(map[string]any)[path].(map[string]any)["get"].(map[string]any)
 		var documented, parser []string
@@ -299,17 +300,17 @@ func TestSpecEnumsMatchWhitelists(t *testing.T) {
 func TestSpecRoutesMatchMux(t *testing.T) {
 	s := loadSpec(t)
 	paths := s.doc["paths"].(map[string]any)
-	want9 := []string{
+	want := []string{
 		"/admin/calls", "/admin/calls/{id}", "/admin/config", "/admin/openapi.json", "/admin/sessions",
-		"/admin/sessions/{key}", "/admin/tool-calls", "/admin/tool-calls/summary", "/admin/usage",
+		"/admin/sessions/{key}", "/admin/stream", "/admin/tool-calls", "/admin/tool-calls/summary", "/admin/usage",
 	}
-	for _, want := range want9 {
-		if _, ok := paths[want]; !ok {
-			t.Errorf("OpenAPI document lacks %s", want)
+	for _, p := range want {
+		if _, ok := paths[p]; !ok {
+			t.Errorf("OpenAPI document lacks %s", p)
 		}
 	}
-	if len(paths) != len(want9) {
-		t.Errorf("document has %d paths, want %d", len(paths), len(want9))
+	if len(paths) != len(want) {
+		t.Errorf("document has %d paths, want %d", len(paths), len(want))
 	}
 }
 

@@ -167,13 +167,14 @@ func buildApp(holder *config.Holder, st storeAdapter, log *slog.Logger) (*app, e
 	drain := &httpmw.Drain{}
 
 	// Step 6: the admin plane. The UI (ADR 0029) mounts at /ui/ in api.NewMux;
-	// the live tail (ADR 0025) will take the recorder there.
+	// the live tail (ADR 0025) subscribes to the recorder.
 	reg := api.NewRegistry(pm, rec.Collector(), holder.Collector(), st.RetentionCollector())
 	admin := api.NewMux(api.Options{
 		Metrics: reg,
 		Ping:    st.Ping,
 		Drain:   drain,
 		Calls:   st,
+		Live:    rec,
 		Config:  func() config.View { return holder.Current().Config().View() },
 	})
 
