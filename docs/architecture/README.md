@@ -72,7 +72,7 @@ One rule settles every disagreement between sources, in this order:
 3. These architecture documents, for work not yet built.
 4. ADRs not yet built (Accepted or Proposed).
 
-The order ranks sources as descriptions of current behaviour. A lower source that disagrees with a higher one needs a fix. An Accepted ADR that amends landed code (ADR 0047, ADR 0048) records the planned target: its decision wins over the code until its Work required lands, after which code and ADR agree. Stale sketches in these documents follow the code: for example, `core` defines its own `ID` and `MicroUSD` types in place of `uuid.UUID` and `decimal.Decimal`. A change to a Completed ADR is a new ADR that names the Completed one it amends; a Completed ADR is never edited ([ADR README](../adrs/README.md#status-meanings)).
+The order ranks sources as descriptions of current behaviour. A lower source that disagrees with a higher one needs a fix. An Accepted ADR that amends landed code records the planned target: its decision wins over the code until its Work required lands, after which code and ADR agree. Stale sketches in these documents follow the code: for example, `core` defines its own `ID` and `MicroUSD` types in place of `uuid.UUID` and `decimal.Decimal`. A change to a Completed ADR is a new ADR that names the Completed one it amends; a Completed ADR is never edited ([ADR README](../adrs/README.md#status-meanings)).
 
 ## Sources
 

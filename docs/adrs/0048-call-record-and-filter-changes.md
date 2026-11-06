@@ -1,6 +1,6 @@
 # ADR 0048: Call record and filter changes
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-26
 
