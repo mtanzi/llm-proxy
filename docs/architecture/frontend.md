@@ -158,6 +158,7 @@ web/                          React + Vite source
 │   ├── views/                V1 to V5 and admin pages
 │   ├── components/           layout, table, time-range and filter primitives; tree, waterfall
 │   ├── api/                  generated types (schema.gen.ts, `make ui-gen`), typed client, query keys
+│   ├── lib/                  formatters (null shows unknown, not zero)
 │   └── main.tsx
 ├── index.html
 ├── package.json              pinned versions, lockfile committed
