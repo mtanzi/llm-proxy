@@ -11,12 +11,13 @@ Commands assume the repository root and `docker compose` v2.
 1. Create the config and the three secret files. Each `.example` file shows the shape:
 
    ```sh
+   chmod 700 secrets
    cp config.example.yaml config.yaml
    pw=$(openssl rand -hex 24)
    printf '%s\n' "$pw" > secrets/pg_password
    printf 'postgres://llmproxy:%s@postgres:5432/llmproxy?sslmode=disable\n' "$pw" > secrets/database_url
    printf '%s\n' 'sk-ant-…' > secrets/anthropic_api_key      # your Console API key
-   chmod 700 secrets && chmod 644 config.yaml secrets/*
+   chmod 644 config.yaml secrets/*
    ```
 
    The containers run as uid 65532 (`llm-proxy`) and uid 999 (Postgres), so the mounted files are mode 644, and the `secrets` directory is mode 700 so no other local user can reach them. Keep it 700. `config.yaml` and `secrets/*` are git-ignored.
