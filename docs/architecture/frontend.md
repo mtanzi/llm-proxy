@@ -7,7 +7,7 @@ Part of the [architecture set](README.md). v1 is an observe-only logging proxy f
 The captain chose a **React single-page application embedded in the Go binary**, with a Go JSON API and SSE live tail (UI report section 10, Q1 option a).
 
 - Built with Vite and React. No Next.js and no server-side rendering runtime, so the build output is static files that the Go binary embeds with `go:embed`.
-- Served by the admin listener under `/ui/`. It talks only to `/admin/*` on the same origin.
+- Served by the admin listener under `/ui/`. It talks only to `/admin/*` on the same origin. The admin listener has no sign-in; see [Admin API access](#admin-api-access).
 - One binary, one container. Node is needed only at build time. Bifrost, a Go gateway, ships the same packaging with `//go:embed all:ui` and a React UI (UI report 8.2).
 
 ```mermaid

@@ -118,8 +118,8 @@ func TestExampleFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := fakeOpts(
-		map[string]string{"LLM_PROXY_DATABASE_URL": "postgres://x"},
-		map[string]string{"/run/secrets/anthropic_api_key": "k"},
+		nil,
+		map[string]string{"/run/secrets/database_url": "postgres://x", "/run/secrets/anthropic_api_key": "k"},
 	)
 	cfg, err := Parse(data, o)
 	if err != nil {

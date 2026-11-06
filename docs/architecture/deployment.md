@@ -293,7 +293,7 @@ The data listener closes right after `/readyz` flips to not-ready, with no pause
 
 The supervisor must wait at least as long as the drain before it sends `SIGKILL`, or it kills the process mid-drain. Set the grace period equal to `server.drain_timeout` (default 10 minutes). A stream that runs to the drain deadline leaves no time for the flush; to keep the flush in that case, add 30 seconds.
 
-- Docker Compose: `stop_grace_period: 10m` (see the sketch above). With `docker stop`, use `--time 600`.
+- Docker Compose: `stop_grace_period: 10m` (see [docker-compose.yml](../../docker-compose.yml)). With `docker stop`, use `--time 600`.
 - Kubernetes: `terminationGracePeriodSeconds: 600`.
 - systemd: `TimeoutStopSec=10min` in the `[Service]` section. The default is 90 seconds, which cuts streams. Keep `KillSignal=SIGTERM` (the default) and `SendSIGKILL=yes`.
 
@@ -304,55 +304,14 @@ Compatibility rules:
 - Rollback: migrations are expand-only within a release, so the previous binary works against the expanded schema and rolling back one release needs no database restore.
 - A config-only change (pricing, provider credentials) needs `SIGHUP`, not a restart.
 
-## docker-compose sketch
+## docker-compose
 
-A starting point for the single-container topology, not a tested file. The image is built from this repository.
+The tested compose file is [docker-compose.yml](../../docker-compose.yml) in the repository root, with [config.example.yaml](../../config.example.yaml) and the secret files under `secrets/*.example`. CI starts it against a fake upstream ([scripts/compose-test.sh](../../scripts/compose-test.sh)). Recurring tasks are in the [runbook](../runbook.md); the single-person setup is in the [personal local setup](../personal-local-setup.md). What the file does:
 
-```yaml
-services:
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: llmproxy
-      POSTGRES_USER: llmproxy
-      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
-    secrets: [pg_password]
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U llmproxy -d llmproxy"]
-      interval: 5s
-      retries: 10
-    restart: unless-stopped
-
-  llm-proxy:
-    image: llm-proxy:0.1.0
-    command: ["serve"]
-    environment:
-      LLM_PROXY_CONFIG: /etc/llm-proxy/config.yaml
-      LLM_PROXY_DATABASE_URL: postgres://llmproxy@postgres:5432/llmproxy?sslmode=disable
-    volumes:
-      - ./config.yaml:/etc/llm-proxy/config.yaml:ro
-    secrets: [pg_password, anthropic_api_key]
-    ports:
-      - "127.0.0.1:8080:8080"   # data plane; front with Tailscale or Caddy for remote clients
-    depends_on:
-      postgres: { condition: service_healthy }
-    stop_grace_period: 10m       # matches server.drain_timeout
-    restart: unless-stopped
-
-volumes:
-  pgdata:
-
-secrets:
-  pg_password:       { file: ./secrets/pg_password }
-  anthropic_api_key: { file: ./secrets/anthropic_api_key }
-```
-
-Notes on the sketch:
-
-- The database password reaches `llm-proxy` as a file; the config's `database.url` can reference it, or the URL can carry it from an environment file kept out of version control.
+- Postgres 16 with a named volume and a `pg_isready` health check. `llm-proxy` waits for it to be healthy.
+- The config is mounted read-only. The database URL (which carries the password), the Postgres password and the provider key reach the containers as file secrets.
 - `llm-proxy` mounts no data volume: it writes nothing to disk. `serve` migrates the database at start, so there is no migrate service.
-- Before the first start, generate a key (`llm-proxy keygen --name <name>`, or the `openssl` lines under [Secrets](#secrets)) and add its entry under `keys:` in `config.yaml`. Without a `keys` entry every data-plane request gets `401`. After later key changes, run `docker compose kill -s HUP llm-proxy`.
+- The data plane is published on `127.0.0.1:8080`; front it with Tailscale or Caddy for remote clients. `stop_grace_period: 10m` matches `server.drain_timeout`.
 - The admin listener is loopback-only, so inside the container it is not reachable through a published port. To open the UI at `http://127.0.0.1:9090/ui/`, run `serve` on the host (see [Personal local setup](#personal-local-setup-subscription-passthrough)), or use the host network (`network_mode: host`, Linux) with `listen.admin: 127.0.0.1:9090`. There is no sign-in.
+- Before the first start, generate a key and add its entry under `keys:`. Without a `keys` entry every data-plane request gets `401`. After later key changes, run `docker compose kill -s HUP llm-proxy`.
 - Point Claude Code at `http://127.0.0.1:8080` as described in [upstream-connection.md](upstream-connection.md#claude-code-with-a-proxy-held-api-key).

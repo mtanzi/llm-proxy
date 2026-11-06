@@ -1,0 +1,57 @@
+# Single-container deployment: llm-proxy and Postgres (ADR 0037).
+# Runbook: docs/runbook.md. Quick start for one person: docs/personal-local-setup.md.
+#
+# Before the first start, create config.yaml and the secret files as in the
+# runbook's "First start" (it keeps secrets/ private).
+# Paths and the image can be overridden from the environment or an .env file:
+#   LLM_PROXY_IMAGE        image to run (default: build from this directory)
+#   LLM_PROXY_CONFIG_FILE  config file to mount (default: ./config.yaml)
+#   LLM_PROXY_SECRETS_DIR  directory that holds the secret files (default: ./secrets)
+#   LLM_PROXY_PORT         host port of the data plane (default: 8080)
+name: llm-proxy
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: llmproxy
+      POSTGRES_USER: llmproxy
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_password
+    secrets: [pg_password]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U llmproxy -d llmproxy"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  llm-proxy:
+    image: ${LLM_PROXY_IMAGE:-llm-proxy:local}
+    build:
+      context: .
+      args:
+        VERSION: local
+    command: ["serve"]
+    environment:
+      LLM_PROXY_CONFIG: /etc/llm-proxy/config.yaml
+    volumes:
+      - ${LLM_PROXY_CONFIG_FILE:-./config.yaml}:/etc/llm-proxy/config.yaml:ro
+    secrets: [database_url, anthropic_api_key]
+    ports:
+      # Data plane, on the host loopback only. Front it with Caddy or
+      # `tailscale serve` for remote clients. The admin plane has no sign-in and
+      # listens on loopback inside the container, so it is not published.
+      - "127.0.0.1:${LLM_PROXY_PORT:-8080}:8080"
+    depends_on:
+      postgres: { condition: service_healthy }
+    stop_grace_period: 10m # matches server.drain_timeout
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
+secrets:
+  pg_password:       { file: "${LLM_PROXY_SECRETS_DIR:-./secrets}/pg_password" }
+  database_url:      { file: "${LLM_PROXY_SECRETS_DIR:-./secrets}/database_url" }
+  anthropic_api_key: { file: "${LLM_PROXY_SECRETS_DIR:-./secrets}/anthropic_api_key" }

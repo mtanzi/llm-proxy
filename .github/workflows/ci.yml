@@ -142,3 +142,7 @@ jobs:
         run: scripts/check-image.sh llm-proxy:ci
       - name: Smoke test against Postgres
         run: scripts/smoke-image.sh llm-proxy:ci
+      - name: Compose stack test
+        run: scripts/compose-test.sh llm-proxy:ci
+      - name: Backup restore test
+        run: scripts/restore-test.sh llm-proxy:ci

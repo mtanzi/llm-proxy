@@ -1,0 +1,11 @@
+# Compose override for scripts/compose-test.sh and scripts/restore-test.sh: adds
+# a fake Anthropic upstream next to the stack. Paths are relative to the project
+# directory (the repository root).
+services:
+  fake-upstream:
+    image: nginx:alpine
+    volumes:
+      - ./testdata/compose/fake-upstream.conf:/etc/nginx/conf.d/default.conf:ro
+  llm-proxy:
+    depends_on:
+      fake-upstream: { condition: service_started }

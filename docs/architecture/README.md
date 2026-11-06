@@ -14,7 +14,7 @@ The goal: a self-hosted Go proxy that logs every LLM call and every tool call as
 | [backend.md](backend.md) | Go components, the proxy hot path, tap and extractor, recorder, read-time tool pairing, correlation, admin and query API, live tail, storage ports and adapters, data model, package layout, later versions |
 | [frontend.md](frontend.md) | The React UI embedded in the Go binary: views, routing, data fetching, virtualization, live tail, admin access, what the UI can show without bodies, build and embedding |
 | [upstream-connection.md](upstream-connection.md) | How the proxy reaches the Anthropic API with API keys, how Claude Code with a Claude subscription (Pro or Max login) can route through it, and the documented limits on that. The OpenAI family and Codex CLI setup are in its v2 section |
-| [deployment.md](deployment.md) | The single-container topology, the later multi-replica tier, configuration, secrets, migrations, `store/postgres` storage and retention, sizing, backups, TLS, observability, upgrades, a docker-compose sketch |
+| [deployment.md](deployment.md) | The single-container topology, the later multi-replica tier, configuration, secrets, migrations, `store/postgres` storage and retention, sizing, backups, TLS, observability, upgrades, the docker-compose file |
 
 Read [backend.md](backend.md) first. The other three documents assume its vocabulary.
 
@@ -50,7 +50,7 @@ flowchart LR
 1. Clients change only a base URL. The data plane forwards each request to the Anthropic API and streams the response back without buffering. Errors reach the client unchanged; the client does its own retries.
 2. The request body is read once into memory, and a tap reads the response as it passes. After the exchange ends, the extractor builds one small call record and hands it to the recorder without blocking. The recorder fans it out to live-tail subscribers and puts it on a bounded queue. A full queue drops the record and counts it.
 3. A batch writer hands call records in batches to the `CallWriter` store port. The `store/postgres` adapter only appends rows, idempotently. Each `tool_use` and each `tool_result` is its own row, with ids and sizes only; they are paired when read.
-4. The admin plane serves a JSON API and the React UI. Everything it shows comes through `CallReader` from stored rows: numbers, names and hashes, never content. Sessions, agent trees, tool pairs and statistics are computed at read time.
+4. The admin plane serves a JSON API and the React UI. It has no sign-in, so it listens on loopback only. Everything it shows comes through `CallReader` from stored rows: numbers, names and hashes, never content. Sessions, agent trees, tool pairs and statistics are computed at read time.
 5. Storage is behind two ports defined by use case. Only the wiring in `cmd` knows the Postgres adapter; see [backend.md](backend.md#storage-ports-and-adapters).
 
 ## Decisions this architecture builds on

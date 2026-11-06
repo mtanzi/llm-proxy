@@ -1,0 +1,28 @@
+# Personal local setup (docs/personal-local-setup.md): one person routes their own
+# Claude login through a proxy on their own machine. `llm-proxy serve` runs on the
+# host and Postgres comes from docker-compose.personal.yml.
+# Path: --config or LLM_PROXY_CONFIG.
+
+listen:
+  data: "127.0.0.1:8080"        # loopback only
+  admin: "127.0.0.1:9090"       # no sign-in: loopback only
+
+database:
+  url: { env: LLM_PROXY_DATABASE_URL }
+
+providers:
+  - name: anthropic
+    kind: anthropic
+    base_url: https://api.anthropic.com
+    auth_mode: client_passthrough   # no provider credential: the client's own login is forwarded
+    idle_timeout: 120s
+
+keys:
+  # PLACEHOLDER hash matches no key. Replace it with the entry that
+  # `llm-proxy keygen --name me-laptop` prints.
+  - name: me-laptop
+    sha256: 0000000000000000000000000000000000000000000000000000000000000001   # placeholder
+
+pricing:                        # shapes the API-equivalent cost; add the models you use
+  - { provider: anthropic, model: claude-opus-4-8, from: 2026-10-01,
+      input: 5.00, output: 25.00, cache_read: 0.50, cache_write_5m: 6.25, cache_write_1h: 10.00 }
