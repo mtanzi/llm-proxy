@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams, useSearch } from '@tanstack/react-router'
 import { detailQueryOptions, readQueryOptions } from '../api/queries'
-import type { ResponseOf } from '../api/client'
+import { apiGet } from '../api/client'
+import type { QueryOf, ResponseOf } from '../api/client'
 import { ContentNotStored } from '../components/ContentNotStored'
 import { ErrorMessage, LoadingState } from '../components/states'
 import {
@@ -143,15 +144,48 @@ function Overview({ call }: { call: CallDetail }) {
   )
 }
 
-/** Window of the tool-call query: uses of this call, and results it carries for earlier uses. */
-const RESULT_LOOKBACK_MS = 60 * 60 * 1000
+/**
+ * Window of the tool-call query, on the use time. A use is timed at response
+ * end; a result pairs with a use up to 24 hours older (core.ToolResultLookahead).
+ */
+const TOOL_RESULT_LOOKAHEAD_MS = 24 * 60 * 60 * 1000
 
-export function toolCallWindow(ts: string): { from: string; to: string } {
-  const t = Date.parse(ts)
+export function toolCallWindow(call: Pick<CallDetail, 'ts' | 'ended_at'>): { from: string; to: string } {
   return {
-    from: new Date(t - RESULT_LOOKBACK_MS).toISOString(),
-    to: new Date(t + 1000).toISOString(),
+    from: new Date(Date.parse(call.ts) - TOOL_RESULT_LOOKAHEAD_MS).toISOString(),
+    to: new Date(Date.parse(call.ended_at ?? call.ts) + 1000).toISOString(),
   }
+}
+
+type ToolCallList = ResponseOf<'/admin/tool-calls'>
+
+/**
+ * Pages through the pairs of the window, newest first, until every tool use
+ * and result of this call has its pair or the pages run out. Keeps only the
+ * pairs of this call.
+ */
+export async function fetchToolPairs(
+  call: CallDetail,
+  query: QueryOf<'/admin/tool-calls'>,
+  signal?: AbortSignal,
+): Promise<ToolCallList> {
+  const missing = new Set([
+    ...call.tool_uses.map((u) => `use:${u.tool_call_id}`),
+    ...call.tool_results.map((r) => `result:${r.tool_call_id}`),
+  ])
+  const toolCalls: ToolCall[] = []
+  let cursor: string | undefined
+  do {
+    const page = await apiGet('/admin/tool-calls', { query: { ...query, cursor } }, { signal })
+    for (const p of page.tool_calls) {
+      const mine = p.use_call_id === call.id || p.result_call_id === call.id
+      if (p.use_call_id === call.id) missing.delete(`use:${p.tool_call_id}`)
+      if (p.result_call_id === call.id) missing.delete(`result:${p.tool_call_id}`)
+      if (mine) toolCalls.push(p)
+    }
+    cursor = page.next_cursor ?? undefined
+  } while (cursor !== undefined && missing.size > 0)
+  return { tool_calls: toolCalls, next_cursor: null }
 }
 
 export interface ToolRow {
@@ -222,10 +256,10 @@ function outcome(row: ToolRow): React.ReactNode {
 function Tools({ call }: { call: CallDetail }) {
   const hasTools = call.tool_uses.length + call.tool_results.length > 0
   const enabled = hasTools && call.session_key !== ''
+  const query = { session: call.session_key, limit: 500, ...toolCallWindow(call) }
   const pairs = useQuery({
-    ...readQueryOptions('/admin/tool-calls', {
-      query: { session: call.session_key, limit: 500, ...toolCallWindow(call.ts) },
-    }),
+    ...readQueryOptions('/admin/tool-calls', { query }),
+    queryFn: ({ signal }) => fetchToolPairs(call, query, signal),
     enabled,
   })
   if (!hasTools) return <p className="state">This call carries no tool uses or results.</p>

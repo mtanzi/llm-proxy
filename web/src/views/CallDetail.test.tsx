@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { App } from '../App'
 import { createQueryClient } from '../queryClient'
 import { createAppRouter } from '../router'
-import { buildToolRows } from './CallDetail'
+import { buildToolRows, fetchToolPairs } from './CallDetail'
 import type { CallDetail, ToolCall } from './CallDetail'
 
 const ID = '0190a1b2-0000-7000-8000-000000000001'
@@ -213,6 +213,45 @@ test('a result carried by this call links to the requesting call', () => {
   const rows = buildToolRows(call, [pair({ use_call_id: OTHER, result_call_id: ID })])
   expect(rows).toHaveLength(1)
   expect(rows[0]).toMatchObject({ role: 'resolved', name: 'Read', otherCallId: OTHER, argBytes: 100, resultBytes: 2048 })
+})
+
+test('the pairing query covers uses timed at response end and results of uses a day older', async () => {
+  const call = detail({
+    ended_at: '2026-11-01T10:00:02.500Z',
+    tool_uses: [{ source: 'client', tool_call_id: 't1', name: 'Read', arg_bytes: 100 }],
+  })
+  const urls = stubApi(call, [pair({})])
+  await renderAt(`/ui/calls/${ID}?tab=%22tools%22`)
+  await screen.findByText('2.0 KiB')
+  const query = new URL(urls.find((u) => u.startsWith('/admin/tool-calls'))!, 'http://x').searchParams
+  expect(query.get('from')).toBe('2026-10-31T10:00:00.000Z')
+  expect(query.get('to')).toBe('2026-11-01T10:00:03.500Z')
+})
+
+test('the pairing query pages until every half of this call has its pair', async () => {
+  const call = detail({
+    tool_uses: [{ source: 'client', tool_call_id: 't1', name: 'Read', arg_bytes: 100 }],
+    tool_results: [{ source: 'client', tool_call_id: 't0', is_error: false, result_bytes: 7 }],
+  })
+  const pages = [
+    { tool_calls: [pair({}), pair({ tool_call_id: 'tx', use_call_id: OTHER, result_call_id: null })], next_cursor: 'c1' },
+    { tool_calls: [pair({ tool_call_id: 't0', use_call_id: OTHER, result_call_id: ID })], next_cursor: 'c2' },
+    { tool_calls: [], next_cursor: null },
+  ]
+  const urls: string[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      urls.push(url)
+      return new Response(JSON.stringify(pages[urls.length - 1]))
+    }),
+  )
+  const out = await fetchToolPairs(call, { session: 'sess/1:a', limit: 500 })
+  expect(urls).toHaveLength(2)
+  expect(urls[1]).toContain('cursor=c1')
+  expect(out.tool_calls.map((p) => p.tool_call_id)).toEqual(['t1', 't0'])
+  const rows = buildToolRows(call, out.tool_calls)
+  expect(rows[1]).toMatchObject({ role: 'resolved', name: 'Read', otherCallId: OTHER })
 })
 
 test('a call without a session skips the pairing query', async () => {
