@@ -3,3 +3,8 @@ internal/ui/dist/
 web/dist/
 node_modules/
 /bin/
+
+# Local deployment files (docker-compose.yml): config and secrets stay out of git.
+/config.yaml
+/secrets/*
+!/secrets/*.example

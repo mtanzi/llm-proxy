@@ -1,6 +1,6 @@
 # ADR 0037: Deployment guide: compose file, runbook and personal local setup
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
