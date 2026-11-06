@@ -136,3 +136,26 @@ export function NumberFilter({
     </div>
   )
 }
+
+/** A filter that takes one text value. */
+export function TextFilter({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string | undefined
+  onChange: (next: string | undefined) => void
+}) {
+  const id = useId()
+  return (
+    <div className="filter-field">
+      <label htmlFor={id}>{label}</label>
+      <input
+        id={id}
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value.trim() === '' ? undefined : e.target.value)}
+      />
+    </div>
+  )
+}
