@@ -1,6 +1,6 @@
 # ADR 0051: Recorder isolates unwritable records
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-11-05
 
@@ -63,6 +63,8 @@ For a systematic bug that shows as a permanent class, these alternatives were co
 - **Narrow the permanent set.** Keep only the SQLSTATEs that a single record can cause and that a schema change cannot, for example `22021` and `22P05`. Class 23 and most of class 22 then stay transient. This avoids the drain, but a real poison record in those classes blocks the writer again, which is the problem this ADR solves.
 
 Open question for review: whether the systematic-failure rule (keep and retry a batch where every record fails permanently, only when the batch holds at least `SystematicMinRecords` = 8 records) is the right answer for a systematic bug, instead of accepting the drain or narrowing the permanent set, and whether 8 is the right threshold. A source-based rule, for example one that also requires records from at least two distinct key names or agents, is a possible refinement left for review.
+
+Resolution (2026-11-06): accepted as written, with the systematic-failure rule and the threshold of 8.
 
 ## Consequences
 
