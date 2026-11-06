@@ -70,10 +70,16 @@ test('column visibility toggle hides a column', () => {
 test('row click and Enter call onRowClick; end of list asks for more', () => {
   const onRowClick = vi.fn()
   const onEndReached = vi.fn()
-  render(<DataTable {...props} data={makeRows(3)} onRowClick={onRowClick} onEndReached={onEndReached} />)
+  render(<DataTable {...props} data={makeRows(3)} onRowClick={onRowClick} onEndReached={onEndReached} hasNextPage />)
   const row = screen.getAllByRole('row')[1]
   fireEvent.click(row)
   fireEvent.keyDown(row, { key: 'Enter' })
   expect(onRowClick).toHaveBeenCalledTimes(2)
   expect(onEndReached).toHaveBeenCalled()
+})
+
+test('end of list does not ask for more when there is no next page', () => {
+  const onEndReached = vi.fn()
+  render(<DataTable {...props} data={makeRows(3)} onEndReached={onEndReached} hasNextPage={false} />)
+  expect(onEndReached).not.toHaveBeenCalled()
 })

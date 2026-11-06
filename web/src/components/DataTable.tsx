@@ -23,6 +23,8 @@ export interface DataTableProps<T> {
   onRowClick?: (row: T) => void
   /** Called when the last rows scroll into view: fetch the next page. */
   onEndReached?: () => void
+  /** Whether another page exists; onEndReached is only called when true. */
+  hasNextPage?: boolean
   isFetchingNextPage?: boolean
   rowHeight?: number
   /** Height of the scroll area in px. */
@@ -48,6 +50,7 @@ export function DataTable<T>({
   emptyMessage = 'No rows.',
   onRowClick,
   onEndReached,
+  hasNextPage = false,
   isFetchingNextPage = false,
   rowHeight = 36,
   height = 480,
@@ -81,10 +84,10 @@ export function DataTable<T>({
   const lastIndex = items.length > 0 ? items[items.length - 1].index : -1
 
   useEffect(() => {
-    if (onEndReached && !isFetchingNextPage && lastIndex >= rows.length - END_THRESHOLD && rows.length > 0) {
+    if (onEndReached && hasNextPage && !isFetchingNextPage && lastIndex >= rows.length - END_THRESHOLD && rows.length > 0) {
       onEndReached()
     }
-  }, [lastIndex, rows.length, onEndReached, isFetchingNextPage])
+  }, [lastIndex, rows.length, onEndReached, hasNextPage, isFetchingNextPage])
 
   const leaf = table.getVisibleLeafColumns()
   const gridTemplate = leaf.map((c) => `${c.getSize()}px`).join(' ')
