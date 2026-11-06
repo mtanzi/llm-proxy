@@ -47,6 +47,13 @@ test('merge keeps one row per call id, live rows first', () => {
   expect(merged.map((r) => r.id)).toEqual(['b', 'a', 'c'])
 })
 
+test('merge orders rows newest first, so a refetched newer call sorts above older live rows', () => {
+  const live = [call('live-new', { ts: '2026-11-01T10:00:19Z' }), call('live-old', { ts: '2026-11-01T10:00:10Z' })]
+  const paged = [call('missed', { ts: '2026-11-01T10:00:24Z' }), call('live-new', { ts: '2026-11-01T10:00:19Z' }), call('old', { ts: '2026-11-01T09:00:00.5Z' })]
+  expect(mergeRows(live, paged).map((r) => r.id)).toEqual(['missed', 'live-new', 'live-old', 'old'])
+})
+
+
 test('group by session folds consecutive calls only', () => {
   const rows = groupBySession([
     call('1', { session_key: 's1' }),

@@ -52,7 +52,11 @@ export function insertLive(rows: CallSummary[], call: CallSummary, cap = LIVE_RO
   return [call, ...rows].slice(0, cap)
 }
 
-/** Live rows first, then the paged rows, one row per call id. */
+/**
+ * Live and paged rows, one row per call id, newest first. A reconnect refetch
+ * can bring back a call newer than rows already held from the stream. The sort
+ * is stable, so calls with the same time keep their order (live, then paged).
+ */
 export function mergeRows(live: CallSummary[], paged: CallSummary[]): CallSummary[] {
   const seen = new Set<string>()
   const out: CallSummary[] = []
@@ -62,7 +66,7 @@ export function mergeRows(live: CallSummary[], paged: CallSummary[]): CallSummar
       out.push(row)
     }
   }
-  return out
+  return out.sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
 }
 
 export type LogRow =
