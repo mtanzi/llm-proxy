@@ -14,9 +14,11 @@ import (
 
 // handlers holds what the data handlers read.
 type handlers struct {
-	calls  core.CallReader
-	config func() config.View
-	now    func() time.Time
+	calls     core.CallReader
+	config    func() config.View
+	live      Live
+	now       func() time.Time
+	keepAlive time.Duration
 }
 
 // listCalls serves GET /admin/calls.

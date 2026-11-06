@@ -76,6 +76,78 @@ paths:
           $ref: "#/components/responses/Error"
         "500":
           $ref: "#/components/responses/Error"
+  /admin/stream:
+    get:
+      operationId: streamCalls
+      summary: Live tail of finished calls
+      description: |
+        Server-sent events (`text/event-stream`) of calls as they finish, with
+        the call-log filters. The stream carries finished calls only, as one
+        event type, `call.finished`; the `x-sse-events` extension of the 200
+        response maps each event type to its schema.
+
+        Each event is one SSE frame:
+
+            id: <call id>
+            event: call.finished
+            data: <CallSummary as one line of JSON>
+
+        The `id` is the call id, for de-duplication. There is no replay and no
+        `Last-Event-ID` catch-up: after a reconnect, refetch the first page of
+        `GET /admin/calls`. A comment line (`: keep-alive`) comes every 15
+        seconds while no event is due. Calls finish out of order, so events are
+        not ordered by `ts`. A client that reads too slowly loses events.
+
+        Unlike the call list, the stream has no default time range: without
+        `from` or `to` that side is open. A client tool's result arrives with a
+        later call, so `tool_error` matches only server tools on the stream.
+        The stream ends when the server shuts down.
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/Key"
+        - $ref: "#/components/parameters/Client"
+        - $ref: "#/components/parameters/Provider"
+        - $ref: "#/components/parameters/Model"
+        - $ref: "#/components/parameters/Endpoint"
+        - $ref: "#/components/parameters/Streamed"
+        - $ref: "#/components/parameters/Status"
+        - $ref: "#/components/parameters/ErrorClass"
+        - $ref: "#/components/parameters/Session"
+        - $ref: "#/components/parameters/Agent"
+        - $ref: "#/components/parameters/AgentType"
+        - $ref: "#/components/parameters/Prompt"
+        - $ref: "#/components/parameters/RequestClass"
+        - $ref: "#/components/parameters/Tool"
+        - $ref: "#/components/parameters/ToolError"
+        - $ref: "#/components/parameters/LatencyMsGte"
+        - $ref: "#/components/parameters/CostMicroUsdGte"
+      responses:
+        "200":
+          description: |
+            The event stream. It is sent with `Cache-Control: no-cache` and
+            `X-Accel-Buffering: no`, so proxies in front do not buffer it.
+          headers:
+            Cache-Control:
+              description: Always `no-cache`.
+              schema: { type: string, const: no-cache }
+            X-Accel-Buffering:
+              description: Always `no`.
+              schema: { type: string, const: "no" }
+          content:
+            text/event-stream:
+              schema:
+                description: |
+                  A sequence of SSE frames, each one event of this schema
+                  (decoded), with keep-alive comments between them.
+                $ref: "#/components/schemas/CallFinishedEvent"
+          x-sse-events:
+            call.finished:
+              $ref: "#/components/schemas/CallFinishedEvent"
+        "400":
+          $ref: "#/components/responses/Error"
+        "500":
+          $ref: "#/components/responses/Error"
   /admin/sessions:
     get:
       operationId: listSessions
@@ -548,6 +620,16 @@ components:
         context_compacted:
           type: boolean
           description: The cache prefix resets at this call.
+    CallFinishedEvent:
+      type: object
+      description: |
+        One `call.finished` event of `GET /admin/stream`. `id` and `event` are
+        the SSE fields of the frame; `data` is its data line, decoded.
+      required: [id, event, data]
+      properties:
+        id: { $ref: "#/components/schemas/CallId" }
+        event: { type: string, const: call.finished }
+        data: { $ref: "#/components/schemas/CallSummary" }
     CallList:
       type: object
       required: [calls, next_cursor, count, count_capped]

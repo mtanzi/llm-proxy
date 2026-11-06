@@ -1,6 +1,6 @@
 # ADR 0025: Live tail (`GET /admin/stream`)
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

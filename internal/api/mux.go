@@ -30,10 +30,16 @@ type Options struct {
 	// Config returns the redacted config view of the running snapshot for
 	// GET /admin/config.
 	Config func() config.View
+	// Live is the recorder's live fan-out, read by GET /admin/stream.
+	Live Live
 	// Now is the clock of the default time range. Nil uses time.Now.
 	Now func() time.Time
-	// A nil Calls or Config makes its endpoints answer 503, so a wiring that
-	// forgets one fails loudly (the composition root is ADR 0028).
+	// A nil Calls, Config or Live makes its endpoints answer 503, so a wiring
+	// that forgets one fails loudly (the composition root is ADR 0028).
+
+	// keepAlive is a test hook for the stream's keep-alive interval. Zero
+	// means KeepAliveInterval.
+	keepAlive time.Duration
 }
 
 // NewRegistry returns the Prometheus registry of the binary: the Go runtime
@@ -51,14 +57,19 @@ func NewRegistry(cs ...prometheus.Collector) *prometheus.Registry {
 // /healthz says the process is alive, /readyz says the store answers and drain
 // has not started, and /metrics serves the registry (ADR 0026). Under /admin/
 // it serves the call-log endpoints, the config view and the OpenAPI document
-// (ADR 0023), and the session, tool-call and usage endpoints (ADR 0024). Under
+// (ADR 0023), the session, tool-call and usage endpoints (ADR 0024) and the
+// live tail (ADR 0025). Under
 // /ui/ it serves the embedded web UI (ADR 0029).
 func NewMux(o Options) *http.ServeMux {
 	now := o.Now
 	if now == nil {
 		now = time.Now
 	}
-	h := &handlers{calls: o.Calls, config: o.Config, now: now}
+	keepAlive := o.keepAlive
+	if keepAlive <= 0 {
+		keepAlive = KeepAliveInterval
+	}
+	h := &handlers{calls: o.Calls, config: o.Config, live: o.Live, now: now, keepAlive: keepAlive}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/admin/", notFound)
 	mux.HandleFunc("GET /admin/calls", h.listCalls)
@@ -68,6 +79,7 @@ func NewMux(o Options) *http.ServeMux {
 	mux.HandleFunc("GET /admin/tool-calls", h.listToolCalls)
 	mux.HandleFunc("GET /admin/tool-calls/summary", h.toolSummary)
 	mux.HandleFunc("GET /admin/usage", h.getUsage)
+	mux.HandleFunc("GET /admin/stream", h.stream)
 	mux.HandleFunc("GET /admin/config", h.getConfig)
 	mux.HandleFunc("GET /admin/openapi.json", h.getOpenAPI)
 	ui.Mount(mux)

@@ -47,6 +47,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Live tail of finished calls
+         * @description Server-sent events (`text/event-stream`) of calls as they finish, with
+         *     the call-log filters. The stream carries finished calls only, as one
+         *     event type, `call.finished`; the `x-sse-events` extension of the 200
+         *     response maps each event type to its schema.
+         *
+         *     Each event is one SSE frame:
+         *
+         *         id: <call id>
+         *         event: call.finished
+         *         data: <CallSummary as one line of JSON>
+         *
+         *     The `id` is the call id, for de-duplication. There is no replay and no
+         *     `Last-Event-ID` catch-up: after a reconnect, refetch the first page of
+         *     `GET /admin/calls`. A comment line (`: keep-alive`) comes every 15
+         *     seconds while no event is due. Calls finish out of order, so events are
+         *     not ordered by `ts`. A client that reads too slowly loses events.
+         *
+         *     Unlike the call list, the stream has no default time range: without
+         *     `from` or `to` that side is open. A client tool's result arrives with a
+         *     later call, so `tool_error` matches only server tools on the stream.
+         *     The stream ends when the server shuts down.
+         */
+        get: operations["streamCalls"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/sessions": {
         parameters: {
             query?: never;
@@ -271,6 +311,16 @@ export interface components {
             tool_count: number;
             /** @description The cache prefix resets at this call. */
             context_compacted: boolean;
+        };
+        /**
+         * @description One `call.finished` event of `GET /admin/stream`. `id` and `event` are
+         *     the SSE fields of the frame; `data` is its data line, decoded.
+         */
+        CallFinishedEvent: {
+            id: components["schemas"]["CallId"];
+            /** @constant */
+            event: "call.finished";
+            data: components["schemas"]["CallSummary"];
         };
         CallList: {
             calls: components["schemas"]["CallSummary"][];
@@ -702,6 +752,77 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             404: components["responses"]["Error"];
+            500: components["responses"]["Error"];
+        };
+    };
+    streamCalls: {
+        parameters: {
+            query?: {
+                /** @description Start of the time range, inclusive, RFC 3339. Default is 24 hours before `to`. */
+                from?: components["parameters"]["From"];
+                /** @description End of the time range, exclusive, RFC 3339. Default is now. */
+                to?: components["parameters"]["To"];
+                /** @description Virtual key name. Repeat to match several. */
+                key?: components["parameters"]["Key"];
+                /** @description Client name. Repeat to match several. */
+                client?: components["parameters"]["Client"];
+                /** @description Provider name. Repeat to match several. */
+                provider?: components["parameters"]["Provider"];
+                /** @description Model as the client asked for it. Repeat to match several. */
+                model?: components["parameters"]["Model"];
+                /** @description Request path, for example /v1/messages. Repeat to match several. */
+                endpoint?: components["parameters"]["Endpoint"];
+                /** @description Only streamed (true) or only non-streamed (false) calls. */
+                streamed?: components["parameters"]["Streamed"];
+                /** @description HTTP status returned to the client. Repeat to match several. */
+                status?: components["parameters"]["Status"];
+                /** @description Error class. Repeat to match several. */
+                error_class?: components["parameters"]["ErrorClass"];
+                /** @description Session key. */
+                session?: components["parameters"]["Session"];
+                /** @description Agent id. */
+                agent?: components["parameters"]["Agent"];
+                /** @description Agent type. Repeat to match several. */
+                agent_type?: components["parameters"]["AgentType"];
+                /** @description Prompt id. */
+                prompt?: components["parameters"]["Prompt"];
+                /** @description Request class. Repeat to match several. */
+                request_class?: components["parameters"]["RequestClass"];
+                /** @description Calls that made a tool call with this tool name. Repeat to match several. */
+                tool?: components["parameters"]["Tool"];
+                /**
+                 * @description Calls that made a tool call whose paired result has this is_error value.
+                 *     Combined with `tool`, both must hold on the same tool call.
+                 */
+                tool_error?: components["parameters"]["ToolError"];
+                /** @description Calls whose total duration is at least this many milliseconds. */
+                latency_ms_gte?: components["parameters"]["LatencyMsGte"];
+                /** @description Calls with a known cost of at least this many micro-USD. */
+                cost_micro_usd_gte?: components["parameters"]["CostMicroUsdGte"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /**
+             * @description The event stream. It is sent with `Cache-Control: no-cache` and
+             *     `X-Accel-Buffering: no`, so proxies in front do not buffer it.
+             */
+            200: {
+                headers: {
+                    /** @description Always `no-cache`. */
+                    "Cache-Control"?: "no-cache";
+                    /** @description Always `no`. */
+                    "X-Accel-Buffering"?: "no";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["CallFinishedEvent"];
+                };
+            };
+            400: components["responses"]["Error"];
             500: components["responses"]["Error"];
         };
     };

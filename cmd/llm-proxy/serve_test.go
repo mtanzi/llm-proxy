@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -201,6 +202,61 @@ func TestWiringWithFakes(t *testing.T) {
 	}
 	if st.retention != "stopped" || !st.closed {
 		t.Errorf("after shutdown: retention %q, closed %v; want stopped and closed", st.retention, st.closed)
+	}
+}
+
+// The live tail is wired to the recorder (ADR 0025): a call forwarded on the
+// data plane reaches an open GET /admin/stream on the real admin listener as a
+// call.finished event, unbuffered, and SIGTERM ends the stream and run.
+func TestWiringLiveTail(t *testing.T) {
+	upstream := fakeUpstream(t)
+	a, err := buildApp(loadedHolder(t, upstream.URL), &wiringStore{}, testLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := start(t, a)
+	if code, _ := get(t, r.admin+"/readyz"); code != http.StatusOK {
+		t.Fatalf("admin /readyz = %d, want 200", code)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, r.admin+"/admin/stream?key=alice", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "text/event-stream" ||
+		resp.Header.Get("Cache-Control") != "no-cache" || resp.Header.Get("X-Accel-Buffering") != "no" {
+		t.Fatalf("stream answered %d with headers %v", resp.StatusCode, resp.Header)
+	}
+
+	code, id := post(t, r.data)
+	if code != http.StatusOK {
+		t.Fatalf("forwarded call = %d, want 200", code)
+	}
+	br := bufio.NewReader(resp.Body)
+	var frame []string
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read event: %v (so far %q)", err, frame)
+		}
+		if line == "\n" {
+			break
+		}
+		frame = append(frame, strings.TrimSuffix(line, "\n"))
+	}
+	if len(frame) != 3 || frame[0] != "id: "+id || frame[1] != "event: call.finished" || !strings.Contains(frame[2], `"key":"alice"`) {
+		t.Errorf("frame %q, want call.finished for call %s of key alice", frame, id)
+	}
+
+	if err := r.stop(t); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if _, err := io.ReadAll(br); err != nil {
+		t.Errorf("stream did not end cleanly at shutdown: %v", err)
 	}
 }
 
