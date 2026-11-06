@@ -1,9 +1,8 @@
 # Single-container deployment: llm-proxy and Postgres (ADR 0037).
 # Runbook: docs/runbook.md. Quick start for one person: docs/personal-local-setup.md.
 #
-# Before the first start:
-#   cp config.example.yaml config.yaml          # then edit it: keys, pricing
-#   cp secrets/pg_password.example secrets/pg_password        # and the other two
+# Before the first start, create config.yaml and the secret files as in the
+# runbook's "First start" (it keeps secrets/ private).
 # Paths and the image can be overridden from the environment or an .env file:
 #   LLM_PROXY_IMAGE        image to run (default: build from this directory)
 #   LLM_PROXY_CONFIG_FILE  config file to mount (default: ./config.yaml)

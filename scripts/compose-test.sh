@@ -4,6 +4,7 @@
 # call is in the call log, the UI is served, and SIGHUP reloads the config.
 # Usage: compose-test.sh IMAGE
 set -eu
+# shellcheck source=scripts/compose-test-lib.sh
 . "$(dirname "$0")/compose-test-lib.sh"
 
 ct_setup "${1:?usage: compose-test.sh IMAGE}"

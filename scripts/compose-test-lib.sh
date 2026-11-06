@@ -1,3 +1,4 @@
+# shellcheck shell=sh
 # Shared helpers for compose-test.sh and restore-test.sh (ADR 0037). Source it;
 # do not run it. It builds a throwaway deployment from the files a user would
 # copy (config.example.yaml and the secrets), points it at a fake upstream, and

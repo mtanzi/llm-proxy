@@ -5,6 +5,7 @@
 # commands, run against a throwaway compose stack.
 # Usage: restore-test.sh IMAGE
 set -eu
+# shellcheck source=scripts/compose-test-lib.sh
 . "$(dirname "$0")/compose-test-lib.sh"
 
 ct_setup "${1:?usage: restore-test.sh IMAGE}"
