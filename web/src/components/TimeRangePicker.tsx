@@ -17,7 +17,8 @@ function fromLocalInput(value: string): string | undefined {
 
 /**
  * Time-range primitive: preset buttons plus an absolute window. It reports a
- * TimeRangeSearch; the caller writes it to the URL.
+ * TimeRangeSearch with all three keys set (cleared ones undefined), so the
+ * caller can spread it over the current search.
  */
 export function TimeRangePicker({
   value,
@@ -38,7 +39,7 @@ export function TimeRangePicker({
             key={preset}
             type="button"
             aria-pressed={!absolute && active === preset}
-            onClick={() => onChange(preset === DEFAULT_RANGE ? {} : { range: preset })}
+            onClick={() => onChange({ range: preset === DEFAULT_RANGE ? undefined : preset, from: undefined, to: undefined })}
           >
             {preset}
           </button>
@@ -49,14 +50,14 @@ export function TimeRangePicker({
         id={`${id}-from`}
         type="datetime-local"
         value={toLocalInput(value.from)}
-        onChange={(e) => onChange({ from: fromLocalInput(e.target.value), to: value.to })}
+        onChange={(e) => onChange({ range: undefined, from: fromLocalInput(e.target.value), to: value.to })}
       />
       <label htmlFor={`${id}-to`}>To</label>
       <input
         id={`${id}-to`}
         type="datetime-local"
         value={toLocalInput(value.to)}
-        onChange={(e) => onChange({ from: value.from, to: fromLocalInput(e.target.value) })}
+        onChange={(e) => onChange({ range: undefined, from: value.from, to: fromLocalInput(e.target.value) })}
       />
     </fieldset>
   )

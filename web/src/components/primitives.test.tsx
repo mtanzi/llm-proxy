@@ -5,22 +5,44 @@ import { ContentNotStored } from './ContentNotStored'
 import { BooleanFilter, FilterMenu, NumberFilter, TextListFilter } from './FilterMenu'
 import { TimeRangePicker } from './TimeRangePicker'
 
-test('time range picker reports presets, default as empty', () => {
+test('time range picker reports presets with all time keys, default as undefined', () => {
   const onChange = vi.fn()
   render(<TimeRangePicker value={{ range: '7d' }} onChange={onChange} />)
   expect(screen.getByRole('button', { name: '7d' }).getAttribute('aria-pressed')).toBe('true')
   fireEvent.click(screen.getByRole('button', { name: '1h' }))
-  expect(onChange).toHaveBeenLastCalledWith({ range: '1h' })
+  expect(onChange.mock.calls[0][0]).toStrictEqual({ range: '1h', from: undefined, to: undefined })
   fireEvent.click(screen.getByRole('button', { name: '24h' }))
-  expect(onChange).toHaveBeenLastCalledWith({})
+  expect(onChange.mock.calls[1][0]).toStrictEqual({ range: undefined, from: undefined, to: undefined })
 })
 
-test('time range picker reports an absolute bound', () => {
+test('time range picker output spread over the current search clears the other time keys', () => {
   const onChange = vi.fn()
-  render(<TimeRangePicker value={{}} onChange={onChange} />)
+  const current = { model: ['a'], from: '2026-01-01T00:00:00Z', to: '2026-01-02T00:00:00Z' }
+  render(<TimeRangePicker value={current} onChange={onChange} />)
+  fireEvent.click(screen.getByRole('button', { name: '1h' }))
+  expect({ ...current, ...onChange.mock.calls[0][0] }).toStrictEqual({
+    model: ['a'], range: '1h', from: undefined, to: undefined,
+  })
+  const preset = { model: ['a'], range: '7d' as const }
   fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-01-01T10:00' } })
-  const arg = onChange.mock.calls[0][0] as { from: string }
+  const merged = { ...preset, ...onChange.mock.calls[1][0] }
+  expect(merged.range).toBeUndefined()
+  expect(merged.model).toEqual(['a'])
+})
+
+test('time range picker reports an absolute bound and clears the preset', () => {
+  const onChange = vi.fn()
+  render(<TimeRangePicker value={{ range: '7d' }} onChange={onChange} />)
+  fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-01-01T10:00' } })
+  const arg = onChange.mock.calls[0][0] as { range?: string; from: string; to?: string }
+  expect(Object.keys(arg).sort()).toEqual(['from', 'range', 'to'])
+  expect(arg.range).toBeUndefined()
   expect(Date.parse(arg.from)).toBe(new Date('2026-01-01T10:00').getTime())
+  fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-01-02T10:00' } })
+  const toArg = onChange.mock.calls[1][0] as { range?: string; to: string }
+  expect(Object.keys(toArg).sort()).toEqual(['from', 'range', 'to'])
+  expect(toArg.range).toBeUndefined()
+  expect(Date.parse(toArg.to)).toBe(new Date('2026-01-02T10:00').getTime())
 })
 
 test('filter menu fields add and remove values', () => {
