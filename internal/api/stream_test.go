@@ -402,6 +402,23 @@ func TestParseStreamFilter(t *testing.T) {
 	if !f.From.Equal(testNow.Add(-time.Hour)) || !f.To.IsZero() {
 		t.Errorf("range [%v, %v), want only the explicit from", f.From, f.To)
 	}
+
+	// A from ahead of the server clock, with no to, is a valid open tail.
+	f, err = parseStreamFilter(q("from=2026-10-21T13:00:00Z"), testNow)
+	if err != nil {
+		t.Fatalf("future from: %v", err)
+	}
+	if !f.From.Equal(testNow.Add(time.Hour)) || !f.To.IsZero() {
+		t.Errorf("range [%v, %v), want only the explicit from", f.From, f.To)
+	}
+	for _, s := range []string{"from=2026-10-21T13:00:00Z&to=2026-10-21T13:00:00Z", "from=2026-10-21T14:00:00Z&to=2026-10-21T13:00:00Z"} {
+		if _, err := parseStreamFilter(q(s), testNow); err == nil || err.parameter != "from" {
+			t.Errorf("%s: err = %v, want a from error", s, err)
+		}
+	}
+	if _, err := parseStreamFilter(q("from=yesterday"), testNow); err == nil || err.parameter != "from" {
+		t.Errorf("bad from: err = %v, want a from error", err)
+	}
 }
 
 // The tool filters match the tool calls a call carries when it finishes: its

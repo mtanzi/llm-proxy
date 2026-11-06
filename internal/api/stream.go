@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"time"
@@ -44,15 +45,21 @@ var knownStreamParams = func() map[string]bool {
 // not bound with from or to stays open, so calls that start after the stream
 // opens still match.
 func parseStreamFilter(q url.Values, now time.Time) (core.CallFilter, *apiError) {
-	f, err := parseCallFilter(q, now, knownStreamParams)
+	rest := maps.Clone(q)
+	delete(rest, "from")
+	delete(rest, "to")
+	f, err := parseCallFilter(rest, now, knownStreamParams)
 	if err != nil {
 		return f, err
 	}
-	if !q.Has("from") {
-		f.From = time.Time{}
+	if f.From, err = timeParam(q, "from"); err != nil {
+		return f, err
 	}
-	if !q.Has("to") {
-		f.To = time.Time{}
+	if f.To, err = timeParam(q, "to"); err != nil {
+		return f, err
+	}
+	if !f.From.IsZero() && !f.To.IsZero() && !f.From.Before(f.To) {
+		return f, badParam("from", "from must be before to")
 	}
 	return f, nil
 }
@@ -79,7 +86,14 @@ func (h *handlers) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	events, unsubscribe := h.live.Subscribe(func(c core.CallRecord) bool { return f.Match(c, liveToolCalls(c)) })
+	byTool := len(f.Tools) > 0 || f.ToolError != nil
+	events, unsubscribe := h.live.Subscribe(func(c core.CallRecord) bool {
+		var tools []core.ToolCall
+		if byTool {
+			tools = liveToolCalls(c)
+		}
+		return f.Match(c, tools)
+	})
 	defer unsubscribe()
 
 	hd := w.Header()
