@@ -88,7 +88,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0034](0034-ui-v4-tool-call-explorer.md) | UI view V4: tool-call explorer | Accepted | 0024, 0030 |
 | [0035](0035-ui-v5-cost-and-cache-and-config-page.md) | UI view V5: cost and cache, and the read-only config page | Accepted | 0024, 0030 |
 | [0036](0036-container-image-and-release-build.md) | Container image and release build | Completed | 0028, 0029 |
-| [0037](0037-deployment-guide-compose-runbook-and-personal-setup.md) | Deployment guide: compose file, runbook and personal local setup | Completed | 0009, 0012, 0036 |
+| [0037](0037-deployment-guide-compose-runbook-and-personal-setup.md) | Deployment guide: compose file, runbook and personal local setup | Accepted | 0009, 0012, 0036 |
 | [0038](0038-test-fixtures-fake-upstream-and-end-to-end-tests.md) | Test fixtures, fake upstream and end-to-end tests | Accepted | 0011, 0013, 0014, 0016, 0017, 0028 |
 | [0039](0039-performance-targets-and-load-verification.md) | Performance targets and load verification | Accepted | 0011, 0013, 0038 |
 | [0040](0040-firstmate-integration-claude-code-routing-and-ledger-reporter.md) | Firstmate integration: Claude Code routing and the ledger-join reporter | Accepted | 0008, 0009, 0037, 0024 |

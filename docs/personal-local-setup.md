@@ -13,7 +13,7 @@ You need Docker, Go and Node 22 (to build the UI), `curl` and `openssl`. Run the
 1. **Start Postgres.** The compose override publishes it on `127.0.0.1:5432` only.
 
    ```sh
-   openssl rand -hex 24 > secrets/pg_password && chmod 644 secrets/pg_password
+   chmod 700 secrets && openssl rand -hex 24 > secrets/pg_password && chmod 644 secrets/pg_password
    docker compose -f docker-compose.yml -f docker-compose.personal.yml up -d --wait postgres
    ```
 

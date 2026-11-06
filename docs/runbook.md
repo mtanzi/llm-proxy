@@ -16,10 +16,10 @@ Commands assume the repository root and `docker compose` v2.
    printf '%s\n' "$pw" > secrets/pg_password
    printf 'postgres://llmproxy:%s@postgres:5432/llmproxy?sslmode=disable\n' "$pw" > secrets/database_url
    printf '%s\n' 'sk-ant-…' > secrets/anthropic_api_key      # your Console API key
-   chmod 755 secrets && chmod 644 config.yaml secrets/*
+   chmod 700 secrets && chmod 644 config.yaml secrets/*
    ```
 
-   The container runs as uid 65532, so the mounted files must be world-readable. Keep the host directory private instead of the files. `config.yaml` and `secrets/*` are git-ignored.
+   The containers run as uid 65532 (`llm-proxy`) and uid 999 (Postgres), so the mounted files are mode 644, and the `secrets` directory is mode 700 so no other local user can reach them. Keep it 700. `config.yaml` and `secrets/*` are git-ignored.
 2. [Generate a key](#generate-a-key) and put its entry under `keys:` in `config.yaml`. Without an entry every data-plane request gets `401`.
 3. Start the stack. The first run builds the image from this directory. To run a released image, set `LLM_PROXY_IMAGE=ghcr.io/mtanzi/llm-proxy:<version>`, in the shell or an `.env` file.
 
@@ -161,7 +161,7 @@ The admin plane (`/ui/`, `/admin/*`, `/metrics`) listens on `127.0.0.1:9090` ins
   docker run --rm --network container:$(docker compose ps -q llm-proxy) curlimages/curl -s http://127.0.0.1:9090/admin/calls?limit=1
   ```
 
-From another machine, tunnel to the host and open the UI through the tunnel:
+From another machine, tunnel to the host and open the UI through the tunnel. The tunnel reaches the host loopback, so it works only with the first two options (`serve` on the host, or host network):
 
 ```sh
 ssh -L 9090:127.0.0.1:9090 <host>      # then open http://127.0.0.1:9090/ui/

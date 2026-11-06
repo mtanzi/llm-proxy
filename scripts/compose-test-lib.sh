@@ -40,7 +40,8 @@ ct_setup() {
 	image=$1
 	trap ct_cleanup EXIT
 	mkdir -p "$tmp/secrets"
-	chmod 755 "$tmp" "$tmp/secrets"
+	chmod 755 "$tmp"
+	chmod 700 "$tmp/secrets"
 	pw=$(openssl rand -hex 24)
 	printf '%s\n' "$pw" >"$tmp/secrets/pg_password"
 	printf 'postgres://llmproxy:%s@postgres:5432/llmproxy?sslmode=disable\n' "$pw" >"$tmp/secrets/database_url"
