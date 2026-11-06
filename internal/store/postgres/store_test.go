@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
@@ -401,6 +402,55 @@ func TestWriteBatchFailedBatchLeavesNothing(t *testing.T) {
 	}
 	if n := count(t, conn, "calls"); n != len(batch) {
 		t.Fatalf("calls = %d, want %d", n, len(batch))
+	}
+}
+
+// The recorder isolates records by this classification (ADR 0051): a row the
+// store rejects matches core.ErrUnwritable and names its cause; a store it
+// cannot reach does not.
+func TestWriteBatchClassifiesErrors(t *testing.T) {
+	s, conn := newStore(t)
+	ctx := context.Background()
+	if _, err := conn.Exec(ctx, "ALTER TABLE calls ADD CONSTRAINT reject CHECK (key_name <> 'reject')"); err != nil {
+		t.Fatal(err)
+	}
+	batch := manyCalls(3)
+	batch[1].KeyName = "reject"
+	err := s.WriteBatch(ctx, batch)
+	if !errors.Is(err, core.ErrUnwritable) {
+		t.Fatalf("constraint violation: err = %v, want ErrUnwritable", err)
+	}
+	cause, ok := errors.AsType[interface {
+		error
+		SQLState() string
+		Constraint() string
+	}](err)
+	if !ok || cause.SQLState() != "23514" || cause.Constraint() != "reject" {
+		t.Fatalf("constraint violation names no cause: %v", err)
+	}
+
+	// A value the driver cannot encode fails before the statement is sent.
+	bad := fullCall()
+	bad.ToolUses[0].ArgBytes = 1 << 40
+	err = s.WriteBatch(ctx, []core.CallRecord{bad})
+	if !errors.Is(err, core.ErrUnwritable) {
+		t.Fatalf("encode failure: err = %v, want ErrUnwritable", err)
+	}
+	column, ok := errors.AsType[interface {
+		error
+		Column() string
+	}](err)
+	if !ok || column.Column() != "bytes" {
+		t.Fatalf("encode failure names no column: %v", err)
+	}
+
+	s.Close()
+	err = s.WriteBatch(ctx, manyCalls(1))
+	if err == nil {
+		t.Fatal("WriteBatch succeeded on a closed pool")
+	}
+	if errors.Is(err, core.ErrUnwritable) {
+		t.Fatalf("closed pool: err = %v, want a transient error", err)
 	}
 }
 

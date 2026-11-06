@@ -180,8 +180,9 @@ Prometheus metrics are at `/metrics` on the admin listener. Scrape from the same
 | `llm_proxy_request_duration_seconds`, `llm_proxy_ttft_seconds` | Latency |
 | `llm_proxy_proxy_overhead_seconds` | Time the proxy adds before the upstream request; target p99 under 5 ms |
 | `llm_proxy_inflight_streams` | Load and drain progress |
-| `llm_proxy_call_queue_depth`, `llm_proxy_calls_dropped_total{reason}` | Lost call records; should stay zero |
+| `llm_proxy_call_queue_depth`, `llm_proxy_calls_dropped_total{reason}` | Lost call records; should stay zero. `reason="unwritable"` above zero is a bug: the error log names each call id and SQLSTATE |
 | `llm_proxy_writer_errors_total` | Postgres writes failing |
+| `llm_proxy_writer_systematic_failure` | 1 while the writer is blocked on a batch Postgres rejects in full; the queue fills until the cause is fixed. See [Observability](architecture/deployment.md#observability) |
 | `llm_proxy_live_events_dropped_total` | Slow UI subscribers |
 | `llm_proxy_config_reloads_total{result}` | A `SIGHUP` that failed, so the old config is still running |
 | `llm_proxy_retention_deleted_total` | Rows the retention job deleted |
