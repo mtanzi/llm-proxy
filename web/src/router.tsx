@@ -9,6 +9,7 @@ import {
 import type { RouterHistory } from '@tanstack/react-router'
 import { Layout } from './components/Layout'
 import { Placeholder } from './routes/Placeholder'
+import { CallDetailView } from './views/CallDetail'
 import { strict } from './search/validate'
 import {
   validateCallDetailSearch,
@@ -51,7 +52,7 @@ const callDetailRoute = createRoute({
   getParentRoute: () => callsRoute,
   path: '$id',
   validateSearch: strict(validateCallDetailSearch),
-  component: () => <Placeholder title="Call" />,
+  component: CallDetailView,
 })
 
 const sessionsRoute = createRoute({

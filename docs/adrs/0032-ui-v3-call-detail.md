@@ -1,6 +1,6 @@
 # ADR 0032: UI view V3: call detail
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

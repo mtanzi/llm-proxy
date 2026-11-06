@@ -39,3 +39,11 @@ main { padding: 16px; }
 .data-table .th button { all: unset; cursor: pointer; }
 .data-table .tr.clickable { cursor: pointer; }
 .data-table .resizer { position: absolute; right: 0; top: 0; width: 4px; height: 100%; cursor: col-resize; }
+.tabs { display: flex; gap: 16px; margin: 12px 0; }
+.tabs a[aria-current='page'] { font-weight: 600; text-decoration: none; color: var(--fg); }
+.badge { margin-left: 8px; padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; font-size: 0.85em; }
+.fields > div { display: flex; gap: 12px; }
+.fields dt { min-width: 12em; color: var(--muted); }
+.fields dd { margin: 0; }
+section table { border-collapse: collapse; }
+section table th, section table td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }

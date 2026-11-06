@@ -77,7 +77,7 @@ The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that
 Tabs: Overview, Tools, Usage and cost. All of them show stored numbers, names and hashes. The page never shows what the prompt or the response said.
 
 - **Overview** shows who made the call (key, client, session, agent, sub-agent, prompt id), model, provider, upstream request id, status, error type, stop reason, TTFT and duration. The provider's error message text is not shown, because it is not stored (resolved decision D12, [ADR 0044](../adrs/0044-provider-error-message-text.md)).
-- **Tools** lists each tool requested in this call, beside the call that resolved it, with name, call id, argument size, result size, duration, and success or error. Each row links to the other call. There is no argument or result text.
+- **Tools** lists each tool requested in this call, beside the call that resolved it, and each tool result this call carries, beside the call that requested it. Each row shows name, call id, argument size, result size, duration, and success or error, and links to the other call. A half that has no pair reads as unknown. There is no argument or result text.
 
 ### V4 Tool-call explorer
 

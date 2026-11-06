@@ -83,7 +83,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0029](0029-ui-scaffold-embedding-and-serving.md) | UI scaffold, embedding and serving | Completed | 0001, 0006, 0023 |
 | [0030](0030-ui-foundation-routing-api-client-and-tables.md) | UI foundation: routing, typed API client, query state and tables | Completed | 0023, 0029 |
 | [0031](0031-ui-v1-call-log-and-live-toggle.md) | UI view V1: call log and live toggle | Accepted | 0024, 0025, 0030 |
-| [0032](0032-ui-v3-call-detail.md) | UI view V3: call detail | Accepted | 0023, 0030 |
+| [0032](0032-ui-v3-call-detail.md) | UI view V3: call detail | Completed | 0023, 0030 |
 | [0033](0033-ui-v2-session-list-and-session-view.md) | UI view V2: session list and session view | Accepted | 0024, 0030 |
 | [0034](0034-ui-v4-tool-call-explorer.md) | UI view V4: tool-call explorer | Accepted | 0024, 0030 |
 | [0035](0035-ui-v5-cost-and-cache-and-config-page.md) | UI view V5: cost and cache, and the read-only config page | Accepted | 0024, 0030 |
