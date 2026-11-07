@@ -35,10 +35,13 @@ class FakeEventSource {
     this.readyState = FakeEventSource.CLOSED
     act(() => this.onerror?.())
   }
-  finish(c: CallSummary) {
+  // Several calls are delivered as one burst, in one act().
+  finish(...calls: CallSummary[]) {
     act(() => {
-      for (const fn of this.listeners.get('call.finished') ?? []) {
-        fn(new MessageEvent('call.finished', { data: JSON.stringify(c), lastEventId: c.id }))
+      for (const c of calls) {
+        for (const fn of this.listeners.get('call.finished') ?? []) {
+          fn(new MessageEvent('call.finished', { data: JSON.stringify(c), lastEventId: c.id }))
+        }
       }
     })
   }
@@ -224,7 +227,7 @@ test('live toggle opens the stream with the filters, inserts at the top and caps
   await screen.findByText('fresh-client')
   expect(within(tableRows()[0]).getByText('fresh-client')).toBeTruthy()
 
-  for (let i = 0; i < 520; i++) es.finish(call(`live${i}`, { client: 'bulk' }))
+  es.finish(...Array.from({ length: 520 }, (_, i) => call(`live${i}`, { client: 'bulk' })))
   // 500 live rows stay; the paged row is still there below them.
   const body = screen.getByRole('table', { name: 'Calls' })
   await waitFor(() => expect(body.getAttribute('aria-rowcount')).toBe('502'))
