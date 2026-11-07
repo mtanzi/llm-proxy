@@ -1,16 +1,16 @@
 # Self-Hosted LLM Proxy: Requirements and firstmate Integration
 
 Status: draft
-Based on: "If you don't run your own LLM proxy, how the fuck do you even know whats going on?" (jrdsgl.com, 18 Oct 2026), plus an integration analysis for [firstmate](https://github.com/kunchenguid/firstmate).
+Based on: an integration analysis for [firstmate](https://github.com/kunchenguid/firstmate).
 Scope: v1 is an observe-only logging proxy for the Anthropic family (architecture decisions C1 to C4). This document holds only the requirements, the firstmate integration and the sources. The design is in [architecture/](architecture/README.md): the components, the data model and the admin API in [backend.md](architecture/backend.md), the UI in [frontend.md](architecture/frontend.md), upstream credentials in [upstream-connection.md](architecture/upstream-connection.md), and the deployment in [deployment.md](architecture/deployment.md). The v1 work is broken into [ADRs](adrs/README.md). When two sources disagree, the precedence rule in the [architecture README](architecture/README.md#source-precedence) decides.
 
-> The article is an opinion piece with few specifics. Section 1 separates what the article asks for from what this design adds. Everything beyond the article's list is extrapolation.
+> The baseline requirements are few and general. Section 1 separates the baseline requirements from what this design adds. Everything beyond the baseline list is extrapolation.
 
 ---
 
 ## 1. Goals and requirements
 
-### 1.1 Requirements taken from the article
+### 1.1 Baseline requirements
 
 | # | Requirement |
 |---|---|
@@ -107,7 +107,6 @@ Manifest sketch:
 
 ## Sources
 
-- [If you don't run your own LLM proxy, how the fuck do you even know whats going on?](https://jrdsgl.com/if-you-dont-run-your-own-llm-proxy-how-the-fuck-do-you-even-know-whats-going-on/)
 - [firstmate README](https://github.com/kunchenguid/firstmate)
 - [firstmate extension bindings](https://github.com/kunchenguid/firstmate/blob/main/docs/extension-bindings.md)
 - [firstmate fleet ledger](https://github.com/kunchenguid/firstmate/blob/main/docs/fleet-ledger.md)
