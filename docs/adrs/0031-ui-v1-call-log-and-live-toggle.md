@@ -1,6 +1,6 @@
 # ADR 0031: UI view V1: call log and live toggle
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 

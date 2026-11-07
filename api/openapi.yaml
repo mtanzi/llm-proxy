@@ -604,6 +604,7 @@ components:
         client: { type: string }
         session_key: { type: string }
         agent_id: { type: string }
+        prompt_id: { type: string, description: Prompt id; empty when not known. }
         provider: { type: string }
         model: { type: string }
         status: { type: integer }

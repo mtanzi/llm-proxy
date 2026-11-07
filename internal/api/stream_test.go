@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -174,10 +175,15 @@ func TestStreamOverRealHTTPIsNotBuffered(t *testing.T) {
 	}
 
 	c := liveCall("m", 200)
+	c.PromptID = "prompt-1"
 	e.rec.Finished(c)
 	f := readEvent(t, br)
 	if f.event != EventCallFinished || f.id != c.ID.String() {
 		t.Errorf("frame %+v, want event %s with id %s", f, EventCallFinished, c.ID)
+	}
+	var row callSummaryJSON
+	if err := json.Unmarshal([]byte(f.data), &row); err != nil || row.PromptID != "prompt-1" {
+		t.Errorf("data prompt_id = %q (err %v), want prompt-1", row.PromptID, err)
 	}
 
 	// The frame matches the documented event schema.

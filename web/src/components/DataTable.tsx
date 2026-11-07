@@ -150,11 +150,17 @@ export function DataTable<T>({
           ))}
         </div>
         {error ? (
-          <ErrorMessage error={error} onRetry={onRetry} />
+          <StateRow>
+            <ErrorMessage error={error} onRetry={onRetry} />
+          </StateRow>
         ) : isLoading ? (
-          <LoadingState />
+          <StateRow>
+            <LoadingState />
+          </StateRow>
         ) : rows.length === 0 ? (
-          <EmptyState>{emptyMessage}</EmptyState>
+          <StateRow>
+            <EmptyState>{emptyMessage}</EmptyState>
+          </StateRow>
         ) : (
           <div ref={scrollRef} className="scroll" style={{ height, overflow: 'auto' }}>
             <div role="rowgroup" style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
@@ -195,6 +201,17 @@ export function DataTable<T>({
             {isFetchingNextPage && <LoadingState label="Loading more" />}
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+/** A table must hold rows: a loading, error or empty message sits in one full-width row. */
+function StateRow({ children }: { children: React.ReactNode }) {
+  return (
+    <div role="rowgroup">
+      <div role="row">
+        <div role="cell">{children}</div>
       </div>
     </div>
   )
