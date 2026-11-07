@@ -250,8 +250,10 @@ export function CallLogView() {
     [calls, search.group],
   )
 
-  const update = (patch: FilterPatch) =>
+  const update = (patch: FilterPatch) => {
+    if ({ ...search, ...patch }.to === undefined) setNow(new Date())
     void navigate({ search: (prev) => ({ ...prev, ...patch, cursor: undefined }) })
+  }
 
   const firstPage = list.data?.pages[0]
   const buckets = usage.data?.buckets ?? []

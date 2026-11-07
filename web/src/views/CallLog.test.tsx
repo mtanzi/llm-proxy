@@ -254,6 +254,27 @@ test('turning live on reloads the first page up to now', async () => {
   )
 })
 
+test('changing the range or a filter re-resolves the window against now', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-11-01T10:00:00Z'))
+  const urls = stubApi(() => new Response(JSON.stringify(list([call('old')]))))
+  const { router } = await renderAt('/ui/calls')
+  await screen.findByText('claude-code')
+  vi.setSystemTime(new Date('2026-11-01T12:00:00Z'))
+  fireEvent.click(screen.getByRole('button', { name: '1h' }))
+  await waitFor(() => expect(search(router).range).toBe('1h'))
+  await waitFor(() => {
+    const params = new URL(listUrls(urls).at(-1)!, 'http://x').searchParams
+    expect(params.get('from')).toBe('2026-11-01T11:00:00.000Z')
+    expect(params.get('to')).toBe('2026-11-01T12:00:00.000Z')
+  })
+  vi.setSystemTime(new Date('2026-11-01T12:30:00Z'))
+  fireEvent.click(screen.getByLabelText('Group by session'))
+  await waitFor(() =>
+    expect(new URL(listUrls(urls).at(-1)!, 'http://x').searchParams.get('to')).toBe('2026-11-01T12:30:00.000Z'),
+  )
+})
+
 test('a stream the browser closes shows it and can be retried', async () => {
   const urls = stubApi(() => new Response(JSON.stringify(list([call('old')]))))
   await renderAt('/ui/calls?live=true')
