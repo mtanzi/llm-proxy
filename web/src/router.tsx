@@ -11,6 +11,8 @@ import { Layout } from './components/Layout'
 import { Placeholder } from './routes/Placeholder'
 import { CallDetailView } from './views/CallDetail'
 import { CallLogView } from './views/CallLog'
+import { SessionListView } from './views/SessionList'
+import { SessionView } from './views/SessionView'
 import { strict } from './search/validate'
 import {
   validateCallDetailSearch,
@@ -65,13 +67,13 @@ const sessionsIndexRoute = createRoute({
   getParentRoute: () => sessionsRoute,
   path: '/',
   validateSearch: strict(validateSessionsSearch),
-  component: () => <Placeholder title="Sessions" />,
+  component: SessionListView,
 })
 const sessionDetailRoute = createRoute({
   getParentRoute: () => sessionsRoute,
   path: '$key',
   validateSearch: strict(validateSessionDetailSearch),
-  component: () => <Placeholder title="Session" />,
+  component: SessionView,
 })
 
 const toolsRoute = createRoute({

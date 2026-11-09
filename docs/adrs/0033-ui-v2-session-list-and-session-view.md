@@ -1,6 +1,6 @@
 # ADR 0033: UI view V2: session list and session view
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
@@ -16,6 +16,9 @@ Sessions are the natural unit for agent work. The hierarchy is session, prompt (
 - Each tree row shows duration, tokens, cost and an error badge. Compaction points (the `context_compacted` flag) are drawn as markers where the cache prefix resets. Collapsed by default past the latest prompts; virtualised beyond a few hundred rows.
 - The tree follows agent-prism's model (a flattened, virtualised list with waterfall bars on a shared compressed axis). Use its components if they fit, or reimplement the pattern.
 - Nesting under the exact `Task` call is a later item.
+- **Design direction.** The look and feel follows Linear: dark, dense, keyboard-first, monochrome greys with one accent colour. Error red is a status colour, not a second accent. The list and the tree are driven from the keyboard: arrow keys or `j` and `k` move between rows, `Enter` opens, and in the tree the left and right arrows (or `h` and `l`) collapse and expand.
+- **Session view model.** The session view follows Langfuse's session and trace view: a nested tree (prompt, agent and sub-agent, call, tool call) where every level shows duration, tokens, cost and an error badge, beside a trace waterfall on a shared time axis. A call or tool-call row opens the call detail view (V3).
+- The colour tokens live in `web/src/styles.css` and are shared, so the call log and call detail views pick up the dark palette. Restyling those views to the same density is follow-up work.
 
 ## Consequences
 

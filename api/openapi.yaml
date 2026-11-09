@@ -755,14 +755,20 @@ components:
     SessionSummary:
       type: object
       description: One session, grouped from its calls in the time range.
-      required: [session_key, key, client, first_ts, last_ts, calls, errors, agent_count, models, usage, cost_micro_usd]
+      required: [session_key, key, client, first_ts, last_ts, ended_at, calls, prompts, tool_calls, errors, agent_count, models, usage, cost_micro_usd]
       properties:
         session_key: { type: string }
         key: { type: string, description: Virtual key name of the session. }
         client: { type: string }
-        first_ts: { type: string, format: date-time }
-        last_ts: { type: string, format: date-time }
+        first_ts: { type: string, format: date-time, description: Start of the first call. }
+        last_ts: { type: string, format: date-time, description: Start of the newest call. }
+        ended_at:
+          type: string
+          format: date-time
+          description: Latest end of a call. A call whose end is not known counts at its start.
         calls: { type: integer }
+        prompts: { type: integer, description: Distinct prompt ids of the calls. }
+        tool_calls: { type: integer, description: Distinct tool call ids carried by the calls. }
         errors: { type: integer, description: Calls with an error class. }
         agent_count: { type: integer }
         models:

@@ -18,16 +18,26 @@ import (
 // null session_key is in no session. A call with a null agent_id is not an
 // agent node. There are no sessions or agents tables.
 
-// sessionColumns aggregates one session out of its calls. The columns are
-// read by scanSession, in this order.
-const sessionColumns = `c.session_key AS session_key,
+// sessionColumns aggregates one session out of its calls, under the names of
+// sessionFields. sessionSelect reads them back in the order of scanSession,
+// and counts the tool calls of call_ids: it runs on the selected sessions
+// only, never on every group of the range.
+const sessionColumns = `c.session_key,
 	(array_agg(c.key_name ORDER BY c.ts, c.id))[1],
 	(array_agg(c.client ORDER BY c.ts, c.id) FILTER (WHERE c.client IS NOT NULL))[1],
-	min(c.ts) AS first_ts, max(c.ts) AS last_ts, (array_agg(c.id ORDER BY c.ts DESC, c.id DESC))[1] AS last_id,
-	count(*), count(*) FILTER (WHERE c.error_class IS NOT NULL),
+	min(c.ts), max(c.ts), (array_agg(c.id ORDER BY c.ts DESC, c.id DESC))[1],
+	max(coalesce(c.ended_at, c.ts)), count(*), count(DISTINCT c.prompt_id),
+	count(*) FILTER (WHERE c.error_class IS NOT NULL),
 	count(DISTINCT (c.agent_id, coalesce(c.parent_agent_id, ''), coalesce(c.agent_type, ''))) FILTER (WHERE c.agent_id IS NOT NULL),
 	array_agg(DISTINCT c.model ORDER BY c.model) FILTER (WHERE c.model IS NOT NULL),
-	` + usageSums + `, ` + costSum
+	` + usageSums + `, ` + costSum + `, array_agg(c.id)`
+
+const sessionFields = `s(session_key, key_name, client, first_ts, last_ts, last_id, ended_at, calls, prompts,
+	errors, agents, models, input_uncached, cache_read, cache_write_5m, cache_write_1h, output, reasoning, cost, call_ids)`
+
+const sessionSelect = `s.session_key, s.key_name, s.client, s.first_ts, s.last_ts, s.last_id, s.ended_at, s.calls, s.prompts,
+	(SELECT count(DISTINCT t.tool_call_id) FROM tool_events t WHERE t.call_id = ANY(s.call_ids)),
+	s.errors, s.agents, s.models, s.input_uncached, s.cache_read, s.cache_write_5m, s.cache_write_1h, s.output, s.reasoning, s.cost`
 
 // usageSums and costSum add the usage columns and the known costs of a group.
 const usageSums = `sum(c.input_uncached)::bigint, sum(c.cache_read)::bigint, sum(c.cache_write_5m)::bigint,
@@ -48,19 +58,20 @@ func scanSession(r pgx.CollectableRow) (session, error) {
 		s                                session
 		key, name                        string
 		client                           *string
-		first, last                      time.Time
+		first, last, end                 time.Time
 		lastID                           pgtype.UUID
-		calls, errs, agents              int
+		calls, prompts, tools, errs      int
+		agents                           int
 		models                           []string
 		in, cr, cw5, cw1, out, rs, costM = new(int64), new(int64), new(int64), new(int64), new(int64), new(int64), (*int64)(nil)
 	)
-	if err := r.Scan(&key, &name, &client, &first, &last, &lastID, &calls, &errs, &agents, &models,
+	if err := r.Scan(&key, &name, &client, &first, &last, &lastID, &end, &calls, &prompts, &tools, &errs, &agents, &models,
 		in, cr, cw5, cw1, out, rs, &costM); err != nil {
 		return s, err
 	}
 	s.SessionSummary = core.SessionSummary{
 		SessionKey: key, KeyName: name, Client: str(client), FirstTS: first.UTC(), LastTS: last.UTC(),
-		Calls: calls, Errors: errs, AgentCount: agents, Models: models,
+		EndedAt: end.UTC(), Calls: calls, PromptCount: prompts, ToolCallCount: tools, Errors: errs, AgentCount: agents, Models: models,
 		Usage: core.Usage{
 			InputUncached: int(*in), CacheRead: int(*cr), CacheWrite5m: int(*cw5), CacheWrite1h: int(*cw1),
 			Output: int(*out), Reasoning: int(*rs),
@@ -131,13 +142,13 @@ func listSessionsSQL(f core.SessionFilter, after *core.Cursor, limit int) (strin
 		// The total is NULL when no call has a known cost, and NULL never satisfies >=.
 		having = append(having, "sum(c.cost_usd) >= "+w.arg(cost(&f.MinCost)))
 	}
-	sql := `SELECT * FROM (SELECT ` + sessionColumns + ` FROM calls c WHERE ` + w.sql() +
-		` GROUP BY c.session_key` + havingClause(having) + `) s`
+	page := `SELECT * FROM (SELECT ` + sessionColumns + ` FROM calls c WHERE ` + w.sql() +
+		` GROUP BY c.session_key` + havingClause(having) + `) ` + sessionFields
 	if after != nil {
-		sql += ` WHERE (s.last_ts, s.last_id) < (` + w.arg(after.TS) + `, ` + w.arg(uuid(after.ID)) + `)`
+		page += ` WHERE (s.last_ts, s.last_id) < (` + w.arg(after.TS) + `, ` + w.arg(uuid(after.ID)) + `)`
 	}
-	sql += ` ORDER BY s.last_ts DESC, s.last_id DESC LIMIT ` + w.arg(limit+1)
-	return sql, w.args
+	page += ` ORDER BY s.last_ts DESC, s.last_id DESC LIMIT ` + w.arg(limit+1)
+	return `SELECT ` + sessionSelect + ` FROM (` + page + `) s ORDER BY s.last_ts DESC, s.last_id DESC`, w.args
 }
 
 func havingClause(conds []string) string {
@@ -165,7 +176,8 @@ func (s *Store) GetSession(ctx context.Context, key string) (core.SessionDetail,
 	}
 	key = clean(key)
 
-	rows, err := tx.Query(ctx, `SELECT `+sessionColumns+` FROM calls c WHERE c.session_key = $1 GROUP BY c.session_key`, key)
+	rows, err := tx.Query(ctx, `SELECT `+sessionSelect+` FROM (SELECT `+sessionColumns+`
+		FROM calls c WHERE c.session_key = $1 GROUP BY c.session_key) `+sessionFields, key)
 	if err != nil {
 		return fail(err)
 	}

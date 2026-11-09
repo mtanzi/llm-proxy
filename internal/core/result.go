@@ -53,17 +53,20 @@ type CallDetail struct {
 
 // SessionSummary is one row of the session list, grouped from call rows.
 type SessionSummary struct {
-	SessionKey string
-	KeyName    string
-	Client     string
-	FirstTS    time.Time
-	LastTS     time.Time
-	Calls      int
-	Errors     int
-	AgentCount int
-	Models     []string
-	Usage      Usage
-	Cost       *MicroUSD // nil when no call in the session has a known cost
+	SessionKey    string
+	KeyName       string
+	Client        string
+	FirstTS       time.Time
+	LastTS        time.Time
+	EndedAt       time.Time // latest end of a call; the start of a call whose end is not known
+	Calls         int
+	PromptCount   int // distinct prompt ids
+	ToolCallCount int // distinct tool call ids carried by the calls
+	Errors        int
+	AgentCount    int
+	Models        []string
+	Usage         Usage
+	Cost          *MicroUSD // nil when no call in the session has a known cost
 }
 
 // AgentNode is one distinct (agent_id, parent_agent_id, agent_type) of a session.

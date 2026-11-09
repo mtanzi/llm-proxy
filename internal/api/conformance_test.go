@@ -129,8 +129,8 @@ func TestResponsesConformToOpenAPI(t *testing.T) {
 		Keys:      []config.KeyView{{Name: "alice"}, {Name: "ci", Disabled: true}},
 	}
 	rd.Sessions = []core.SessionSummary{
-		{SessionKey: "s", KeyName: "alice", Client: "claude-code", FirstTS: testNow, LastTS: testNow, Calls: 2, Errors: 1,
-			AgentCount: 2, Models: []string{"m"}, Usage: core.Usage{Output: 5}, Cost: &cost},
+		{SessionKey: "s", KeyName: "alice", Client: "claude-code", FirstTS: testNow, LastTS: testNow, EndedAt: testNow.Add(time.Second),
+			Calls: 2, PromptCount: 1, ToolCallCount: 1, Errors: 1, AgentCount: 2, Models: []string{"m"}, Usage: core.Usage{Output: 5}, Cost: &cost},
 		{SessionKey: "bare"},
 	}
 	rd.SessionMap = map[string]core.SessionDetail{
