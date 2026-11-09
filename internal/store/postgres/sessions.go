@@ -24,7 +24,9 @@ const sessionColumns = `c.session_key AS session_key,
 	(array_agg(c.key_name ORDER BY c.ts, c.id))[1],
 	(array_agg(c.client ORDER BY c.ts, c.id) FILTER (WHERE c.client IS NOT NULL))[1],
 	min(c.ts) AS first_ts, max(c.ts) AS last_ts, (array_agg(c.id ORDER BY c.ts DESC, c.id DESC))[1] AS last_id,
-	count(*), count(*) FILTER (WHERE c.error_class IS NOT NULL),
+	max(coalesce(c.ended_at, c.ts)), count(*), count(DISTINCT c.prompt_id),
+	(SELECT count(DISTINCT t.tool_call_id) FROM tool_events t WHERE t.call_id = ANY(array_agg(c.id))),
+	count(*) FILTER (WHERE c.error_class IS NOT NULL),
 	count(DISTINCT (c.agent_id, coalesce(c.parent_agent_id, ''), coalesce(c.agent_type, ''))) FILTER (WHERE c.agent_id IS NOT NULL),
 	array_agg(DISTINCT c.model ORDER BY c.model) FILTER (WHERE c.model IS NOT NULL),
 	` + usageSums + `, ` + costSum
@@ -48,19 +50,20 @@ func scanSession(r pgx.CollectableRow) (session, error) {
 		s                                session
 		key, name                        string
 		client                           *string
-		first, last                      time.Time
+		first, last, end                 time.Time
 		lastID                           pgtype.UUID
-		calls, errs, agents              int
+		calls, prompts, tools, errs      int
+		agents                           int
 		models                           []string
 		in, cr, cw5, cw1, out, rs, costM = new(int64), new(int64), new(int64), new(int64), new(int64), new(int64), (*int64)(nil)
 	)
-	if err := r.Scan(&key, &name, &client, &first, &last, &lastID, &calls, &errs, &agents, &models,
+	if err := r.Scan(&key, &name, &client, &first, &last, &lastID, &end, &calls, &prompts, &tools, &errs, &agents, &models,
 		in, cr, cw5, cw1, out, rs, &costM); err != nil {
 		return s, err
 	}
 	s.SessionSummary = core.SessionSummary{
 		SessionKey: key, KeyName: name, Client: str(client), FirstTS: first.UTC(), LastTS: last.UTC(),
-		Calls: calls, Errors: errs, AgentCount: agents, Models: models,
+		EndedAt: end.UTC(), Calls: calls, PromptCount: prompts, ToolCallCount: tools, Errors: errs, AgentCount: agents, Models: models,
 		Usage: core.Usage{
 			InputUncached: int(*in), CacheRead: int(*cr), CacheWrite5m: int(*cw5), CacheWrite1h: int(*cw1),
 			Output: int(*out), Reasoning: int(*rs),

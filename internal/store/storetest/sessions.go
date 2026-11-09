@@ -60,6 +60,45 @@ var sessionCases = []testCase{
 			t.Errorf("empty range: %+v, cursor %v, err %v", got, next, err)
 		}
 	}},
+	{"sessions_count_prompts_and_tool_calls_and_end_at_the_latest_call_end", func(t *testing.T, e *env) {
+		g := e.gen
+		at := func(d time.Duration, opts ...CallOpt) core.CallRecord {
+			return g.Call(append([]CallOpt{g.At(Base.Add(d)), WithSession("s")}, opts...)...)
+		}
+		noEnd := func(c *core.CallRecord) { c.EndedAt = time.Time{} }
+		calls := []core.CallRecord{
+			at(0, WithPrompt("p1"), g.WithUse("toolu_1", "Bash")),
+			// Ends after the start of the newest call: the session ends here.
+			at(10*time.Second, WithPrompt("p1"), WithDuration(30*time.Second), g.WithResult("toolu_1", false), g.WithUse("toolu_2", "Read")),
+			at(20*time.Second, WithPrompt("p2"), g.WithServerTool("toolu_3", "web_search", false), g.WithResult("toolu_9", true), noEnd),
+			at(25 * time.Second),
+			// Outside the range: neither its prompt nor its tool call counts.
+			at(2*time.Hour, WithPrompt("p3"), g.WithUse("toolu_4", "Bash")),
+			g.Call(g.At(Base.Add(5*time.Second)), WithSession("open"), noEnd),
+		}
+		e.write(t, calls...)
+		got := e.walkSessions(t, sessionWin, 10)
+		if want := refSessions(calls, sessionWin); !reflect.DeepEqual(got, want) {
+			t.Fatalf("sessions\n got %+v\nwant %+v", got, want)
+		}
+		byKey := map[string]core.SessionSummary{}
+		for _, s := range got {
+			byKey[s.SessionKey] = s
+		}
+		if s := byKey["s"]; s.PromptCount != 2 || s.ToolCallCount != 4 || s.EndedAt != Base.Add(40*time.Second) || s.LastTS != Base.Add(25*time.Second) {
+			t.Errorf("s = %+v, want 2 prompts, 4 tool calls and the end of the second call", s)
+		}
+		if s := byKey["open"]; s.PromptCount != 0 || s.ToolCallCount != 0 || s.EndedAt != Base.Add(5*time.Second) {
+			t.Errorf("open = %+v, want no prompts, no tool calls and the start of its call as end", s)
+		}
+		d, err := e.GetSession(context.Background(), "s")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.PromptCount != 3 || d.ToolCallCount != 5 || d.EndedAt != Base.Add(2*time.Hour+1500*time.Millisecond) {
+			t.Errorf("detail summary = %+v, want every call of the session", d.SessionSummary)
+		}
+	}},
 	{"sessions_list_orders_by_newest_call_and_pages_without_gaps_or_duplicates", func(t *testing.T, e *env) {
 		g := e.gen
 		// Four sessions whose newest calls share a timestamp, plus interleaved older calls.
@@ -332,6 +371,8 @@ func refSessions(calls []core.CallRecord, f core.SessionFilter) []core.SessionSu
 		}
 		models := map[string]bool{}
 		agents := map[[3]string]bool{}
+		prompts := map[string]bool{}
+		tools := map[string]bool{}
 		var total core.MicroUSD
 		known := false
 		for _, c := range g.calls {
@@ -347,6 +388,22 @@ func refSessions(calls []core.CallRecord, f core.SessionFilter) []core.SessionSu
 			if c.Model != "" {
 				models[c.Model] = true
 			}
+			if c.PromptID != "" {
+				prompts[c.PromptID] = true
+			}
+			for _, u := range c.ToolUses {
+				tools[u.ToolCallID] = true
+			}
+			for _, r := range c.ToolResults {
+				tools[r.ToolCallID] = true
+			}
+			end := c.EndedAt
+			if end.IsZero() {
+				end = c.TS
+			}
+			if end.After(s.EndedAt) {
+				s.EndedAt = end
+			}
 			s.Usage.InputUncached += c.Usage.InputUncached
 			s.Usage.CacheRead += c.Usage.CacheRead
 			s.Usage.CacheWrite5m += c.Usage.CacheWrite5m
@@ -357,7 +414,7 @@ func refSessions(calls []core.CallRecord, f core.SessionFilter) []core.SessionSu
 				total, known = total+*c.Cost, true
 			}
 		}
-		s.AgentCount = len(agents)
+		s.AgentCount, s.PromptCount, s.ToolCallCount = len(agents), len(prompts), len(tools)
 		for m := range models {
 			s.Models = append(s.Models, m)
 		}

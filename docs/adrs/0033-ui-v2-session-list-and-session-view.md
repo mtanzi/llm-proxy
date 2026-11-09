@@ -24,7 +24,6 @@ Sessions are the natural unit for agent work. The hierarchy is session, prompt (
 
 - The agent tree is computed from the session's call rows when the page loads.
 - A call without a session header has no session, so it appears in no session row or tree.
-- `SessionSummary` in `GET /admin/sessions` has no prompt count and no tool-call count, so those two list columns show unknown. The list duration is the first to the last call start, because the summary has no end time for the last call. The session view has the exact numbers, because it reads the calls and `GET /admin/tool-calls?session=`.
 
 ## Work required
 

@@ -401,11 +401,26 @@ export interface components {
             /** @description Virtual key name of the session. */
             key: string;
             client: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Start of the first call.
+             */
             first_ts: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Start of the newest call.
+             */
             last_ts: string;
+            /**
+             * Format: date-time
+             * @description Latest end of a call. A call whose end is not known counts at its start.
+             */
+            ended_at: string;
             calls: number;
+            /** @description Distinct prompt ids of the calls. */
+            prompts: number;
+            /** @description Distinct tool call ids carried by the calls. */
+            tool_calls: number;
             /** @description Calls with an error class. */
             errors: number;
             agent_count: number;

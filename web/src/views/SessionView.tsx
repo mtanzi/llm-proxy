@@ -185,7 +185,6 @@ function Legend({ model }: { model: SessionModel }) {
     <p className="legend dim">
       <span className="legend-gap" aria-hidden="true" /> idle gap ({formatCount(model.axis.gaps.length)}) collapsed
       <span className="legend-compaction" aria-hidden="true" /> context compacted ({formatCount(model.compactions.length)})
-      {model.orphanTools > 0 && <> · {formatCount(model.orphanTools)} tool calls outside this session's calls</>}
     </p>
   )
 }
@@ -357,28 +356,9 @@ function SessionTree({ model, onOpenCall }: { model: SessionModel; onOpenCall: (
     }
   }
 
-  const expandAll = (open: boolean) => {
-    const next: Record<string, boolean> = {}
-    const walk = (nodes: TreeNode[]) =>
-      nodes.forEach((n) => {
-        if (n.children.length > 0) {
-          next[n.id] = open
-          walk(n.children)
-        }
-      })
-    walk(model.prompts)
-    setOverrides(next)
-  }
-
   return (
     <div className="trace">
       <div className="trace-tools">
-        <button type="button" onClick={() => expandAll(true)}>
-          Expand all
-        </button>
-        <button type="button" onClick={() => expandAll(false)}>
-          Collapse all
-        </button>
         <span className="hint dim">
           <kbd>j</kbd> <kbd>k</kbd> move · <kbd>h</kbd> <kbd>l</kbd> collapse, expand · <kbd>Enter</kbd> open call
         </span>

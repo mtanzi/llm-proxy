@@ -26,24 +26,15 @@ export function formatRatio(value: number | null): string {
   return value == null ? UNKNOWN : `${(value * 100).toFixed(1)}%`
 }
 
-/**
- * Span of a session in the range: first call start to last call start. The
- * summary has no end time for the last call.
- */
-export function sessionSpanMs(s: Pick<SessionSummary, 'first_ts' | 'last_ts'>): number | null {
-  const span = Date.parse(s.last_ts) - Date.parse(s.first_ts)
+/** Duration of a session in the range: first call start to the latest call end. */
+export function sessionDurationMs(s: Pick<SessionSummary, 'first_ts' | 'ended_at'>): number | null {
+  const span = Date.parse(s.ended_at) - Date.parse(s.first_ts)
   return Number.isFinite(span) && span >= 0 ? span : null
 }
 
 function Cell({ text }: { text: string }) {
   return text === UNKNOWN ? <span className="unknown">{UNKNOWN}</span> : <>{text}</>
 }
-
-/**
- * Prompts and tool calls per session are not in GET /admin/sessions
- * (SessionSummary has neither), so these columns read unknown.
- */
-const notInApi = () => <span className="unknown" title="Not reported by GET /admin/sessions">{UNKNOWN}</span>
 
 const columns: ColumnDef<SessionSummary>[] = [
   {
@@ -75,8 +66,8 @@ const columns: ColumnDef<SessionSummary>[] = [
     id: 'duration',
     header: 'Duration',
     size: 100,
-    accessorFn: (s) => sessionSpanMs(s),
-    cell: ({ row }) => <Cell text={formatDurationMs(sessionSpanMs(row.original))} />,
+    accessorFn: (s) => sessionDurationMs(s),
+    cell: ({ row }) => <Cell text={formatDurationMs(sessionDurationMs(row.original))} />,
   },
   {
     id: 'client',
@@ -92,7 +83,13 @@ const columns: ColumnDef<SessionSummary>[] = [
     enableSorting: false,
     cell: ({ row }) => <Cell text={formatText(row.original.key)} />,
   },
-  { id: 'prompts', header: 'Prompts', size: 80, enableSorting: false, cell: notInApi },
+  {
+    id: 'prompts',
+    header: 'Prompts',
+    size: 80,
+    accessorFn: (s) => s.prompts,
+    cell: ({ row }) => <>{formatCount(row.original.prompts)}</>,
+  },
   {
     id: 'calls',
     header: 'Calls',
@@ -100,7 +97,13 @@ const columns: ColumnDef<SessionSummary>[] = [
     accessorFn: (s) => s.calls,
     cell: ({ row }) => <>{formatCount(row.original.calls)}</>,
   },
-  { id: 'tool_calls', header: 'Tool calls', size: 90, enableSorting: false, cell: notInApi },
+  {
+    id: 'tool_calls',
+    header: 'Tool calls',
+    size: 90,
+    accessorFn: (s) => s.tool_calls,
+    cell: ({ row }) => <>{formatCount(row.original.tool_calls)}</>,
+  },
   {
     id: 'cost',
     header: 'Cost',

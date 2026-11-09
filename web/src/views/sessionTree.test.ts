@@ -109,7 +109,7 @@ test('a result without a use nests under the call that carried the result', () =
   ])
   const rows = flattenTree(model.prompts, all)
   expect(rows.map((r) => r.node.id)).toContain('t:orphan-use::r')
-  expect(model.orphanTools).toBe(1)
+  expect(rows.some((r) => r.node.id.startsWith('t:elsewhere'))).toBe(false)
 })
 
 test('older prompts start collapsed, the latest ones open', () => {

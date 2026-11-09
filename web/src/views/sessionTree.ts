@@ -70,8 +70,6 @@ export interface SessionModel {
   /** Start times of the calls that reset the cache prefix, ascending. */
   compactions: number[]
   agents: Map<string, AgentInfo>
-  /** Tool calls not attached to a call of this session. */
-  orphanTools: number
 }
 
 const ms = (iso: string | null | undefined) => (iso ? Date.parse(iso) : NaN)
@@ -234,17 +232,13 @@ export function buildSessionModel(detail: SessionDetail, tools: ToolCall[] = [])
     return prompt
   })
 
-  let orphanTools = 0
   const seenTools = new Set<string>()
   for (const t of tools) {
     const id = `t:${t.tool_call_id}:${t.use_call_id ?? ''}:${t.result_call_id ?? ''}`
     if (seenTools.has(id)) continue
     seenTools.add(id)
     const owner = (t.use_call_id && callNodes.get(t.use_call_id)) || (t.result_call_id && callNodes.get(t.result_call_id))
-    if (!owner) {
-      orphanTools++
-      continue
-    }
+    if (!owner) continue
     const { start, end } = toolInterval(t)
     const node: ToolNode = {
       ...base(id, owner.promptIndex),
@@ -275,7 +269,6 @@ export function buildSessionModel(detail: SessionDetail, tools: ToolCall[] = [])
     axis: buildTimeAxis(intervals),
     compactions: calls.filter((c) => c.context_compacted).map((c) => ms(c.ts)),
     agents,
-    orphanTools,
   }
 }
 

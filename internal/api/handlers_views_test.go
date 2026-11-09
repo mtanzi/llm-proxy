@@ -61,7 +61,8 @@ func TestListSessions(t *testing.T) {
 	rd := &viewSpy{Reader: &coretest.Reader{
 		Sessions: []core.SessionSummary{
 			{SessionKey: "s1", KeyName: "alice", Client: "claude-code", FirstTS: testNow.Add(-2 * time.Hour), LastTS: testNow.Add(-time.Hour),
-				Calls: 4, Errors: 1, AgentCount: 2, Models: []string{"m1", "m2"}, Usage: core.Usage{Output: 9}, Cost: cost(77)},
+				EndedAt: testNow.Add(-time.Hour + 3*time.Second), Calls: 4, PromptCount: 3, ToolCallCount: 5, Errors: 1, AgentCount: 2,
+				Models: []string{"m1", "m2"}, Usage: core.Usage{Output: 9}, Cost: cost(77)},
 			{SessionKey: "s2", Calls: 1},
 		},
 		Next: &next,
@@ -78,7 +79,8 @@ func TestListSessions(t *testing.T) {
 		t.Errorf("next_cursor = %q: %+v %v", *body.NextCursor, c, err)
 	}
 	s := body.Sessions[0]
-	if s.SessionKey != "s1" || s.Key != "alice" || s.Calls != 4 || s.Errors != 1 || s.AgentCount != 2 || len(s.Models) != 2 ||
+	if s.SessionKey != "s1" || s.Key != "alice" || s.Calls != 4 || s.Prompts != 3 || s.ToolCalls != 5 ||
+		!s.EndedAt.Equal(testNow.Add(-time.Hour+3*time.Second)) || s.Errors != 1 || s.AgentCount != 2 || len(s.Models) != 2 ||
 		s.Usage.Output != 9 || s.CostMicroUSD == nil || *s.CostMicroUSD != 77 {
 		t.Errorf("session = %+v", s)
 	}

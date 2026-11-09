@@ -6,9 +6,10 @@ import { App } from '../App'
 import { createQueryClient } from '../queryClient'
 import { createAppRouter } from '../router'
 import { at, bigSession, detail, parallelSession, sessionCall } from './sessionFixtures.test-util'
+import { buildSessionModel, defaultExpanded, flattenTree } from './sessionTree'
 import type { SessionDetail, ToolCall } from './sessionTree'
 import type { SessionSummary } from './SessionList'
-import { cacheHitRatio, sessionSpanMs } from './SessionList'
+import { cacheHitRatio, sessionDurationMs } from './SessionList'
 
 type Routes = Record<string, (url: URL) => unknown>
 
@@ -54,7 +55,10 @@ function summary(key: string, over: Partial<SessionSummary> = {}): SessionSummar
     client: 'claude-code',
     first_ts: at(0),
     last_ts: at(90_000),
+    ended_at: at(95_000),
     calls: 12,
+    prompts: 4,
+    tool_calls: 7,
     errors: 0,
     agent_count: 2,
     models: ['m'],
@@ -78,7 +82,7 @@ afterEach(() => {
 
 // Session list.
 
-test('session list shows the columns; prompts and tool calls are unknown because the API lacks them', async () => {
+test('session list shows the columns', async () => {
   const urls = stubApi({
     '/admin/sessions': () => ({
       sessions: [summary('team/a:1', { errors: 3 }), summary('s2', { cost_micro_usd: null, usage: { input_uncached: 0, cache_read: 0, cache_write_5m: 0, cache_write_1h: 0, output: 0, reasoning: 0 } })],
@@ -94,13 +98,17 @@ test('session list shows the columns; prompts and tool calls are unknown because
   expect(headers).toEqual(['Start', 'Session', 'Duration', 'Client', 'Key', 'Prompts', 'Calls', 'Tool calls', 'Cost', 'Cache hit', 'Errors'])
   const first = within(rows[0])
   expect(first.getByText('team/a:1')).toBeTruthy()
-  expect(first.getByText('1 min 30 s')).toBeTruthy()
+  // Duration runs from the first call start to the latest call end.
+  expect(first.getByText('1 min 35 s')).toBeTruthy()
+  expect(first.getByText('4')).toBeTruthy()
+  expect(first.getByText('12')).toBeTruthy()
+  expect(first.getByText('7')).toBeTruthy()
   expect(first.getByText('$2.50')).toBeTruthy()
   expect(first.getByText('75.0%')).toBeTruthy()
   expect(first.getByText('3')).toBeTruthy()
-  // Prompts and tool calls are unknown, and so are the cost and cache hit of the second row.
-  expect(first.getAllByText('unknown')).toHaveLength(2)
-  expect(within(rows[1]).getAllByText('unknown')).toHaveLength(4)
+  // Only the unknown cost and cache hit of the second row read unknown.
+  expect(first.queryAllByText('unknown')).toHaveLength(0)
+  expect(within(rows[1]).getAllByText('unknown')).toHaveLength(2)
 
   const req = new URL(urls.find((u) => u.startsWith('/admin/sessions'))!, 'http://x')
   expect(req.searchParams.getAll('client')).toEqual(['claude-code'])
@@ -121,9 +129,10 @@ test('session list shows the columns; prompts and tool calls are unknown because
   await screen.findByRole('tree', { name: 'Session tree' })
 })
 
-test('session list helpers: cache hit and span', () => {
+test('session list helpers: cache hit and duration', () => {
   expect(cacheHitRatio(summary('x').usage)).toBe(0.75)
-  expect(sessionSpanMs({ first_ts: at(0), last_ts: at(5000) })).toBe(5000)
+  expect(sessionDurationMs({ first_ts: at(0), ended_at: at(5000) })).toBe(5000)
+  expect(sessionDurationMs({ first_ts: at(5000), ended_at: at(0) })).toBeNull()
 })
 
 // Session view.
@@ -245,8 +254,9 @@ test('older prompts are collapsed by default; compaction and idle gaps are marke
   expect(screen.getByText('compacted')).toBeTruthy()
   expect(screen.getByText(/idle gap \(4\) collapsed/)).toBeTruthy()
   expect(screen.getByText(/context compacted \(1\)/)).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Expand all' }))
-  await waitFor(() => expect(treeItems().filter((r) => r.getAttribute('aria-expanded') === 'false')).toHaveLength(0))
+  // A collapsed prompt opens on its own toggle.
+  fireEvent.click(treeItems()[0])
+  await waitFor(() => expect(treeItems()[0].getAttribute('aria-expanded')).toBe('true'))
 })
 
 test('tool calls are paged through with the cursor', async () => {
@@ -291,10 +301,11 @@ test('1,000-call session renders a bounded number of rows in both modes', async 
   // Only the visible rows and the overscan are in the DOM.
   expect(treeItems().length).toBeLessThan(60)
   expect(elapsed).toBeLessThan(5000)
-  // Expanded, all 3,060 rows (20 prompts, 40 agents, 1,000 calls, 2,000 tools) are in the list, not the DOM.
-  fireEvent.click(screen.getByRole('button', { name: 'Expand all' }))
-  await waitFor(() => expect(screen.getByRole('tree').style.height).toBe(`${3060 * 28}px`))
-  expect(treeItems().length).toBeLessThan(60)
+  // The latest prompts are open by default: hundreds of rows are in the list, not the DOM.
+  const model = buildSessionModel(d, tools)
+  const listed = flattenTree(model.prompts, (n) => defaultExpanded(n, model.prompts.length)).length
+  expect(listed).toBeGreaterThan(400)
+  expect(screen.getByRole('tree').style.height).toBe(`${listed * 28}px`)
 
   await router.navigate({ to: '/sessions/$key', params: { key: 's1' }, search: { mode: 'time' } })
   const waterfall = await screen.findByRole('list', { name: 'Session waterfall' })
