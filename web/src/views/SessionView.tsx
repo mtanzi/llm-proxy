@@ -105,6 +105,7 @@ export function SessionView() {
               to="/sessions/$key"
               params={{ key }}
               search={m === 'tree' ? {} : { mode: m }}
+              activeOptions={{ exact: true, includeSearch: true }}
               aria-current={m === mode ? 'page' : undefined}
             >
               {MODE_LABELS[m]}

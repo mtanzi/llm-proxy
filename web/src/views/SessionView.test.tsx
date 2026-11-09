@@ -172,6 +172,7 @@ test('deep link with an encoded key loads the session and its tool calls, in tre
   expect(within(prompt).getByText('$0.000060')).toBeTruthy()
   expect(within(prompt).getByText('2')).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Tree' }).getAttribute('aria-current')).toBe('page')
+  expect(screen.getByRole('link', { name: 'Time' }).getAttribute('aria-current')).toBeNull()
   expect((await axe.run(container)).violations.filter((v) => v.impact === 'critical' || v.impact === 'serious')).toEqual([])
 })
 
@@ -190,6 +191,9 @@ test('mode is in the URL: ?mode=time opens the waterfall, the toggle switches ba
   const failed = within(waterfall).getByRole('link', { name: /^LLM m, 100 ms, error$/ })
   expect(failed.getAttribute('href')).toBe('/ui/calls/a2')
   expect(screen.getByRole('link', { name: 'Time' }).getAttribute('aria-current')).toBe('page')
+  // Only the current mode is marked active, even though both links share the path.
+  expect(screen.getByRole('link', { name: 'Tree' }).getAttribute('aria-current')).toBeNull()
+  expect(screen.getByRole('link', { name: 'Tree' }).classList.contains('active')).toBe(false)
 
   fireEvent.click(screen.getByRole('link', { name: 'Tree' }))
   await screen.findByRole('tree', { name: 'Session tree' })
