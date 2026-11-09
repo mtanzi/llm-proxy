@@ -8,6 +8,7 @@ import type { ColumnDef, SortingState, VisibilityState } from '@tanstack/react-t
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useRef, useState } from 'react'
 import { EmptyState, ErrorMessage, LoadingState } from './states'
+import { useRowNavigation } from './useRowNavigation'
 
 export interface DataTableProps<T> {
   data: T[]
@@ -29,6 +30,11 @@ export interface DataTableProps<T> {
   rowHeight?: number
   /** Height of the scroll area in px. */
   height?: number
+  /**
+   * Roving focus over the rows: one row is in the tab order and the arrow
+   * keys, j and k, Page Up, Page Down, Home and End move between rows.
+   */
+  keyboardNavigation?: boolean
 }
 
 const OVERSCAN = 8
@@ -54,6 +60,7 @@ export function DataTable<T>({
   isFetchingNextPage = false,
   rowHeight = 36,
   height = 480,
+  keyboardNavigation = false,
 }: DataTableProps<T>) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
@@ -79,6 +86,11 @@ export function DataTable<T>({
     getScrollElement: () => scrollRef.current,
     estimateSize: () => rowHeight,
     overscan: OVERSCAN,
+  })
+  const nav = useRowNavigation({
+    count: rows.length,
+    containerRef: scrollRef,
+    scrollToIndex: (index) => virtualizer.scrollToIndex(index),
   })
   const items = virtualizer.getVirtualItems()
   const lastIndex = items.length > 0 ? items[items.length - 1].index : -1
@@ -171,13 +183,18 @@ export function DataTable<T>({
                     role="row"
                     key={row.id}
                     aria-rowindex={item.index + 2}
+                    data-index={item.index}
                     className={onRowClick ? 'tr clickable' : 'tr'}
-                    tabIndex={onRowClick ? 0 : undefined}
+                    tabIndex={
+                      keyboardNavigation ? (item.index === nav.active ? 0 : -1) : onRowClick ? 0 : undefined
+                    }
+                    onFocus={keyboardNavigation ? () => nav.setActive(item.index) : undefined}
                     onClick={onRowClick ? () => onRowClick(row.original) : undefined}
                     onKeyDown={
-                      onRowClick
+                      onRowClick || keyboardNavigation
                         ? (e) => {
-                            if (e.key === 'Enter') onRowClick(row.original)
+                            if (keyboardNavigation && nav.onRowKeyDown(e, item.index)) return
+                            if (e.key === 'Enter' && onRowClick) onRowClick(row.original)
                           }
                         : undefined
                     }

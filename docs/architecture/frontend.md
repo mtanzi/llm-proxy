@@ -71,6 +71,7 @@ The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that
 - A call without a session header has no session, so it shows in V1 and V3 but in no session row or tree.
 - Compaction points (the `context_compacted` flag, from `x-claude-code-context-compacted`) are drawn as a marker where the cache prefix resets.
 - Collapsed by default past the latest prompts; virtualized beyond a few hundred rows.
+- Design direction ([ADR 0033](../adrs/0033-ui-v2-session-list-and-session-view.md)): the look follows Linear (dark, dense, keyboard-first, monochrome with one accent colour) and the layout follows Langfuse's session and trace view (the nested tree with per-row numbers beside a waterfall on a shared time axis).
 
 ### V3 Call detail
 
