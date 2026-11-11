@@ -21,7 +21,7 @@ Spyglass shows you what your AI coding agents do with the model. It is a self-ho
 ## Features
 
 - Transparent passthrough with streaming. Claude Code works as before.
-- Works with an Anthropic API key, or with your own Claude subscription login on a personal machine.
+- Works with an Anthropic API key held by the proxy, or, on a personal machine, with the sign-in of your own Claude Code. The proxy forwards that login to Anthropic and never stores it.
 - Virtual keys per person, machine or agent, stored as hashes in the config file.
 - Live tail of new calls in the UI.
 - Postgres storage with a retention job, Prometheus metrics, and health and readiness checks.
@@ -37,11 +37,11 @@ Spyglass shows you what your AI coding agents do with the model. It is a self-ho
 | Call detail | `/ui/calls/:id` | Who made the call, timings, usage and cost, outcome, and the tools requested and resolved |
 | Sessions | `/ui/sessions` | One row per session with duration, calls, tool calls, cost, cache hit and errors |
 | Session view | `/ui/sessions/:key` | The tree and the time waterfall of prompts, agents, calls and tool calls |
-| Tools, Cost, Config | `/ui/tools`, `/ui/cost`, `/ui/admin/config` | Placeholder pages for now: the tool-call explorer, the cost and cache page and the read-only config page are planned ([ADR 0034](docs/adrs/0034-ui-v4-tool-call-explorer.md), [ADR 0035](docs/adrs/0035-ui-v5-cost-and-cache-and-config-page.md)) |
+| Tools, Cost, Config | `/ui/tools`, `/ui/cost`, `/ui/admin/config` | Placeholder pages, not linked in the sidebar yet: the tool-call explorer, the cost and cache page and the read-only config page are planned ([ADR 0034](docs/adrs/0034-ui-v4-tool-call-explorer.md), [ADR 0035](docs/adrs/0035-ui-v5-cost-and-cache-and-config-page.md)) |
 
 ## Quick start: personal local setup
 
-One person, their own Claude login, one machine. You need Docker, Go, Node 22, `curl` and `openssl`. The full procedure, with troubleshooting, is in [docs/personal-local-setup.md](docs/personal-local-setup.md).
+One person, one machine, Claude Code signed in with their own account. The proxy forwards that sign-in and never stores it. You need Docker, Go, Node 22, `curl` and `openssl`. The full procedure, with troubleshooting, is in [docs/personal-local-setup.md](docs/personal-local-setup.md).
 
 ```sh
 # 1. Postgres on 127.0.0.1:5432
@@ -82,6 +82,15 @@ Open <http://127.0.0.1:9090/ui/>. The newest call is also at `curl -s 'http://12
 
 > **The admin plane has no sign-in.** The UI and the `/admin/*` API show every call to anyone who can reach port 9090. They listen on loopback only, and `serve` refuses any other address. Do not forward, tunnel or proxy that port to anyone else. To reach the UI of a compose deployment, see the [runbook](docs/runbook.md#reach-the-admin-ui).
 
+## Security
+
+Spyglass has two listeners with different trust rules. Read this before you run it anywhere but your own machine.
+
+- **The admin UI and the admin API (`/ui`, `/admin/*`, port 9090) have no sign-in, by design.** Anyone who can reach that port sees every recorded call. They listen on loopback only, and `serve` refuses any other address.
+- **Never expose port 9090 or the admin API to a network.** Do not publish it from a container, forward or tunnel it, or put a reverse proxy in front of it.
+- **The data plane (port 8080) needs a virtual key** (`x-llm-proxy-key` or `Authorization`). Treat these keys as credentials. Keep them out of committed files. Only hashes are stored in the config file.
+- Spyglass stores metadata only. Prompts and responses are never stored.
+
 ## Deploy with compose
 
 For a shared or always-on setup, run `llm-proxy` and Postgres from [docker-compose.yml](docker-compose.yml) with an Anthropic API key. The [runbook](docs/runbook.md) covers the first start, keys, secret rotation, upgrades, backups, TLS, metrics and sizing. The design behind it is in [deployment.md](docs/architecture/deployment.md).
@@ -117,3 +126,7 @@ Each deferred item and the trigger for adding it back is in [Later versions](doc
 - [CONTRIBUTING.md](CONTRIBUTING.md) has the package layout, the dependency rules and the checks (`make build`, `make test`, `make lint`, `make ui-check`, `make e2e`).
 - `make ui-dev` runs the UI with hot reload against a local `llm-proxy serve`.
 - [docs/](docs/) holds the design: start with [llm-proxy-design.md](docs/llm-proxy-design.md), the [architecture documents](docs/architecture/) and the [ADRs](docs/adrs/README.md). The brand proposals are in [branding-proposals.html](docs/branding-proposals.html).
+
+## License
+
+[MIT](LICENSE), copyright (c) 2026 Marco Tanzi.
