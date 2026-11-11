@@ -86,11 +86,13 @@ function Total({ row, measure, format }: { row: LogRow; measure: Measure; format
   const calls = rowCalls(row)
   const total = sumKnown(calls, measure)
   const missing = calls.filter((c) => measure(c) === null).length
+  const suffix = total !== null && missing > 0 ? ` (+${missing} unknown)` : ''
+  // The title keeps the full value readable when the column is too narrow.
   return (
-    <>
+    <span title={format(total) + suffix}>
       <Maybe text={format(total)} />
-      {total !== null && missing > 0 && <small className="unknown"> (+{missing} unknown)</small>}
-    </>
+      {suffix && <small className="unknown">{suffix}</small>}
+    </span>
   )
 }
 
@@ -115,7 +117,7 @@ const columns: ColumnDef<LogRow>[] = [
   {
     id: 'session',
     header: 'Session and prompt',
-    size: 190,
+    size: 150,
     enableSorting: false,
     cell: ({ row }) => {
       const session = first(row.original).session_key
@@ -171,7 +173,8 @@ const columns: ColumnDef<LogRow>[] = [
   {
     id: 'status',
     header: 'Status',
-    size: 120,
+    // Fits the widest status and error class badge, such as "502 · upstream_error".
+    size: 160,
     enableSorting: false,
     cell: ({ row }) => {
       const c = worstCall(rowCalls(row.original))
@@ -205,7 +208,8 @@ const columns: ColumnDef<LogRow>[] = [
   {
     id: 'cost',
     header: 'Cost',
-    size: 84,
+    // Fits a sub-cent cost such as "$0.007512".
+    size: 92,
     meta: numeric,
     accessorFn: (r) => sumKnown(rowCalls(r), cost),
     cell: ({ row }) => <Total row={row.original} measure={cost} format={formatCostMicroUsd} />,

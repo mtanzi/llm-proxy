@@ -201,6 +201,8 @@ test('group by session folds consecutive calls and is kept in the URL', async ()
   // A turn with an unknown cost is not counted as zero.
   expect(within(tableRows()[2]).getByText('$1.00')).toBeTruthy()
   expect(within(tableRows()[2]).getByText(/\+1 unknown/)).toBeTruthy()
+  // The title keeps the full total readable when the column is narrow.
+  expect(within(tableRows()[2]).getByTitle('$1.00 (+1 unknown)')).toBeTruthy()
   // A group row opens the session.
   fireEvent.click(tableRows()[0])
   await waitFor(() => expect(router.state.location.pathname).toBe('/sessions/s1'))
@@ -415,4 +417,15 @@ test('numbers are right-aligned and status shows as a badge with the error class
   // Model and client are subtle tags.
   expect(ok.getByText('claude-code').className).toBe('tag')
   expect(ok.getByText('m').className).toBe('tag mono')
+})
+
+test('a sub-cent cost and a long error badge keep their full value in a title', async () => {
+  stubApi(() =>
+    new Response(JSON.stringify(list([call('bad', { status: 502, error_class: 'upstream_error', cost_micro_usd: 7_512 })]))),
+  )
+  await renderAt('/ui/calls')
+  await screen.findAllByText('claude-code')
+  const row = within(tableRows()[0])
+  expect(row.getByText('502 · upstream_error').getAttribute('title')).toBe('502 · upstream_error')
+  expect(row.getByTitle('$0.007512').textContent).toBe('$0.007512')
 })

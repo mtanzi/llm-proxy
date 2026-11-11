@@ -14,7 +14,11 @@ export function StatusBadge({ status, errorClass = '' }: { status: number; error
   if (status === 0 && errorClass === '') return <span className="unknown">{UNKNOWN}</span>
   const error = isErrorStatus(status, errorClass)
   const text = [status === 0 ? '' : String(status), errorClass].filter((v) => v !== '').join(' · ')
-  return <span className={error ? 'badge badge-error' : 'badge badge-ok'}>{text}</span>
+  return (
+    <span className={error ? 'badge badge-error' : 'badge badge-ok'} title={text}>
+      {text}
+    </span>
+  )
 }
 
 /** A subtle tag for a name such as a model or a client. Unknown stays plain muted text. */
