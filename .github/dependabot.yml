@@ -5,15 +5,35 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      semver-patch-days: 3
+      semver-minor-days: 7
+      semver-major-days: 7
     groups:
       web-dev-tools:
         dependency-type: development
         update-types: [minor, patch]
+      web-patch:
+        update-types: [patch]
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      semver-patch-days: 3
+      semver-minor-days: 7
+      semver-major-days: 7
+    groups:
+      go-patch:
+        update-types: [patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      semver-patch-days: 3
+      semver-minor-days: 7
+      semver-major-days: 7
+    groups:
+      actions-patch:
+        update-types: [patch]
