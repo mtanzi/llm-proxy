@@ -25,6 +25,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HAS_LABEL: "${{ contains(github.event.pull_request.labels.*.name, 'review: tier A') }}"
         run: |
           if [ "$HEAD_REPO" != "$REPO" ]; then
@@ -40,7 +41,7 @@ jobs:
             fi
             case "$by" in
               github-actions|github-actions\[bot\])
-                gh pr merge "$PR" -R "$REPO" --disable-auto || true ;;
+                gh pr merge "$PR" -R "$REPO" --disable-auto ;;
             esac
             exit 0
           fi
@@ -54,4 +55,4 @@ jobs:
             echo "Not Tier A, files outside the allowlist:"; echo "$bad"
             gh pr merge "$PR" -R "$REPO" --disable-auto || true; exit 1
           fi
-          gh pr merge "$PR" -R "$REPO" --auto --squash
+          gh pr merge "$PR" -R "$REPO" --auto --squash --match-head-commit "$HEAD_SHA"
