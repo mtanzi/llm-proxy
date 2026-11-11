@@ -261,3 +261,96 @@ main:focus { outline: none; }
 .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; font-size: var(--text-xs); }
 .legend-gap { display: inline-block; width: 14px; height: 10px; margin-left: 8px; background: repeating-linear-gradient(135deg, var(--muted) 0 2px, transparent 2px 4px); }
 .legend-compaction { display: inline-block; width: 0; height: 10px; margin-left: 8px; border-left: 1px dashed var(--accent); }
+
+/*
+ * Overview dashboard (ADR 0052). Series colours are muted hues for the
+ * stacked activity chart; every series also has a named legend entry and
+ * tooltips, so colour is never the only cue.
+ */
+:root {
+  --series-0: #7c85f2;
+  --series-1: #4cb7a5;
+  --series-2: #d9a84e;
+  --series-3: #c27ac8;
+  --series-4: #6b9bd8;
+  --series-5: #6b7079;
+}
+.dashboard .view-header button { margin-left: auto; }
+.toolbar-link { margin-left: auto; font-size: var(--text-sm); }
+.kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 0; background: var(--border-subtle); border: 1px solid var(--border-subtle); border-radius: var(--radius); overflow: hidden; }
+.kpi { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: var(--bg-elevated); min-width: 0; }
+.kpi dt { color: var(--muted); font-size: var(--text-xs); }
+.kpi dd { display: flex; flex-direction: column; gap: 2px; margin: 0; min-width: 0; }
+.summary-strip .kpi-value { font-size: var(--text-lg); font-weight: 500; font-variant-numeric: tabular-nums; }
+.kpi-note { color: var(--muted); font-size: var(--text-xs); }
+.change { font-size: var(--text-xs); font-variant-numeric: tabular-nums; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.change[data-tone='bad'] { color: var(--error); }
+.sparkline { display: block; width: 100%; height: 24px; margin-top: 4px; }
+.sparkline polyline { fill: none; stroke: var(--bar-strong); stroke-width: 1.25; }
+.sparkline circle { fill: var(--bar-strong); }
+.sparkline-error polyline { stroke: var(--error); }
+.sparkline-error circle { fill: var(--error); }
+.dash-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.dash-grid .span-2 { grid-column: span 2; }
+.dash-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dash-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1200px) {
+  .dash-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-grid-2 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 960px) {
+  .dash-grid { grid-template-columns: minmax(0, 1fr); }
+  .dash-grid .span-2 { grid-column: auto; }
+}
+.panel { min-width: 0; padding: 10px 12px; background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius); }
+.panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-bottom: 8px; }
+.panel-head h2 { margin: 0; }
+.panel-head > :last-child:not(h2) { margin-left: auto; }
+.panel-head a, .panel-actions a { font-size: var(--text-xs); }
+.panel-actions { display: inline-flex; align-items: center; gap: 10px; }
+.panel .table-frame { border-color: var(--border-subtle); background: var(--bg); }
+.panel .state { padding: 12px; }
+.state-calm { color: var(--muted); }
+.breakdowns > .panel-head { margin-bottom: 8px; }
+.cell-clip { max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.grid-table.feed td, .panel .grid-table td { height: 28px; }
+.panel .grid-table a { color: var(--fg); text-decoration: none; }
+.panel .grid-table a:hover { text-decoration: underline; }
+.problems { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.problems li { display: flex; align-items: center; gap: 8px; }
+.problems .badge { margin-left: 0; }
+.problems a { text-decoration: none; }
+.problems a:hover .badge { text-decoration: underline; }
+.problems .num { margin-left: auto; color: var(--muted); }
+.ranked { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.ranked li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; }
+.ranked-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ranked-name a { color: var(--fg); text-decoration: none; }
+.ranked-name a:hover { text-decoration: underline; }
+.ranked-value { font-size: var(--text-sm); white-space: nowrap; }
+.ranked-bar { grid-column: 1 / -1; height: 3px; background: var(--bg-active); border-radius: 2px; overflow: hidden; }
+.ranked-bar > span { display: block; height: 100%; background: var(--accent); }
+.activity-chart { margin: 0; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 6px; padding: 0; list-style: none; color: var(--muted); font-size: var(--text-xs); }
+.chart-legend li { display: inline-flex; align-items: center; gap: 4px; }
+.swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; }
+.swatch-0 { background: var(--series-0); }
+.swatch-1 { background: var(--series-1); }
+.swatch-2 { background: var(--series-2); }
+.swatch-3 { background: var(--series-3); }
+.swatch-4 { background: var(--series-4); }
+.swatch-5 { background: var(--series-5); }
+.swatch-error { height: 0; border-top: 2px dashed var(--error); border-radius: 0; width: 12px; }
+.chart-frame { position: relative; padding-top: 14px; }
+.chart-frame svg { display: block; width: 100%; height: 140px; }
+.chart-max { position: absolute; top: 0; left: 0; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.chart-max-errors { left: auto; right: 0; color: var(--error); }
+.fill-0 { fill: var(--series-0); }
+.fill-1 { fill: var(--series-1); }
+.fill-2 { fill: var(--series-2); }
+.fill-3 { fill: var(--series-3); }
+.fill-4 { fill: var(--series-4); }
+.fill-5 { fill: var(--series-5); }
+.error-overlay polyline { fill: none; stroke: var(--error); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.error-overlay rect { fill: var(--error); }

@@ -167,7 +167,8 @@ test('an unknown tab value degrades to overview', async () => {
   stubApi(detail())
   await renderAt(`/ui/calls/${ID}?tab=%22nope%22`)
   await screen.findByRole('heading', { name: 'Exchange' })
-  expect(screen.getByRole('link', { name: 'Overview' }).getAttribute('aria-current')).toBe('page')
+  const tabs = within(screen.getByRole('navigation', { name: 'Call detail tabs' }))
+  expect(tabs.getByRole('link', { name: 'Overview' }).getAttribute('aria-current')).toBe('page')
 })
 
 const exchangeBlocks = () =>

@@ -1,7 +1,8 @@
 import { Link, Outlet } from '@tanstack/react-router'
 
-// The five views and the admin page. Views come with ADRs 0031 to 0035.
+// The overview (ADR 0052), the five views and the admin page. Views come with ADRs 0031 to 0035.
 const NAV = [
+  { to: '/', label: 'Overview' },
   { to: '/calls', label: 'Calls' },
   { to: '/sessions', label: 'Sessions' },
   { to: '/tools', label: 'Tools' },
@@ -26,7 +27,11 @@ export function Layout() {
           <ul>
             {NAV.map((item) => (
               <li key={item.to}>
-                <Link to={item.to} activeProps={{ 'aria-current': 'page' }}>
+                <Link
+                  to={item.to}
+                  activeOptions={{ exact: item.to === '/', includeSearch: false }}
+                  activeProps={{ 'aria-current': 'page' }}
+                >
                   {item.label}
                 </Link>
               </li>

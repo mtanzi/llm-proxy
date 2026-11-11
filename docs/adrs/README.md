@@ -103,6 +103,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0049](0049-source-precedence-and-corrections-to-completed-adrs.md) | Source precedence and corrections to Completed ADRs | Completed | 0001, 0003, 0004 |
 | [0050](0050-upstream-identity-encoding.md) | Upstream identity encoding | Completed | 0011, 0013 |
 | [0051](0051-recorder-isolates-unwritable-records.md) | Recorder isolates unwritable records | Completed | 0003, 0016, 0017, 0026 |
+| [0052](0052-ui-overview-dashboard-as-landing-page.md) | UI overview dashboard as the landing page | Accepted | 0024, 0025, 0030, 0031, 0033 |
 
 ## Suggested implementation order
 
@@ -112,7 +113,7 @@ The phase numbers below are the v1 plan, with these meanings: 1 proxy core, 2 co
 2. **Proxy core (phase 1):** 0007 (error bodies), 0008 (auth), 0009 (keygen), 0010 (correlation), 0011 (passthrough and streaming). In parallel, the storage track: 0017 (schema and write path) and 0018 (contract suite and harness).
 3. **Recording (phases 1 and 2):** 0013 (tap), 0014 (extractor), 0015 (pricing), 0016 (recorder). Then 0012 (client passthrough, needed for the personal setup), 0026 (health and metrics), 0027 (graceful shutdown), 0028 (composition root). The first end-to-end run is possible here.
 4. **Read side (phase 3):** 0019, 0020, 0021 (readers), 0022 (retention), then 0023, 0024, 0025 (admin API and live tail).
-5. **UI (phase 3):** 0029, 0030, then 0031 to 0035 (views, mostly in parallel).
+5. **UI (phase 3):** 0029, 0030, then 0031 to 0035 (views, mostly in parallel), then 0052 (the overview dashboard at `/ui`, after the views it links to).
 6. **Ship and verify:** 0036 (image), 0037 (deployment guide), 0038 (e2e tests and fixtures), 0039 (performance).
 7. **Firstmate (phase 5):** 0040 (routing and ledger reporter), with keys issued by hand. v1 ends at 0040.
 8. **Accepted decisions:** 0042 to 0045 are Accepted with their recommended options: hint headers on for crewmates (0042, D5), no tool snippets (0043, D11), no provider error text (0044, D12), and no per-key body capture (0045, D13). The gap-review defaults (0046, D9, D10) are Completed: their decisions are recorded in the ADR table. They need no phase: the ADRs they touch already assume them. Set the hint-header variable when 0040 first routes Claude Code through the proxy.

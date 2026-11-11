@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import { DEFAULT_RANGE, RANGE_PRESETS } from '../search/timeRange'
-import type { TimeRangeSearch } from '../search/timeRange'
+import type { RangePreset, TimeRangeSearch } from '../search/timeRange'
 
 function toLocalInput(iso: string | undefined): string {
   if (!iso) return ''
@@ -19,14 +19,19 @@ function fromLocalInput(value: string): string | undefined {
  * Time-range primitive: preset buttons plus an absolute window. It reports a
  * TimeRangeSearch with all three keys set (cleared ones undefined), so the
  * caller can spread it over the current search. The presets are a
- * segmented control; the pressed one is the current range.
+ * segmented control; the pressed one is the current range. A page can offer
+ * fewer presets and no absolute window (the overview dashboard, ADR 0052).
  */
 export function TimeRangePicker({
   value,
   onChange,
+  presets = RANGE_PRESETS,
+  allowAbsolute = true,
 }: {
   value: TimeRangeSearch
   onChange: (next: TimeRangeSearch) => void
+  presets?: readonly RangePreset[]
+  allowAbsolute?: boolean
 }) {
   const id = useId()
   const absolute = value.from !== undefined || value.to !== undefined
@@ -35,7 +40,7 @@ export function TimeRangePicker({
     <fieldset className="time-range">
       <legend className="sr-only">Time range</legend>
       <div className="segmented">
-        {RANGE_PRESETS.map((preset) => (
+        {presets.map((preset) => (
           <button
             key={preset}
             type="button"
@@ -46,20 +51,24 @@ export function TimeRangePicker({
           </button>
         ))}
       </div>
-      <label htmlFor={`${id}-from`}>From</label>
-      <input
-        id={`${id}-from`}
-        type="datetime-local"
-        value={toLocalInput(value.from)}
-        onChange={(e) => onChange({ range: undefined, from: fromLocalInput(e.target.value), to: value.to })}
-      />
-      <label htmlFor={`${id}-to`}>To</label>
-      <input
-        id={`${id}-to`}
-        type="datetime-local"
-        value={toLocalInput(value.to)}
-        onChange={(e) => onChange({ range: undefined, from: value.from, to: fromLocalInput(e.target.value) })}
-      />
+      {allowAbsolute && (
+        <>
+          <label htmlFor={`${id}-from`}>From</label>
+          <input
+            id={`${id}-from`}
+            type="datetime-local"
+            value={toLocalInput(value.from)}
+            onChange={(e) => onChange({ range: undefined, from: fromLocalInput(e.target.value), to: value.to })}
+          />
+          <label htmlFor={`${id}-to`}>To</label>
+          <input
+            id={`${id}-to`}
+            type="datetime-local"
+            value={toLocalInput(value.to)}
+            onChange={(e) => onChange({ range: undefined, from: value.from, to: fromLocalInput(e.target.value) })}
+          />
+        </>
+      )}
     </fieldset>
   )
 }
