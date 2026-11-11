@@ -11,7 +11,7 @@ export type Grain = 'minute' | 'hour' | 'day'
 const GRAIN_MS: Record<Grain, number> = { minute: 60_000, hour: 3_600_000, day: 86_400_000 }
 
 const W = 600
-const H = 100
+const H = 64
 
 /**
  * One slot per interval of the window, empty intervals included, so the x
@@ -28,7 +28,17 @@ export function volumeSlots(points: VolumePoint[], from: string, to: string, gra
   return slots
 }
 
-/** Calls per interval as bars; the error part of each bar is drawn on top. Plain SVG, no chart library. */
+function axisLabel(iso: string, grain: Grain): string {
+  const d = new Date(iso)
+  return grain === 'day'
+    ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * Calls per interval as bars in the palette's neutral grey; the error part
+ * of each bar is drawn on top in the error colour. Plain SVG, no chart library.
+ */
 export function VolumeChart({
   points,
   from,
@@ -48,7 +58,13 @@ export function VolumeChart({
   const bar = Math.max(1, step - 1)
   return (
     <figure className="volume-chart">
-      <figcaption>Calls per {grain}</figcaption>
+      <figcaption>
+        <span>Calls per {grain}</span>
+        <span className="volume-legend" aria-hidden="true">
+          <span>calls</span>
+          <span className="legend-error">errors</span>
+        </span>
+      </figcaption>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
@@ -68,6 +84,10 @@ export function VolumeChart({
           )
         })}
       </svg>
+      <div className="volume-axis" aria-hidden="true">
+        <span>{axisLabel(from, grain)}</span>
+        <span>{axisLabel(to, grain)}</span>
+      </div>
     </figure>
   )
 }

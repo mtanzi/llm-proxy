@@ -84,3 +84,18 @@ test('primitives have no accessibility violations', async () => {
   const results = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
   expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([])
 })
+
+test('filter menu closes on Escape and gives focus back to its button', () => {
+  render(
+    <FilterMenu activeCount={0}>
+      <NumberFilter label="Latency at least" value={undefined} onChange={() => {}} />
+    </FilterMenu>,
+  )
+  const button = screen.getByRole('button', { name: 'Filters' })
+  fireEvent.click(button)
+  expect(button.getAttribute('aria-expanded')).toBe('true')
+  fireEvent.keyDown(screen.getByLabelText('Latency at least'), { key: 'Escape' })
+  expect(button.getAttribute('aria-expanded')).toBe('false')
+  expect(document.getElementById(button.getAttribute('aria-controls')!)?.hidden).toBe(true)
+  expect(document.activeElement).toBe(button)
+})

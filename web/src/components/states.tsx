@@ -1,15 +1,17 @@
 import { errorMessage } from '../api/errors'
 
+/** The one loading state of every page: a small spinner and a label. */
 export function LoadingState({ label = 'Loading' }: { label?: string }) {
   return (
-    <p className="state" role="status">
+    <p className="state state-loading" role="status">
       {label}…
     </p>
   )
 }
 
+/** The one empty state of every page: a muted, centred message. */
 export function EmptyState({ children }: { children: React.ReactNode }) {
-  return <p className="state">{children}</p>
+  return <p className="state state-empty">{children}</p>
 }
 
 /** Inline message for an API or network error (ADR 0030). */

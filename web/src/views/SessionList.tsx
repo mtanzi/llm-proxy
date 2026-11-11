@@ -64,6 +64,7 @@ const columns: ColumnDef<SessionSummary>[] = [
   },
   {
     id: 'duration',
+    meta: { numeric: true },
     header: 'Duration',
     size: 100,
     accessorFn: (s) => sessionDurationMs(s),
@@ -85,6 +86,7 @@ const columns: ColumnDef<SessionSummary>[] = [
   },
   {
     id: 'prompts',
+    meta: { numeric: true },
     header: 'Prompts',
     size: 80,
     accessorFn: (s) => s.prompts,
@@ -92,6 +94,7 @@ const columns: ColumnDef<SessionSummary>[] = [
   },
   {
     id: 'calls',
+    meta: { numeric: true },
     header: 'Calls',
     size: 70,
     accessorFn: (s) => s.calls,
@@ -99,6 +102,7 @@ const columns: ColumnDef<SessionSummary>[] = [
   },
   {
     id: 'tool_calls',
+    meta: { numeric: true },
     header: 'Tool calls',
     size: 90,
     accessorFn: (s) => s.tool_calls,
@@ -106,6 +110,7 @@ const columns: ColumnDef<SessionSummary>[] = [
   },
   {
     id: 'cost',
+    meta: { numeric: true },
     header: 'Cost',
     size: 100,
     accessorFn: (s) => s.cost_micro_usd,
@@ -113,6 +118,7 @@ const columns: ColumnDef<SessionSummary>[] = [
   },
   {
     id: 'cache_hit',
+    meta: { numeric: true },
     header: 'Cache hit',
     size: 90,
     accessorFn: (s) => cacheHitRatio(s.usage),
@@ -120,6 +126,7 @@ const columns: ColumnDef<SessionSummary>[] = [
   },
   {
     id: 'errors',
+    meta: { numeric: true },
     header: 'Errors',
     size: 70,
     accessorFn: (s) => s.errors,
@@ -166,7 +173,7 @@ export function SessionListView() {
   const isDefault = search.range === undefined && search.from === undefined && search.to === undefined
 
   return (
-    <section aria-labelledby="view-title" className="v2">
+    <section aria-labelledby="view-title">
       <div className="view-header">
         <h1 id="view-title">Sessions</h1>
         <span className="dim">{list.data ? `${formatCount(rows.length)}${list.hasNextPage ? '+' : ''} sessions` : ''}</span>

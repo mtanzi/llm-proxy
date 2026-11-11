@@ -3,8 +3,9 @@ import { Link, useParams, useSearch } from '@tanstack/react-router'
 import { detailQueryOptions, readQueryOptions } from '../api/queries'
 import { apiGet } from '../api/client'
 import type { QueryOf, ResponseOf } from '../api/client'
+import { StatusBadge, Tag } from '../components/Badge'
 import { ContentNotStored } from '../components/ContentNotStored'
-import { ErrorMessage, LoadingState } from '../components/states'
+import { EmptyState, ErrorMessage, LoadingState } from '../components/states'
 import {
   UNKNOWN,
   formatBytes,
@@ -16,6 +17,8 @@ import {
 } from '../lib/format'
 import { CALL_TABS } from '../search/routes'
 import type { CallTab } from '../search/routes'
+import { Thread } from './callThread'
+import { cacheHitRatio, formatRatio } from './SessionList'
 
 export type CallDetail = ResponseOf<'/admin/calls/{id}'>
 export type ToolCall = ResponseOf<'/admin/tool-calls'>['tool_calls'][number]
@@ -26,43 +29,64 @@ const TAB_LABELS: Record<CallTab, string> = {
   usage: 'Usage and cost',
 }
 
-/** V3 call detail (ADR 0032): stored numbers, names and hashes, never content. */
+/**
+ * V3 call detail (ADR 0032): stored numbers, names and hashes, never content.
+ * Linear look as the session pages (ADR 0033): the tabs and a timing bar in
+ * the main column, and a side panel with who made the call, the model, the
+ * session link, tokens, cache and cost.
+ */
 export function CallDetailView() {
   const { id } = useParams({ from: '/calls/$id' })
   const { tab = 'overview' } = useSearch({ from: '/calls/$id' })
   // A finished call never changes, so the query is cached for the session.
   const query = useQuery(detailQueryOptions('/admin/calls/{id}', { path: { id } }))
+  const call = query.data
 
   return (
     <section aria-labelledby="view-title">
-      <h1 id="view-title">Call</h1>
+      <nav aria-label="Breadcrumb" className="crumbs">
+        <Link to="/calls" search={{}}>
+          Calls
+        </Link>
+        <span aria-hidden="true">/</span>
+        <code>{id}</code>
+      </nav>
+      <div className="view-header">
+        <h1 id="view-title">Call</h1>
+        {call && (
+          <>
+            <Tag text={formatText(call.model)} className="mono" />
+            <StatusBadge status={call.status} errorClass={call.error_class} />
+            {call.usage_estimated && <Badge>Usage estimated</Badge>}
+            {call.extraction_partial && <Badge>Extraction partial</Badge>}
+          </>
+        )}
+      </div>
       {query.isPending && <LoadingState label="Loading call" />}
       {query.isError && <ErrorMessage error={query.error} onRetry={() => void query.refetch()} />}
-      {query.data && (
-        <>
-          <p>
-            <code>{query.data.id}</code>
-            {query.data.usage_estimated && <Badge>Usage estimated</Badge>}
-            {query.data.extraction_partial && <Badge>Extraction partial</Badge>}
-          </p>
-          <nav aria-label="Call detail tabs" className="tabs">
-            {CALL_TABS.map((t) => (
-              <Link
-                key={t}
-                to="/calls/$id"
-                params={{ id }}
-                search={t === 'overview' ? {} : { tab: t }}
-                aria-current={t === tab ? 'page' : undefined}
-              >
-                {TAB_LABELS[t]}
-              </Link>
-            ))}
-          </nav>
-          {tab === 'overview' && <Overview call={query.data} />}
-          {tab === 'tools' && <Tools call={query.data} />}
-          {tab === 'usage' && <UsageAndCost call={query.data} />}
-          <ContentNotStored />
-        </>
+      {call && (
+        <div className="detail-grid">
+          <div className="detail-main">
+            <nav aria-label="Call detail tabs" className="tabs">
+              {CALL_TABS.map((t) => (
+                <Link
+                  key={t}
+                  to="/calls/$id"
+                  params={{ id }}
+                  search={t === 'overview' ? {} : { tab: t }}
+                  aria-current={t === tab ? 'page' : undefined}
+                >
+                  {TAB_LABELS[t]}
+                </Link>
+              ))}
+            </nav>
+            {tab === 'overview' && <Overview call={call} />}
+            {tab === 'tools' && <Tools call={call} />}
+            {tab === 'usage' && <UsageAndCost call={call} />}
+            <ContentNotStored />
+          </div>
+          <SidePanel call={call} />
+        </div>
       )}
     </section>
   )
@@ -93,14 +117,31 @@ function Fields({ label, rows }: { label: string; rows: [string, React.ReactNode
   )
 }
 
-function unknownOr(value: string | number | null | undefined, text: string) {
-  return value == null || value === '' || value === 0 ? <span className="unknown">{UNKNOWN}</span> : text
+function Unknown() {
+  return <span className="unknown">{UNKNOWN}</span>
 }
 
-function Overview({ call }: { call: CallDetail }) {
-  const status = zeroAsUnknown(call.status)
+/** A formatted value; "unknown" is muted. */
+function Text({ value }: { value: string }) {
+  return value === UNKNOWN ? <Unknown /> : <>{value}</>
+}
+
+/** Who made the call, the call itself, and its tokens, cache and cost, beside every tab. */
+function SidePanel({ call }: { call: CallDetail }) {
+  const u = call.usage
+  const tokensIn = zeroAsUnknown(u.input_uncached + u.cache_read + u.cache_write_5m + u.cache_write_1h)
+  const cost = formatCostMicroUsd(call.cost_micro_usd)
   return (
-    <>
+    <aside className="side-panel" aria-label="Call summary">
+      <Fields
+        label="Model"
+        rows={[
+          ['Model', <Tag key="m" text={formatText(call.model)} className="mono" />],
+          ['Provider', <Value key="pr" value={call.provider} />],
+          ['Time', <Value key="t" value={call.ts} />],
+          ['Upstream request id', <Value key="u" value={call.upstream_request_id} />],
+        ]}
+      />
       <Fields
         label="Who"
         rows={[
@@ -109,11 +150,11 @@ function Overview({ call }: { call: CallDetail }) {
           [
             'Session',
             call.session_key ? (
-              <Link to="/sessions/$key" params={{ key: call.session_key }}>
+              <Link to="/sessions/$key" params={{ key: call.session_key }} className="mono">
                 {call.session_key}
               </Link>
             ) : (
-              <span className="unknown">{UNKNOWN}</span>
+              <Unknown />
             ),
           ],
           ['Agent', <Value key="a" value={call.agent_id} />],
@@ -122,24 +163,57 @@ function Overview({ call }: { call: CallDetail }) {
         ]}
       />
       <Fields
-        label="Call"
+        label="Tokens and cost"
         rows={[
-          ['Time', <Value key="t" value={call.ts} />],
-          ['Model', <Value key="m" value={call.model} />],
-          ['Provider', <Value key="pr" value={call.provider} />],
-          ['Upstream request id', <Value key="u" value={call.upstream_request_id} />],
+          ['Tokens in', tokensIn === null ? <Unknown /> : formatCount(tokensIn)],
+          ['Tokens out', zeroAsUnknown(u.output) === null ? <Unknown /> : formatCount(u.output)],
+          ['Cache read', formatCount(u.cache_read)],
+          ['Cache write', formatCount(u.cache_write_5m + u.cache_write_1h)],
+          ['Cache hit', formatRatio(cacheHitRatio(u))],
+          ['Cost', cost === UNKNOWN ? <Unknown /> : cost],
         ]}
       />
-      <Fields
-        label="Outcome"
-        rows={[
-          ['Status', unknownOr(status, String(status))],
-          ['Error type', <Value key="et" value={call.error_type} />],
-          ['Stop reason', <Value key="sr" value={call.stop_reason} />],
-          ['Time to first token', formatDurationMs(zeroAsUnknown(call.ttft_ms))],
-          ['Duration', formatDurationMs(zeroAsUnknown(call.duration_ms))],
-        ]}
-      />
+    </aside>
+  )
+}
+
+const pct = (v: number) => `${(Math.min(1, Math.max(0, v)) * 100).toFixed(3)}%`
+
+/**
+ * Time to first byte, time to first token and total duration as bars from
+ * the request start, on the total duration, in the session waterfall's style.
+ * A time that was not recorded (0) reads as unknown and draws no bar.
+ */
+function Timing({ call }: { call: CallDetail }) {
+  const total = zeroAsUnknown(call.duration_ms)
+  const rows: [string, number | null, string][] = [
+    ['Time to first byte', zeroAsUnknown(call.ttfb_ms), 'bar-ttfb'],
+    ['Time to first token', zeroAsUnknown(call.ttft_ms), 'bar-ttft'],
+    ['Duration', total, 'bar-total'],
+  ]
+  return (
+    <section aria-label="Timing">
+      <h2>Timing</h2>
+      <dl className="timing">
+        {rows.map(([label, value, bar]) => (
+          <div key={label} className="timing-row">
+            <dt>{label}</dt>
+            <dd className="bar-cell" aria-hidden="true">
+              {value !== null && total !== null && <span className={`bar ${bar}`} style={{ left: 0, width: pct(value / total) }} />}
+            </dd>
+            <dd className={value === null ? 'num unknown' : 'num'}>{formatDurationMs(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  )
+}
+
+function Overview({ call }: { call: CallDetail }) {
+  return (
+    <>
+      <Timing call={call} />
+      <Thread call={call} />
     </>
   )
 }
@@ -246,10 +320,10 @@ export function buildToolRows(call: CallDetail, pairs: ToolCall[] | undefined): 
 }
 
 function outcome(row: ToolRow): React.ReactNode {
-  if (row.isError === true) return 'Error'
-  if (row.isError === false) return 'Success'
-  if (row.status === 'pending') return 'Pending'
-  if (row.status === 'use_only') return 'No result'
+  if (row.isError === true) return <span className="badge badge-error">Error</span>
+  if (row.isError === false) return <span className="badge badge-ok">Success</span>
+  if (row.status === 'pending') return <span className="badge">Pending</span>
+  if (row.status === 'use_only') return <span className="badge">No result</span>
   return <span className="unknown">{UNKNOWN}</span>
 }
 
@@ -262,56 +336,62 @@ function Tools({ call }: { call: CallDetail }) {
     queryFn: ({ signal }) => fetchToolPairs(call, query, signal),
     enabled,
   })
-  if (!hasTools) return <p className="state">This call carries no tool uses or results.</p>
+  if (!hasTools) return <EmptyState>This call carries no tool uses or results.</EmptyState>
   const rows = buildToolRows(call, pairs.data?.tool_calls)
   return (
     <section aria-label="Tools">
       <h2>Tools</h2>
       {enabled && pairs.isPending && <LoadingState label="Loading tool pairs" />}
       {pairs.isError && <ErrorMessage error={pairs.error} onRetry={() => void pairs.refetch()} />}
-      <table>
-        <thead>
-          <tr>
-            <th>Tool</th>
-            <th>Call id</th>
-            <th>In this call</th>
-            <th>Argument size</th>
-            <th>Result size</th>
-            <th>Duration</th>
-            <th>Outcome</th>
-            <th>Other call</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.key}>
-              <td>
-                <Value value={row.name} />
-              </td>
-              <td>
-                <code>{row.toolCallId}</code>
-              </td>
-              <td>{row.role === 'requested' ? 'Requested' : 'Result'}</td>
-              <td>{formatBytes(row.argBytes)}</td>
-              <td>{formatBytes(row.resultBytes)}</td>
-              <td>
-                {formatDurationMs(row.duration)}
-                {row.durationSource && ` (${row.durationSource})`}
-              </td>
-              <td>{outcome(row)}</td>
-              <td>
-                {row.otherCallId ? (
-                  <Link to="/calls/$id" params={{ id: row.otherCallId }}>
-                    {row.role === 'requested' ? 'Resolving call' : 'Requesting call'}
-                  </Link>
-                ) : (
-                  <span className="unknown">{row.status === 'pending' ? 'none yet' : UNKNOWN}</span>
-                )}
-              </td>
+      <div className="table-frame">
+        <table className="grid-table">
+          <thead>
+            <tr>
+              <th>Tool</th>
+              <th>Call id</th>
+              <th>In this call</th>
+              <th className="num">Argument size</th>
+              <th className="num">Result size</th>
+              <th className="num">Duration</th>
+              <th>Outcome</th>
+              <th>Other call</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.key}>
+                <td>
+                  <Value value={row.name} />
+                </td>
+                <td>
+                  <code>{row.toolCallId}</code>
+                </td>
+                <td className="dim">{row.role === 'requested' ? 'Requested' : 'Result'}</td>
+                <td className="num">
+                  <Text value={formatBytes(row.argBytes)} />
+                </td>
+                <td className="num">
+                  <Text value={formatBytes(row.resultBytes)} />
+                </td>
+                <td className="num">
+                  <Text value={formatDurationMs(row.duration)} />
+                  {row.durationSource && ` (${row.durationSource})`}
+                </td>
+                <td>{outcome(row)}</td>
+                <td>
+                  {row.otherCallId ? (
+                    <Link to="/calls/$id" params={{ id: row.otherCallId }}>
+                      {row.role === 'requested' ? 'Resolving call' : 'Requesting call'}
+                    </Link>
+                  ) : (
+                    <span className="unknown">{row.status === 'pending' ? 'none yet' : UNKNOWN}</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   )
 }
@@ -329,23 +409,29 @@ function UsageAndCost({ call }: { call: CallDetail }) {
   return (
     <section aria-label="Usage and cost">
       <h2>Usage and cost</h2>
-      <table>
-        <thead>
-          <tr>
-            {columns.map(([name]) => (
-              <th key={name}>{name}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            {columns.map(([name, value]) => (
-              <td key={name}>{formatCount(value)}</td>
-            ))}
-          </tr>
-        </tbody>
-      </table>
-      <dl className="fields">
+      <div className="table-frame">
+        <table className="grid-table">
+          <thead>
+            <tr>
+              {columns.map(([name]) => (
+                <th key={name} className="num">
+                  {name}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              {columns.map(([name, value]) => (
+                <td key={name} className="num">
+                  {formatCount(value)}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <dl className="fields usage-fields">
         <div>
           <dt>Cost</dt>
           <dd>{formatCostMicroUsd(call.cost_micro_usd)}</dd>
@@ -357,7 +443,7 @@ function UsageAndCost({ call }: { call: CallDetail }) {
           </dd>
         </div>
       </dl>
-      <details>
+      <details className="raw-usage">
         <summary>Raw usage</summary>
         {call.usage_raw == null ? (
           <p className="unknown">{UNKNOWN}</p>

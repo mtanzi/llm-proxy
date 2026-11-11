@@ -9,14 +9,18 @@ const NAV = [
   { to: '/admin/config', label: 'Config' },
 ] as const
 
-/** Shared shell: skip link, header, navigation and the main landmark. */
+/**
+ * Shared shell: skip link, a Linear-style sidebar with the main navigation
+ * (the current page is marked with aria-current and the accent), and the
+ * main landmark beside it.
+ */
 export function Layout() {
   return (
-    <>
+    <div className="app-shell">
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <header className="app-header">
+      <header className="app-sidebar">
         <span className="brand">llm-proxy</span>
         <nav aria-label="Main">
           <ul>
@@ -33,6 +37,6 @@ export function Layout() {
       <main id="main" tabIndex={-1}>
         <Outlet />
       </main>
-    </>
+    </div>
   )
 }
