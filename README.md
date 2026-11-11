@@ -37,7 +37,8 @@ Spyglass shows you what your AI coding agents do with the model. It is a self-ho
 | Call detail | `/ui/calls/:id` | Who made the call, timings, usage and cost, outcome, and the tools requested and resolved |
 | Sessions | `/ui/sessions` | One row per session with duration, calls, tool calls, cost, cache hit and errors |
 | Session view | `/ui/sessions/:key` | The tree and the time waterfall of prompts, agents, calls and tool calls |
-| Tools, Cost, Config | `/ui/tools`, `/ui/cost`, `/ui/admin/config` | Placeholder pages, not linked in the sidebar yet: the tool-call explorer, the cost and cache page and the read-only config page are planned ([ADR 0034](docs/adrs/0034-ui-v4-tool-call-explorer.md), [ADR 0035](docs/adrs/0035-ui-v5-cost-and-cache-and-config-page.md)) |
+| Tools | `/ui/tools` | Per-tool count, error rate, p50 and p95 duration and total time, split by agent type, and every tool call with its sizes, outcome and duration source. No argument or result text |
+| Cost, Config | `/ui/cost`, `/ui/admin/config` | Placeholder pages, not linked in the sidebar yet: the cost and cache page and the read-only config page are planned ([ADR 0035](docs/adrs/0035-ui-v5-cost-and-cache-and-config-page.md)) |
 
 ## Quick start: personal local setup
 

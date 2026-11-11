@@ -14,6 +14,7 @@ import { CallLogView } from './views/CallLog'
 import { DashboardView } from './views/Dashboard'
 import { SessionListView } from './views/SessionList'
 import { SessionView } from './views/SessionView'
+import { ToolExplorerView } from './views/ToolExplorer'
 import { strict } from './search/validate'
 import {
   validateCallDetailSearch,
@@ -82,7 +83,7 @@ const toolsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'tools',
   validateSearch: strict(validateToolsSearch),
-  component: () => <Placeholder title="Tools" />,
+  component: ToolExplorerView,
 })
 
 const costRoute = createRoute({

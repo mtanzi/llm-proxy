@@ -131,6 +131,16 @@ export function validateSessionDetailSearch(search: unknown): SessionDetailSearc
 
 export const TOOL_SOURCES = ['client', 'server'] as const
 export const TOOL_CALL_STATUSES = ['paired', 'pending', 'use_only', 'result_only'] as const
+/** Columns the tool summary sorts by (ADR 0034). Text columns sort ascending first, numbers descending. */
+export const TOOL_SUMMARY_SORTS = ['name', 'agent_type', 'count', 'error_rate', 'p50', 'p95', 'total'] as const
+export type ToolSummarySort = (typeof TOOL_SUMMARY_SORTS)[number]
+export const SORT_ORDERS = ['asc', 'desc'] as const
+export type SortOrder = (typeof SORT_ORDERS)[number]
+/** The summary's default: the most-used tools first. */
+export const DEFAULT_TOOL_SORT: ToolSummarySort = 'count'
+export function defaultSortOrder(sort: ToolSummarySort): SortOrder {
+  return sort === 'name' || sort === 'agent_type' ? 'asc' : 'desc'
+}
 export interface ToolsSearch extends TimeRangeSearch {
   session?: string
   agent?: string
@@ -142,10 +152,19 @@ export interface ToolsSearch extends TimeRangeSearch {
   arg_bytes_gte?: number
   result_bytes_gte?: number
   cursor?: string
+  /** Sort column of the summary table. */
+  sort?: ToolSummarySort
+  order?: SortOrder
 }
 export function validateToolsSearch(search: unknown): ToolsSearch {
   const raw = asRaw(search)
+  // Defaults stay out of the URL: count, and each column's own first direction.
+  const sort = oneOf(raw.sort, TOOL_SUMMARY_SORTS) ?? DEFAULT_TOOL_SORT
+  const orderRaw = oneOf(raw.order, SORT_ORDERS)
+  const order = orderRaw === defaultSortOrder(sort) ? undefined : orderRaw
   return compact({
+    sort: sort === DEFAULT_TOOL_SORT ? undefined : sort,
+    order,
     ...validateTimeRange(raw),
     session: textList(raw.session)?.[0],
     agent: textList(raw.agent)?.[0],
