@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { ResponseOf } from '../api/client'
-import { StatusBadge } from '../components/Badge'
+import { StatusBadge, isErrorStatus } from '../components/Badge'
 import { UNKNOWN, formatBytes, formatCount, formatText, zeroAsUnknown } from '../lib/format'
 
 type CallDetail = ResponseOf<'/admin/calls/{id}'>
@@ -82,7 +82,7 @@ export function buildThread(call: CallDetail): ThreadBlock[] {
       ],
     }),
   )
-  const failed = call.error_class !== '' || call.status >= 400
+  const failed = isErrorStatus(call.status, call.error_class)
   blocks.push({
     key: 'response',
     role: 'assistant',

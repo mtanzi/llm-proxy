@@ -209,9 +209,9 @@ main:focus { outline: none; }
 .timing-row dt { color: var(--muted); }
 .timing-row dd { margin: 0; }
 .timing-row .bar-cell { height: 100%; }
-.bar-ttfb { background: var(--bar); }
-.bar-ttft { background: var(--bar-strong); }
-.bar-total { background: var(--accent); }
+.timing-row .bar-cell .bar-ttfb { background: var(--bar); }
+.timing-row .bar-cell .bar-ttft { background: var(--bar-strong); }
+.timing-row .bar-cell .bar-total { background: var(--accent); }
 
 /* Exchange: the call as a chat-style thread of metadata blocks. */
 .thread { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
@@ -249,8 +249,8 @@ main:focus { outline: none; }
 .bar-cell, .axis { position: relative; height: 100%; min-width: 0; }
 .bar-cell .bar { position: absolute; top: 50%; height: 10px; margin-top: -5px; min-width: 2px; border-radius: 2px; background: var(--bar); }
 .kind-prompt .bar, .kind-agent .bar { height: 4px; margin-top: -2px; background: var(--bar-strong); opacity: 0.5; }
-.bar-call { background: var(--accent); }
-.bar-tool { background: var(--bar-strong); height: 6px; margin-top: -3px; }
+.bar-cell .bar-call { background: var(--accent); }
+.bar-cell .bar-tool { background: var(--bar-strong); height: 6px; margin-top: -3px; }
 .has-error.kind-call .bar, .has-error.kind-tool .bar, .bar.bar-error { background: var(--error); }
 .lane-row .bar:hover, .lane-row .bar:focus-visible { outline: 1px solid var(--fg); }
 .axis-gap { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, var(--border-subtle) 0 3px, transparent 3px 6px); }
