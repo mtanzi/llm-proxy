@@ -35,7 +35,10 @@ jobs:
             fi
             exit 0
           fi
-          files=$(gh pr diff "$PR" -R "$REPO" --name-only)
+          if ! files=$(gh pr diff "$PR" -R "$REPO" --name-only); then
+            echo "Cannot list PR files."
+            gh pr merge "$PR" -R "$REPO" --disable-auto || true; exit 1
+          fi
           bad=$(printf '%s\n' "$files" \
             | grep -vE '^(docs/|testdata/|.*\.md$|.*_test\.go$|.*\.test\.tsx?$)' || true)
           if [ -n "$bad" ]; then
