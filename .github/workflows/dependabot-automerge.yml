@@ -3,8 +3,9 @@ name: dependabot-automerge
 # Auto-merges Dependabot PRs that meet the rules in CONTRIBUTING.md ("Review
 # tiers"). Eligible PRs get "review: tier A" and GitHub auto-merge (squash);
 # GitHub merges only after the required checks on main pass. Other Dependabot
-# PRs get "review: tier B" and are left to a human. Never checks out or runs PR
-# code. Not a required check. tier-a-automerge skips Dependabot PRs.
+# PRs, and Dependabot PRs with a push from anyone else, get "review: tier B"
+# and lose auto-merge this workflow enabled. Never checks out or runs PR code.
+# Not a required check. tier-a-automerge skips Dependabot PRs.
 on:
   pull_request:
     types: [opened, reopened, synchronize]
@@ -22,11 +23,12 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       github.event.pull_request.user.login == 'dependabot[bot]' &&
-      github.actor == 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Read Dependabot metadata
         id: meta
+        if: github.actor == 'dependabot[bot]'
+        continue-on-error: true
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
         with:
           github-token: ${{ github.token }}
@@ -42,7 +44,8 @@ jobs:
           # A dependency is auto-mergeable when it is a patch update, or a minor
           # update of a development dependency or of a GitHub Action. Anything
           # else (runtime minor, major, unknown or missing type) is not. An
-          # empty or invalid list is not eligible either.
+          # empty or invalid list is not eligible either. The list is empty
+          # when someone other than Dependabot pushed, or the metadata failed.
           if eligible=$(printf '%s' "$DEPS" | jq -e '
               type == "array" and length > 0 and all(.[];
                 .updateType == "version-update:semver-patch"
@@ -61,6 +64,16 @@ jobs:
           gh pr edit "$PR" -R "$REPO" --add-label "$add" --remove-label "$remove"
           if [ "$eligible" = "true" ]; then
             gh pr merge "$PR" -R "$REPO" --auto --squash --match-head-commit "$HEAD_SHA"
-          else
-            echo "Not auto-merging: needs human review (tier B)."
+            exit 0
           fi
+          echo "Not auto-merging: needs human review (tier B)."
+          # Only undo auto-merge this workflow enabled.
+          if ! by=$(gh pr view "$PR" -R "$REPO" --json autoMergeRequest \
+              -q '.autoMergeRequest.enabledBy.login // ""'); then
+            echo "Cannot read auto-merge state."
+            gh pr merge "$PR" -R "$REPO" --disable-auto || true; exit 1
+          fi
+          case "$by" in
+            github-actions|github-actions\[bot\])
+              gh pr merge "$PR" -R "$REPO" --disable-auto ;;
+          esac

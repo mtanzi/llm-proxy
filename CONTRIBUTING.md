@@ -78,9 +78,9 @@ The `dependabot-automerge` workflow (`.github/workflows/dependabot-automerge.yml
 | Minor, runtime dependency (Go modules, React, TanStack) | `review: tier B` | no |
 | Major, anything | `review: tier B` | no |
 
-An auto-merged PR gets GitHub auto-merge (squash), pinned to the head commit, and merges only after the required checks on main pass. A PR that does not qualify gets the tier B label, and the workflow leaves its auto-merge state alone. An unknown update type counts as not qualifying.
+An auto-merged PR gets GitHub auto-merge (squash), pinned to the head commit, and merges only after the required checks on main pass. A PR that does not qualify gets the tier B label, and the workflow disables auto-merge that it enabled itself; it never touches auto-merge a maintainer enabled. A run triggered by anyone other than Dependabot (a push or a reopen) counts as not qualifying, so a maintainer's fix commit never merges unattended. A later Dependabot push (for example a rebase or `@dependabot recreate`) checks the rules again. An unknown update type, or metadata the workflow cannot read, counts as not qualifying. If the workflow cannot read the auto-merge state, it disables auto-merge and fails.
 
-`.github/dependabot.yml` adds a cooldown before Dependabot proposes a new version: 3 days for patch, 7 for minor and 7 for major, with a 7-day default for versions Dependabot cannot classify by semver. It also groups patch updates per ecosystem, so there is one weekly patch PR per ecosystem. The cooldown gives the community time to find and yank a compromised release before it reaches `main` unattended. Auto-merge is limited to low-risk update types, and the required CI checks still gate every merge.
+`.github/dependabot.yml` adds a cooldown before Dependabot proposes a new version: 3 days for patch, 7 for minor and 7 for major, with a 7-day default for versions Dependabot cannot classify by semver. It also groups runtime patch updates into one weekly PR per ecosystem; npm development-dependency patches ride in the `web-dev-tools` group instead. The cooldown gives the community time to find and yank a compromised release before it reaches `main` unattended. Auto-merge is limited to low-risk update types, and the required CI checks still gate every merge.
 
 ## Version
 
