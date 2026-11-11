@@ -1,4 +1,6 @@
 import { Link, Outlet } from '@tanstack/react-router'
+import { SpyglassIcon } from './SpyglassIcon'
+import { ThemeToggle } from './ThemeToggle'
 
 // The overview (ADR 0052), the five views and the admin page. Views come with ADRs 0031 to 0035.
 const NAV = [
@@ -11,9 +13,9 @@ const NAV = [
 ] as const
 
 /**
- * Shared shell: skip link, a Linear-style sidebar with the main navigation
- * (the current page is marked with aria-current and the accent), and the
- * main landmark beside it.
+ * Shared shell: skip link, a Linear-style sidebar with the Spyglass brand,
+ * the main navigation (the current page is marked with aria-current and the
+ * accent) and the theme toggle in its footer, and the main landmark beside it.
  */
 export function Layout() {
   return (
@@ -22,7 +24,10 @@ export function Layout() {
         Skip to content
       </a>
       <header className="app-sidebar">
-        <span className="brand">llm-proxy</span>
+        <span className="brand">
+          <SpyglassIcon />
+          Spyglass
+        </span>
         <nav aria-label="Main">
           <ul>
             {NAV.map((item) => (
@@ -38,6 +43,9 @@ export function Layout() {
             ))}
           </ul>
         </nav>
+        <div className="sidebar-foot">
+          <ThemeToggle />
+        </div>
       </header>
       <main id="main" tabIndex={-1}>
         <Outlet />
