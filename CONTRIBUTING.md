@@ -64,7 +64,7 @@ Every PR carries one review label:
 - `review: tier B`: light human review.
 - `review: tier C`: full human review, for example changes to CI, auth, storage or who can merge.
 
-The `tier-a-automerge` workflow (`.github/workflows/tier-a-automerge.yml`) enables GitHub auto-merge (squash) on a PR with the `review: tier A` label, so GitHub merges it once the required CI checks pass. It disables auto-merge again when the label is removed or a new push changes a file outside the Tier A allowlist. The allowlist is a backstop, not the decision: `docs/`, `testdata/`, `*.md`, `*_test.go` and `*.test.ts(x)`. A labelled PR with other files fails the workflow and lists them. `.github/` is never Tier A. PRs from forks are skipped.
+The `tier-a-automerge` workflow (`.github/workflows/tier-a-automerge.yml`) enables GitHub auto-merge (squash) on a PR with the `review: tier A` label, so GitHub merges it once the required CI checks pass. It disables auto-merge again only when the `review: tier A` label is removed or a labelled PR changes a file outside the Tier A allowlist. For any other PR it never touches auto-merge, so auto-merge a maintainer enables on a Tier B or C PR stays on. The allowlist is a backstop, not the decision: `docs/`, `testdata/`, `*.md`, `*_test.go` and `*.test.ts(x)`. A labelled PR with other files fails the workflow and lists them. `.github/` is never Tier A. PRs from forks are skipped.
 
 ## Version
 

@@ -21,15 +21,22 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          ACTION: ${{ github.event.action }}
+          LABEL_NAME: ${{ github.event.label.name }}
           HAS_LABEL: "${{ contains(github.event.pull_request.labels.*.name, 'review: tier A') }}"
         run: |
           if [ "$HEAD_REPO" != "$REPO" ]; then
             echo "PR is from a fork (read-only token): skipping."; exit 0
           fi
           if [ "$HAS_LABEL" != "true" ]; then
-            gh pr merge "$PR" -R "$REPO" --disable-auto || true; exit 0
+            # Only undo auto-merge this workflow owns; never touch other PRs' auto-merge.
+            if [ "$ACTION" = "unlabeled" ] && [ "$LABEL_NAME" = "review: tier A" ]; then
+              gh pr merge "$PR" -R "$REPO" --disable-auto || true
+            fi
+            exit 0
           fi
-          bad=$(gh pr diff "$PR" -R "$REPO" --name-only \
+          files=$(gh pr diff "$PR" -R "$REPO" --name-only)
+          bad=$(printf '%s\n' "$files" \
             | grep -vE '^(docs/|testdata/|.*\.md$|.*_test\.go$|.*\.test\.tsx?$)' || true)
           if [ -n "$bad" ]; then
             echo "Not Tier A, files outside the allowlist:"; echo "$bad"
