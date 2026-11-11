@@ -196,37 +196,3 @@ export function TextFilter({
     </div>
   )
 }
-
-/** A repeated filter over a fixed set of values: one checkbox per value. None checked means any. */
-export function EnumListFilter<T extends string>({
-  label,
-  options,
-  values = [],
-  onChange,
-}: {
-  label: string
-  options: readonly { value: T; label: string }[]
-  values?: readonly T[]
-  onChange: (next: T[] | undefined) => void
-}) {
-  const toggle = (value: T, on: boolean) => {
-    // Keep the options' order, so the URL does not depend on the click order.
-    const next = options.map((o) => o.value).filter((v) => (v === value ? on : values.includes(v)))
-    onChange(next.length > 0 ? next : undefined)
-  }
-  return (
-    <fieldset className="filter-field filter-choices">
-      <legend>{label}</legend>
-      {options.map((o) => (
-        <label key={o.value}>
-          <input
-            type="checkbox"
-            checked={values.includes(o.value)}
-            onChange={(e) => toggle(o.value, e.target.checked)}
-          />
-          {o.label}
-        </label>
-      ))}
-    </fieldset>
-  )
-}

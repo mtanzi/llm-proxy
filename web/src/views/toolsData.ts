@@ -18,9 +18,7 @@ export type PairingStatus = ToolCall['status']
 /** The search parameters that are filters of both tool-call endpoints. */
 export const TOOL_FILTER_KEYS = [
   'session',
-  'agent',
   'tool',
-  'source',
   'status',
   'is_error',
   'duration_ms_gte',

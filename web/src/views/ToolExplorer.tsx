@@ -7,7 +7,6 @@ import { ContentNotStored } from '../components/ContentNotStored'
 import { DataTable } from '../components/DataTable'
 import {
   BooleanFilter,
-  EnumListFilter,
   FilterMenu,
   NumberFilter,
   TextFilter,
@@ -35,7 +34,7 @@ import {
   toolCallTime,
   toolFilterQuery,
 } from './toolsData'
-import type { PairingStatus, ToolCall, ToolStat } from './toolsData'
+import type { ToolCall, ToolStat } from './toolsData'
 
 const PAGE_SIZE = 100
 const ROW_HEIGHT = 32
@@ -284,17 +283,6 @@ const listColumns: ColumnDef<Row>[] = [
   },
 ]
 
-const PAIRING_OPTIONS: { value: PairingStatus; label: string }[] = [
-  { value: 'paired', label: 'Paired' },
-  { value: 'pending', label: 'Pending (no result yet)' },
-  { value: 'use_only', label: 'Use only (no result after an hour)' },
-  { value: 'result_only', label: 'Result only (no use)' },
-]
-const SOURCE_OPTIONS = [
-  { value: 'client', label: 'Client' },
-  { value: 'server', label: 'Server' },
-] as const
-
 type Patch = Partial<ToolsSearch>
 
 /**
@@ -354,7 +342,6 @@ export function ToolExplorerView() {
           <TextListFilter label="Tool name" values={search.tool} onChange={(v) => update({ tool: v })} />
           <BooleanFilter label="Error" value={search.is_error} onChange={(v) => update({ is_error: v })} />
           <TextFilter label="Session" value={search.session} onChange={(v) => update({ session: v })} />
-          <TextFilter label="Agent" value={search.agent} onChange={(v) => update({ agent: v })} />
           <NumberFilter
             label="Duration at least (ms)"
             value={search.duration_ms_gte}
@@ -370,8 +357,6 @@ export function ToolExplorerView() {
             value={search.result_bytes_gte}
             onChange={(v) => update({ result_bytes_gte: v })}
           />
-          <EnumListFilter label="Source" options={SOURCE_OPTIONS} values={search.source} onChange={(v) => update({ source: v })} />
-          <EnumListFilter label="Pairing" options={PAIRING_OPTIONS} values={search.status} onChange={(v) => update({ status: v })} />
         </FilterMenu>
         <label className="toggle">
           <input

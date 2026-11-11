@@ -115,7 +115,7 @@ test('a summary row filters the list to its tool', async () => {
 test('filters round trip through the URL to both endpoints', async () => {
   const urls = stubApi({ stats, calls: [toolCall('t1')] })
   const { router } = await renderAt(
-    '/ui/tools?tool=Read&is_error=true&duration_ms_gte=500&arg_bytes_gte=10&result_bytes_gte=20&session=s%2F1&agent=a1&source=server',
+    '/ui/tools?tool=Read&is_error=true&duration_ms_gte=500&arg_bytes_gte=10&result_bytes_gte=20&session=s%2F1',
   )
   await waitFor(() => expect(rowsOf('Tool calls')).toHaveLength(1))
   for (const u of [listUrls(urls)[0], summaryUrls(urls)[0]]) {
@@ -126,22 +126,20 @@ test('filters round trip through the URL to both endpoints', async () => {
     expect(p.get('arg_bytes_gte')).toBe('10')
     expect(p.get('result_bytes_gte')).toBe('20')
     expect(p.get('session')).toBe('s/1')
-    expect(p.get('agent')).toBe('a1')
-    expect(p.getAll('source')).toEqual(['server'])
   }
   expect(new URL(listUrls(urls)[0], 'http://x').searchParams.get('limit')).toBe('100')
   expect(new URL(summaryUrls(urls)[0], 'http://x').searchParams.get('limit')).toBeNull()
 
-  fireEvent.click(screen.getByRole('button', { name: /Filters \(8\)/ }))
+  fireEvent.click(screen.getByRole('button', { name: /Filters \(6\)/ }))
   fireEvent.change(screen.getByLabelText('Error'), { target: { value: 'false' } })
   await waitFor(() => expect(search(router).is_error).toBe(false))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Pending (no result yet)' }))
-  await waitFor(() => expect(search(router).status).toEqual(['pending']))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Unmatched only' }))
+  await waitFor(() => expect(search(router).status).toEqual(['use_only', 'result_only']))
   fireEvent.click(screen.getByRole('button', { name: 'Remove Tool name Read' }))
   await waitFor(() => expect(search(router).tool).toBeUndefined())
   await waitFor(() => {
     const p = new URL(listUrls(urls).at(-1)!, 'http://x').searchParams
-    expect(p.getAll('status')).toEqual(['pending'])
+    expect(p.getAll('status')).toEqual(['use_only', 'result_only'])
     expect(p.get('is_error')).toBe('false')
     expect(p.get('tool')).toBeNull()
   })
