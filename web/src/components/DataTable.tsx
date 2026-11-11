@@ -46,6 +46,12 @@ export interface DataTableProps<T> {
    * keys, j and k, Page Up, Page Down, Home and End move between rows.
    */
   keyboardNavigation?: boolean
+  /**
+   * Controlled sorting, for a sort kept in the URL. A header click always
+   * gives a column and a direction: the sort is never removed, only flipped.
+   */
+  sorting?: SortingState
+  onSortingChange?: (next: SortingState) => void
 }
 
 const OVERSCAN = 8
@@ -72,8 +78,12 @@ export function DataTable<T>({
   rowHeight = 36,
   height = 480,
   keyboardNavigation = false,
+  sorting: controlledSorting,
+  onSortingChange,
 }: DataTableProps<T>) {
-  const [sorting, setSorting] = useState<SortingState>([])
+  const [localSorting, setLocalSorting] = useState<SortingState>([])
+  const controlled = controlledSorting !== undefined && onSortingChange !== undefined
+  const sorting = controlled ? controlledSorting : localSorting
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -84,7 +94,12 @@ export function DataTable<T>({
     columns,
     getRowId,
     state: { sorting, columnVisibility },
-    onSortingChange: setSorting,
+    onSortingChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(sorting) : updater
+      if (controlled) onSortingChange(next)
+      else setLocalSorting(next)
+    },
+    enableSortingRemoval: !controlled,
     onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: 'onChange',
     getCoreRowModel: getCoreRowModel(),

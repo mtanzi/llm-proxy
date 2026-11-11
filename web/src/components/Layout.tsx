@@ -2,13 +2,14 @@ import { Link, Outlet } from '@tanstack/react-router'
 import { SpyglassIcon } from './SpyglassIcon'
 import { ThemeToggle } from './ThemeToggle'
 
-// The overview (ADR 0052), the views and the admin page. The Tools, Cost and Config pages are
-// placeholders until ADRs 0034 and 0035 build them, so their links stay out of the sidebar. Their
+// The overview (ADR 0052), the views and the admin page. The Cost and Config pages are
+// placeholders until ADR 0035 builds them, so their links stay out of the sidebar. Their
 // routes remain. Re-enable the links when those pages exist (issue 69).
 const NAV = [
   { to: '/', label: 'Overview' },
   { to: '/calls', label: 'Calls' },
   { to: '/sessions', label: 'Sessions' },
+  { to: '/tools', label: 'Tools' },
 ] as const
 
 /**

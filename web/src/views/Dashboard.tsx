@@ -309,6 +309,9 @@ export function DashboardView() {
           allowAbsolute={false}
           onChange={(next) => setSearch({ range: next.range as DashboardRange | undefined })}
         />
+        <Link to="/tools" search={rangeSearch} className="toolbar-link">
+          Tool calls
+        </Link>
         <Link to="/cost" search={rangeSearch} className="toolbar-link">
           Cost deep-dive
         </Link>

@@ -110,11 +110,15 @@ describe('other routes', () => {
     expect(validateSessionDetailSearch({ mode: 'x' })).toEqual({})
   })
 
-  test('tools search checks enums', () => {
-    expect(
-      validateToolsSearch({ source: ['client', 'bogus'], status: 'pending', is_error: 'true', tool: ['Read'] }),
-    ).toEqual({ source: ['client'], status: ['pending'], is_error: true, tool: ['Read'] })
-    expect(validateToolsSearch({ source: 'x', status: ['y'] })).toEqual({})
+  test('tools search keeps only the ADR 0034 filters', () => {
+    expect(validateToolsSearch({ status: ['result_only', 'use_only', 'bogus'], is_error: 'true', tool: ['Read'] })).toEqual({
+      status: ['use_only', 'result_only'],
+      is_error: true,
+      tool: ['Read'],
+    })
+    // Unmatched only means both halves: one half or a paired state is not a filter of the page.
+    expect(validateToolsSearch({ status: 'use_only' })).toEqual({})
+    expect(validateToolsSearch({ status: ['pending', 'paired'] })).toEqual({})
   })
 
   test('cost search checks group_by and grain', () => {

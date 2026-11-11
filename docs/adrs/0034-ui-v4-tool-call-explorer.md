@@ -1,6 +1,6 @@
 # ADR 0034: UI view V4: tool-call explorer
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
