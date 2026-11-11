@@ -47,6 +47,16 @@ test.each([
   await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: title })).toBeTruthy())
 })
 
+// Tools, Cost and Config stay routable but unlinked until ADRs 0034 and 0035 build them (issue 69).
+test('the sidebar does not link the placeholder pages', async () => {
+  await renderAt('/ui/')
+  const nav = screen.getByRole('navigation', { name: 'Main' })
+  const labels = within(nav)
+    .getAllByRole('link')
+    .map((a) => a.textContent)
+  expect(labels).toEqual(['Overview', 'Calls', 'Sessions'])
+})
+
 test('an unknown path falls back to the overview', async () => {
   const { router } = await renderAt('/ui/nope')
   await waitFor(() => expect(router.state.location.pathname).toBe('/'))
