@@ -66,6 +66,22 @@ Every PR carries one review label:
 
 The `tier-a-automerge` workflow (`.github/workflows/tier-a-automerge.yml`) enables GitHub auto-merge (squash) on a PR with the `review: tier A` label, so GitHub merges it once the required CI checks pass. It disables auto-merge again when a labelled PR changes a file outside the Tier A allowlist, or when a PR without the label has auto-merge that the workflow itself enabled (for example after the `review: tier A` label is removed). It never touches auto-merge a maintainer enabled, so auto-merge on a Tier B or C PR stays on. The allowlist is a backstop, not the decision: `docs/`, `testdata/`, `*.md`, `*_test.go` and `*.test.ts(x)`. A labelled PR with other files fails the workflow and lists them. If the workflow cannot list the PR files or read its auto-merge state, it disables auto-merge and fails. Do not label `.github/` changes Tier A; the allowlist still accepts Markdown files there, so this is a labelling rule, not a workflow check. PRs from forks are skipped.
 
+### Dependabot PRs
+
+The `dependabot-automerge` workflow (`.github/workflows/dependabot-automerge.yml`) handles PRs authored by `dependabot[bot]`; `tier-a-automerge` skips them, because they change `go.mod`, `go.sum` and `package-lock.json`, which the Tier A allowlist rejects. It reads the update type and dependency type with `dependabot/fetch-metadata` (pinned by commit SHA). For a grouped PR, every dependency in the group must meet an auto-merge rule.
+
+| Update | Label | Auto-merge |
+| --- | --- | --- |
+| Patch, any dependency | `review: tier A` | yes |
+| Minor, development dependency (the `web-dev-tools` group) | `review: tier A` | yes |
+| Minor, GitHub Actions | `review: tier A` | yes |
+| Minor, runtime dependency (Go modules, React, TanStack) | `review: tier B` | no |
+| Major, anything | `review: tier B` | no |
+
+An auto-merged PR gets GitHub auto-merge (squash), pinned to the head commit, and merges only after the required checks on main pass. A PR that does not qualify gets the tier B label, and the workflow disables auto-merge that it enabled itself; it never touches auto-merge a maintainer enabled. A run triggered by anyone other than Dependabot (a push or a reopen) counts as not qualifying, so a maintainer's fix commit never merges unattended. A later Dependabot push (for example a rebase or `@dependabot recreate`) checks the rules again. An unknown update type, or metadata the workflow cannot read, counts as not qualifying. If the workflow cannot read the auto-merge state, it disables auto-merge and fails.
+
+`.github/dependabot.yml` adds a cooldown before Dependabot proposes a new version: 3 days for patch, 7 for minor and 7 for major, with a 7-day default for versions Dependabot cannot classify by semver. It also groups runtime patch updates into one weekly PR per ecosystem; npm development-dependency patches ride in the `web-dev-tools` group instead. The cooldown gives the community time to find and yank a compromised release before it reaches `main` unattended. Auto-merge is limited to low-risk update types, and the required CI checks still gate every merge.
+
 ## Version
 
 `make build` sets `main.version` with `-ldflags "-X main.version=<version>"`. Override with `make build VERSION=v1.2.3`.
