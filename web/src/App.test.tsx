@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryHistory } from '@tanstack/react-router'
 import axe from 'axe-core'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { App } from './App'
 import { createQueryClient } from './queryClient'
 import { createAppRouter } from './router'
@@ -77,10 +77,26 @@ test('the layout has landmarks, a skip link and current-page navigation', async 
   expect(screen.getByRole('note').textContent).toBe('Content is not stored')
 })
 
-test('the layout has no accessibility violations', async () => {
-  const { container } = await renderAt('/ui/calls')
-  await waitFor(() => expect(screen.getByRole('heading', { name: 'Calls' })).toBeTruthy())
-  // jsdom has no layout or styles, so colour contrast cannot be computed.
-  const results = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
-  expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([])
+test('the sidebar carries the Spyglass brand and the theme toggle', async () => {
+  await renderAt('/ui/calls')
+  const banner = screen.getByRole('banner')
+  expect(banner.querySelector('.brand')?.textContent).toBe('Spyglass')
+  expect(within(banner).getByRole('group', { name: 'Theme' })).toBeTruthy()
+})
+
+describe.each(['light', 'dark'])('in the %s theme', (theme) => {
+  beforeEach(() => window.localStorage.setItem('spyglass-theme', theme))
+  afterEach(() => {
+    window.localStorage.clear()
+    document.documentElement.removeAttribute('data-theme')
+  })
+
+  test('the layout has no accessibility violations', async () => {
+    const { container } = await renderAt('/ui/calls')
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Calls' })).toBeTruthy())
+    expect(document.documentElement.getAttribute('data-theme')).toBe(theme)
+    // jsdom has no layout or styles, so colour contrast cannot be computed.
+    const results = await axe.run(container, { rules: { 'color-contrast': { enabled: false } } })
+    expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([])
+  })
 })

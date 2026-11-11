@@ -52,7 +52,7 @@ session → prompt (user turn) → agent (main or sub-agent) → LLM call → to
 | V5 Cost and cache | `/ui/cost` | Cost by key, model, client and session; cache hit ratio over time | `GET /admin/usage`, `GET /admin/calls` |
 | Admin | `/ui/admin/config` | View providers, pricing and key names (with `disabled`), read-only, because they live in the config file and change with `SIGHUP`. No key management: keys are added, disabled and rotated in the config file | `GET /admin/config` |
 
-The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that show message text, tool arguments or tool results are dropped. Every page shares one frame in the Linear look of [ADR 0033](../adrs/0033-ui-v2-session-list-and-session-view.md): a sidebar with the main navigation (the current page marked with the accent), one type scale, and the same filter menu, time-range picker, badges and empty, loading and error states. Behavior that matters for the architecture:
+The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that show message text, tool arguments or tool results are dropped. Every page shares one frame in the Linear look of [ADR 0033](../adrs/0033-ui-v2-session-list-and-session-view.md), branded Spyglass with a dark and a light theme ([Look and themes](#look-and-themes)): a sidebar with the Spyglass brand, the main navigation (the current page marked with the accent) and the theme toggle, one type scale, and the same filter menu, time-range picker, badges and empty, loading and error states. Behavior that matters for the architecture:
 
 ### Overview (home)
 
@@ -83,7 +83,7 @@ The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that
 - A call without a session header has no session, so it shows in V1 and V3 but in no session row or tree.
 - Compaction points (the `context_compacted` flag, from `x-claude-code-context-compacted`) are drawn as a marker where the cache prefix resets.
 - Collapsed by default past the latest prompts; virtualized beyond a few hundred rows.
-- Design direction ([ADR 0033](../adrs/0033-ui-v2-session-list-and-session-view.md)): the look follows Linear (dark, dense, keyboard-first, monochrome with one accent colour) and the layout follows Langfuse's session and trace view (the nested tree with per-row numbers beside a waterfall on a shared time axis).
+- Design direction ([ADR 0033](../adrs/0033-ui-v2-session-list-and-session-view.md)): the look follows Linear (dense, keyboard-first, monochrome with one accent colour; the palettes are in [Look and themes](#look-and-themes)) and the layout follows Langfuse's session and trace view (the nested tree with per-row numbers beside a waterfall on a shared time axis).
 
 ### V3 Call detail
 
@@ -104,6 +104,15 @@ Tabs: Overview, Tools, Usage and cost. All of them show stored numbers, names an
 - In-app: top sessions by cost, cost per prompt, cost per firstmate task (key name `fm:<task-id>`), and the cache hit ratio over time.
 - Calls with `auth_mode = client_passthrough` show an "API-equivalent" cost label, because the plan bills the person, not per token.
 - Usage numbers are computed from raw call rows, so very long ranges (months) can take seconds. Rollup tables and Grafana dashboards over them are later items ([backend.md](backend.md#storage-and-scale)).
+
+## Look and themes
+
+The UI is branded **Spyglass** ([ADR 0053](../adrs/0053-spyglass-brand-palettes-and-theme-switching.md)); the binary and commands stay `llm-proxy`. The proposals the brand was chosen from are in [branding-proposals.html](../branding-proposals.html).
+
+- **Brand.** The sidebar shows the Lens and glint icon beside "Spyglass": a brass lens ring and reflection arc with a teal pupil. The page title is Spyglass. `favicon.svg` follows the system colour scheme, and `apple-touch-icon.png` is the dark version.
+- **Tokens.** Every colour in `web/src/styles.css` is a custom property: background, surface, hover, active, text, muted, borders, bars, the brass accent, teal (`--ok`) for live and ok states, and error red. The light theme only redefines tokens, so components need no per-theme rules.
+- **Colour roles.** Brass is the one accent: the current page, focus rings, links, the first chart series, the volume bars and the call bars in the waterfall. Teal is the second colour: the live dot, the ok badge and the second chart series. "Other" is a neutral grey. Error red is a status colour, and an error always has a glyph and text as well.
+- **Switching.** Dark is the default. The UI follows `prefers-color-scheme`, unless the toggle in the sidebar footer forces Light or Dark through `data-theme` on `<html>`. System clears the attribute. The browser remembers the choice in `localStorage` (`spyglass-theme`), and if storage fails the UI falls back to System. `public/theme-init.js` applies the stored choice before first paint. It is a file, not an inline script, because of the CSP.
 
 ## Routing and URL state
 
@@ -172,8 +181,9 @@ web/                          React + Vite source
 │   ├── views/                V1 to V5 and admin pages
 │   ├── components/           layout, table, time-range and filter primitives; tree, waterfall
 │   ├── api/                  generated types (schema.gen.ts, `make ui-gen`), typed client, query keys
-│   ├── lib/                  formatters (null shows unknown, not zero)
+│   ├── lib/                  formatters (null shows unknown, not zero), theme choice
 │   └── main.tsx
+├── public/                   copied as is: favicon.svg, apple-touch-icon.png, theme-init.js (pre-paint theme)
 ├── index.html
 ├── package.json              pinned versions, lockfile committed
 └── vite.config.ts            base: '/ui/', dev proxy for /admin to :9090
@@ -194,6 +204,7 @@ Serving rules in `internal/ui`:
 
 - Files under `/ui/assets/` are served with `Cache-Control: public, max-age=31536000, immutable`, because their names carry a content hash.
 - `index.html` is served with `Cache-Control: no-cache`, so a new release is picked up on the next load.
+- Other files at the root of the build (the favicon, the touch icon and `theme-init.js`) are served with `Cache-Control: no-cache`.
 - Any other `/ui/*` path that is not a file returns `index.html` (client-side routing).
 - A build tag `noui` replaces the embed with a stub page, for Go-only development and tests without Node.
 

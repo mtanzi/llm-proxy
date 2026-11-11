@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Spyglass "Lens and glint" (ADR 0053): brass lens ring, teal pupil, reflection arc. -->
+  <style>
+    @media (prefers-color-scheme: light) {
+      .brass { stroke: #a8690f; }
+      .teal { fill: #1c8a76; }
+    }
+  </style>
+  <circle class="brass" cx="16" cy="16" r="11" fill="none" stroke="#e5a54b" stroke-width="2.4"/>
+  <circle class="teal" cx="16" cy="16" r="4.6" fill="#3fbfa8"/>
+  <path class="brass" d="M9.6 12.2a7.4 7.4 0 0 1 4.2-4.1" fill="none" stroke="#e5a54b" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+</svg>
