@@ -18,7 +18,8 @@ function fromLocalInput(value: string): string | undefined {
 /**
  * Time-range primitive: preset buttons plus an absolute window. It reports a
  * TimeRangeSearch with all three keys set (cleared ones undefined), so the
- * caller can spread it over the current search.
+ * caller can spread it over the current search. The presets are a
+ * segmented control; the pressed one is the current range.
  */
 export function TimeRangePicker({
   value,
@@ -32,8 +33,8 @@ export function TimeRangePicker({
   const active = value.range ?? DEFAULT_RANGE
   return (
     <fieldset className="time-range">
-      <legend>Time range</legend>
-      <div className="button-group">
+      <legend className="sr-only">Time range</legend>
+      <div className="segmented">
         {RANGE_PRESETS.map((preset) => (
           <button
             key={preset}

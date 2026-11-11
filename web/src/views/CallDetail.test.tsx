@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import { createMemoryHistory } from '@tanstack/react-router'
 import axe from 'axe-core'
 import { afterEach, expect, test, vi } from 'vitest'
+import { fireEvent } from '@testing-library/react'
 import { App } from '../App'
 import { createQueryClient } from '../queryClient'
 import { createAppRouter } from '../router'
@@ -134,11 +135,14 @@ test('partial data renders as unknown, with visible badges', async () => {
   await screen.findByText('Usage estimated')
   expect(screen.getByText('Extraction partial')).toBeTruthy()
   expect(screen.queryByRole('link', { name: /sess/ })).toBeNull()
-  expect(within(screen.getByRole('region', { name: 'Outcome' })).getAllByText('unknown').length).toBeGreaterThanOrEqual(4)
+  // Status, error type and stop reason of the response; the time to first token.
+  expect(within(screen.getByRole('article', { name: 'Response' })).getAllByText('unknown').length).toBeGreaterThanOrEqual(3)
+  expect(within(screen.getByRole('region', { name: 'Timing' })).getAllByText('unknown')).toHaveLength(1)
   await router.navigate({ to: '/calls/$id', params: { id: ID }, search: { tab: 'usage' } })
   await screen.findByRole('heading', { name: 'Usage and cost' })
-  expect(screen.getByText('Cost', { selector: 'dt' }).nextSibling?.textContent).toBe('unknown')
-  expect(screen.getByText('Pricing version').nextSibling?.textContent).toBe('unknown')
+  const usage = within(screen.getByRole('region', { name: 'Usage and cost' }))
+  expect(usage.getByText('Cost', { selector: 'dt' }).nextSibling?.textContent).toBe('unknown')
+  expect(usage.getByText('Pricing version').nextSibling?.textContent).toBe('unknown')
   expect(screen.getByText('Raw usage').parentElement?.textContent).toContain('unknown')
 })
 
@@ -147,9 +151,10 @@ test('the tab is a search parameter: URL selects it and tab links set it', async
   const { router } = await renderAt(`/ui/calls/${ID}?tab=%22usage%22`)
   await screen.findByRole('heading', { name: 'Usage and cost' })
   expect(screen.getByRole('link', { name: 'Usage and cost' }).getAttribute('aria-current')).toBe('page')
-  expect(screen.getByText('Cache read').closest('table')?.textContent).toContain('20')
-  expect(screen.getByText('$0.001234')).toBeTruthy()
-  expect(screen.getByText('2026-01-01')).toBeTruthy()
+  const usage = within(screen.getByRole('region', { name: 'Usage and cost' }))
+  expect(usage.getByText('Cache read').closest('table')?.textContent).toContain('20')
+  expect(usage.getByText('$0.001234')).toBeTruthy()
+  expect(usage.getByText('2026-01-01')).toBeTruthy()
   expect(screen.getByText(/input_tokens/)).toBeTruthy()
   const tabs = within(screen.getByRole('navigation', { name: 'Call detail tabs' }))
   expect(tabs.getByRole('link', { name: 'Overview' }).getAttribute('href')).toBe(`/ui/calls/${ID}`)
@@ -161,7 +166,106 @@ test('the tab is a search parameter: URL selects it and tab links set it', async
 test('an unknown tab value degrades to overview', async () => {
   stubApi(detail())
   await renderAt(`/ui/calls/${ID}?tab=%22nope%22`)
-  await screen.findByRole('heading', { name: 'Who' })
+  await screen.findByRole('heading', { name: 'Exchange' })
+  expect(screen.getByRole('link', { name: 'Overview' }).getAttribute('aria-current')).toBe('page')
+})
+
+const exchangeBlocks = () =>
+  within(screen.getByRole('region', { name: 'Exchange' }))
+    .getAllByRole('article')
+    .map((r) => r.getAttribute('aria-label'))
+
+test('the overview renders the exchange as a thread of system, user, tool, assistant blocks', async () => {
+  stubApi(
+    detail({
+      context_compacted: true,
+      status: 529,
+      error_class: 'overloaded',
+      tool_results: [{ source: 'client', tool_call_id: 't9', is_error: true, result_bytes: 10 }],
+      tool_uses: [
+        { source: 'client', tool_call_id: 't1', name: 'Read', arg_bytes: 100 },
+        { source: 'client', tool_call_id: 't2', name: 'Bash', arg_bytes: 2048 },
+      ],
+    }),
+  )
+  await renderAt(`/ui/calls/${ID}`)
+  await screen.findByRole('heading', { name: 'Exchange' })
+  // Request side first, then the response and the tools it asked for.
+  expect(exchangeBlocks()).toEqual([
+    'Context compacted',
+    'Request',
+    'Tool result t9',
+    'Response',
+    'Tool call Read',
+    'Tool call Bash',
+  ])
+  const request = within(screen.getByRole('article', { name: 'Request' }))
+  expect(request.getByText('p-1')).toBeTruthy()
+  expect(request.getByText('60')).toBeTruthy()
+  const result = screen.getByRole('article', { name: 'Tool result t9' })
+  expect(result.className).toContain('block-tool-result')
+  expect(within(result).getByText('Error').className).toContain('badge-error')
+  const response = screen.getByRole('article', { name: 'Response' })
+  expect(response.className).toContain('block-assistant')
+  expect(response.className).toContain('has-error')
+  // The error is in the badge text, not in colour alone.
+  expect(within(response).getByText('529 · overloaded').className).toContain('badge-error')
+  expect(within(response).getByText('end_turn')).toBeTruthy()
+  expect(within(screen.getByRole('article', { name: 'Tool call Bash' })).getByText('2.0 KiB')).toBeTruthy()
+  expect(screen.getAllByText('Content is not stored')).toHaveLength(1)
+})
+
+test('a long run of tool calls collapses behind a button', async () => {
+  stubApi(
+    detail({
+      tool_uses: Array.from({ length: 6 }, (_, i) => ({
+        source: 'client',
+        tool_call_id: `t${i}`,
+        name: `Tool${i}`,
+        arg_bytes: 1,
+      })),
+    }),
+  )
+  await renderAt(`/ui/calls/${ID}`)
+  await screen.findByRole('heading', { name: 'Exchange' })
+  expect(exchangeBlocks().filter((n) => n?.startsWith('Tool call'))).toEqual(['Tool call Tool0', 'Tool call Tool1', 'Tool call Tool2'])
+  const more = screen.getByRole('button', { name: 'Show 3 more tool calls' })
+  expect(more.getAttribute('aria-expanded')).toBe('false')
+  fireEvent.click(more)
+  expect(exchangeBlocks().filter((n) => n?.startsWith('Tool call'))).toHaveLength(6)
+  const fewer = screen.getByRole('button', { name: 'Show fewer tool calls' })
+  expect(fewer.getAttribute('aria-expanded')).toBe('true')
+})
+
+test('the timing bar draws time to first byte, first token and duration on the duration', async () => {
+  stubApi(detail())
+  const { container } = await renderAt(`/ui/calls/${ID}`)
+  await screen.findByRole('heading', { name: 'Timing' })
+  const timing = within(screen.getByRole('region', { name: 'Timing' }))
+  expect(timing.getByText('10 ms')).toBeTruthy()
+  expect(timing.getByText('120 ms')).toBeTruthy()
+  expect(timing.getByText('2.50 s')).toBeTruthy()
+  const width = (cls: string) => (container.querySelector(`.timing .${cls}`) as HTMLElement).style.width
+  expect(width('bar-ttfb')).toBe('0.4%')
+  expect(width('bar-ttft')).toBe('4.8%')
+  expect(width('bar-total')).toBe('100%')
+})
+
+test('the side panel shows model, key, session link, tokens, cache and cost on every tab', async () => {
+  stubApi(detail())
+  const { router } = await renderAt(`/ui/calls/${ID}`)
+  await screen.findByRole('complementary', { name: 'Call summary' })
+  for (const tab of [{}, { tab: 'tools' as const }, { tab: 'usage' as const }]) {
+    await router.navigate({ to: '/calls/$id', params: { id: ID }, search: tab })
+    const panel = within(await screen.findByRole('complementary', { name: 'Call summary' }))
+    expect(panel.getByText('claude-x')).toBeTruthy()
+    expect(panel.getByText('fm:task-1')).toBeTruthy()
+    expect(panel.getByRole('link', { name: 'sess/1:a' })).toBeTruthy()
+    // 60 tokens in, 20 of them cache reads.
+    expect(panel.getByText('60')).toBeTruthy()
+    expect(panel.getByText('33.3%')).toBeTruthy()
+    expect(panel.getByText('$0.001234')).toBeTruthy()
+  }
 })
 
 test('the detail query is cached for the session across tabs', async () => {
@@ -270,6 +374,20 @@ test('an API error shows a message', async () => {
   )
   await renderAt(`/ui/calls/${ID}`)
   await screen.findByRole('alert')
+})
+
+test('the overview has no accessibility violations', async () => {
+  stubApi(
+    detail({
+      context_compacted: true,
+      tool_results: [{ source: 'client', tool_call_id: 't9', is_error: true, result_bytes: 10 }],
+      tool_uses: Array.from({ length: 6 }, (_, i) => ({ source: 'client', tool_call_id: `t${i}`, name: 'Read', arg_bytes: 1 })),
+    }),
+  )
+  const { container } = await renderAt(`/ui/calls/${ID}`)
+  await screen.findByRole('heading', { name: 'Exchange' })
+  const results = await axe.run(container)
+  expect(results.violations).toEqual([])
 })
 
 test('detail page has no accessibility violations', async () => {

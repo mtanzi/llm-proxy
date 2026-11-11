@@ -88,7 +88,7 @@ export function SessionView() {
   const openCall = (id: string) => void navigate({ to: '/calls/$id', params: { id }, search: {} })
 
   return (
-    <section aria-labelledby="view-title" className="v2 session-view">
+    <section aria-labelledby="view-title" className="session-view">
       <nav aria-label="Breadcrumb" className="crumbs">
         <Link to="/sessions" search={{}}>
           Sessions

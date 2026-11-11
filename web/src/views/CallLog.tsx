@@ -12,11 +12,13 @@ import {
   TextFilter,
   TextListFilter,
 } from '../components/FilterMenu'
+import { StatusBadge, Tag, isErrorStatus } from '../components/Badge'
 import { ErrorMessage } from '../components/states'
 import { TimeRangePicker } from '../components/TimeRangePicker'
 import { VolumeChart } from '../components/VolumeChart'
 import type { Grain } from '../components/VolumeChart'
 import { useLiveCalls } from '../hooks/useLiveCalls'
+import type { LiveStatus } from '../hooks/useLiveCalls'
 import {
   formatCappedCount,
   formatCostMicroUsd,
@@ -54,8 +56,9 @@ function sumKnown(calls: CallSummary[], measure: Measure): number | null {
   return known.length === 0 ? null : known.reduce((a, b) => a + b, 0)
 }
 
-function worstStatus(calls: CallSummary[]): number {
-  return calls.find((c) => c.error_class !== '' || c.status >= 400)?.status ?? calls[0].status
+/** The first failed call of a group, or its first call. */
+function worstCall(calls: CallSummary[]): CallSummary {
+  return calls.find((c) => isErrorStatus(c.status, c.error_class)) ?? calls[0]
 }
 
 function Unknown() {
@@ -95,117 +98,143 @@ const latency: Measure = (c) => zeroAsUnknown(c.duration_ms)
 const inputTokens: Measure = (c) => zeroAsUnknown(tokensIn(c))
 const outputTokens: Measure = (c) => zeroAsUnknown(c.usage.output)
 const cost: Measure = (c) => c.cost_micro_usd
+const numeric = { numeric: true }
 
 const columns: ColumnDef<LogRow>[] = [
   {
     id: 'time',
     header: 'Time',
-    size: 170,
+    size: 165,
     enableSorting: false,
-    cell: ({ row }) => <time dateTime={first(row.original).ts}>{new Date(first(row.original).ts).toLocaleString()}</time>,
+    cell: ({ row }) => (
+      <time className="dim num" dateTime={first(row.original).ts}>
+        {new Date(first(row.original).ts).toLocaleString()}
+      </time>
+    ),
   },
   {
     id: 'session',
     header: 'Session and prompt',
-    size: 220,
+    size: 190,
     enableSorting: false,
     cell: ({ row }) => {
       const session = first(row.original).session_key
       const turns = turnsLabel(row.original)
       return (
-        <>
+        <span className="session-cell">
           {session === '' ? (
             <Unknown />
           ) : (
             <Link
               to="/sessions/$key"
               params={{ key: session }}
+              tabIndex={-1}
               onClick={(e) => e.stopPropagation()}
+              className="mono"
             >
               {session}
             </Link>
           )}
           {turns && <span className="badge">{turns}</span>}
-          <br />
-          <small>
+          <span className="prompt dim">
             <Maybe text={promptLabel(row.original)} />
-          </small>
-        </>
+          </span>
+        </span>
       )
     },
   },
   {
     id: 'agent',
     header: 'Agent',
-    size: 120,
+    size: 80,
     enableSorting: false,
-    cell: ({ row }) => <Maybe text={formatText(first(row.original).agent_id)} />,
+    cell: ({ row }) => (
+      <span className="mono dim">
+        <Maybe text={formatText(first(row.original).agent_id)} />
+      </span>
+    ),
   },
   {
     id: 'client',
     header: 'Client',
-    size: 120,
+    size: 100,
     enableSorting: false,
-    cell: ({ row }) => <Maybe text={formatText(first(row.original).client)} />,
+    cell: ({ row }) => <Tag text={formatText(first(row.original).client)} />,
   },
   {
     id: 'model',
     header: 'Model',
-    size: 180,
+    size: 150,
     enableSorting: false,
-    cell: ({ row }) => <Maybe text={formatText(first(row.original).model)} />,
+    cell: ({ row }) => <Tag text={formatText(first(row.original).model)} className="mono" />,
   },
   {
     id: 'status',
     header: 'Status',
-    size: 80,
+    size: 120,
     enableSorting: false,
     cell: ({ row }) => {
-      const calls = rowCalls(row.original)
-      const status = row.original.kind === 'group' ? worstStatus(calls) : calls[0].status
-      return status === 0 ? <Unknown /> : <>{status}</>
+      const c = worstCall(rowCalls(row.original))
+      return <StatusBadge status={c.status} errorClass={c.error_class} />
     },
   },
   {
     id: 'latency',
     header: 'Latency',
-    size: 100,
+    size: 76,
+    meta: numeric,
     accessorFn: (r) => sumKnown(rowCalls(r), latency),
     cell: ({ row }) => <Total row={row.original} measure={latency} format={formatDurationMs} />,
   },
   {
     id: 'tokens_in',
     header: 'Tokens in',
-    size: 100,
+    size: 80,
+    meta: numeric,
     accessorFn: (r) => sumKnown(rowCalls(r), inputTokens),
     cell: ({ row }) => <Total row={row.original} measure={inputTokens} format={formatCount} />,
   },
   {
     id: 'tokens_out',
     header: 'Tokens out',
-    size: 100,
+    size: 80,
+    meta: numeric,
     accessorFn: (r) => sumKnown(rowCalls(r), outputTokens),
     cell: ({ row }) => <Total row={row.original} measure={outputTokens} format={formatCount} />,
   },
   {
     id: 'cost',
     header: 'Cost',
-    size: 100,
+    size: 84,
+    meta: numeric,
     accessorFn: (r) => sumKnown(rowCalls(r), cost),
     cell: ({ row }) => <Total row={row.original} measure={cost} format={formatCostMicroUsd} />,
   },
   {
     id: 'tools',
     header: 'Tool calls',
-    size: 90,
+    size: 70,
+    meta: numeric,
     accessorFn: (r) => rowCalls(r).reduce((sum, c) => sum + c.tool_count, 0),
     cell: ({ getValue }) => <>{formatCount(getValue<number>())}</>,
   },
 ]
 
+const STREAM_LABELS: Record<Exclude<LiveStatus, 'off'>, string> = {
+  live: 'Live',
+  reconnecting: 'Reconnecting…',
+  closed: 'Stream closed',
+  connecting: 'Connecting…',
+}
+
 type FilterPatch = Partial<CallsSearch>
 
-/** V1 call log (ADR 0031): the home view. All state is in the URL search parameters. */
+/**
+ * V1 call log (ADR 0031): the home view. All state is in the URL search
+ * parameters. Linear look as the session pages (ADR 0033): dense rows,
+ * right-aligned numbers, status badges, and j/k or arrow keys to move between
+ * rows with Enter to open one.
+ */
 export function CallLogView() {
   const search = useSearch({ from: '/calls/' }) as CallsSearch
   const navigate = useNavigate({ from: '/calls/' })
@@ -261,14 +290,18 @@ export function CallLogView() {
   const isDefaultRange =
     search.range === undefined && search.from === undefined && search.to === undefined
 
+  const filterCount = activeFilterCount(search)
+
   return (
     <section aria-labelledby="view-title">
-      <h1 id="view-title">Calls</h1>
+      <div className="view-header">
+        <h1 id="view-title">Calls</h1>
+      </div>
 
       <div className="toolbar">
         <TimeRangePicker value={search} onChange={(next) => update(next)} />
         <FilterMenu
-          activeCount={activeFilterCount(search)}
+          activeCount={filterCount}
           onClear={() =>
             update(Object.fromEntries(Object.keys(filterQuery(search)).map((k) => [k, undefined])) as FilterPatch)
           }
@@ -295,7 +328,7 @@ export function CallLogView() {
           <NumberFilter label="Latency at least (ms)" value={search.latency_ms_gte} onChange={(v) => update({ latency_ms_gte: v })} />
           <NumberFilter label="Cost at least (micro-USD)" value={search.cost_micro_usd_gte} onChange={(v) => update({ cost_micro_usd_gte: v })} />
         </FilterMenu>
-        <label>
+        <label className="toggle">
           <input
             type="checkbox"
             checked={search.group === 'session'}
@@ -303,7 +336,7 @@ export function CallLogView() {
           />
           Group by session
         </label>
-        <label>
+        <label className="toggle">
           <input
             type="checkbox"
             checked={live}
@@ -314,15 +347,9 @@ export function CallLogView() {
           />
           Live
         </label>
-        {live && (
-          <span className="state" role="status" aria-live="polite">
-            {stream.status === 'live'
-              ? 'Live'
-              : stream.status === 'reconnecting'
-                ? 'Reconnecting…'
-                : stream.status === 'closed'
-                  ? 'Stream closed'
-                  : 'Connecting…'}
+        {live && stream.status !== 'off' && (
+          <span className="live-status" data-status={stream.status} role="status" aria-live="polite">
+            {STREAM_LABELS[stream.status]}
           </span>
         )}
         {live && stream.status === 'closed' && (
@@ -330,13 +357,16 @@ export function CallLogView() {
             Retry stream
           </button>
         )}
+        <p className="hint dim">
+          <kbd>j</kbd> <kbd>k</kbd> move · <kbd>Enter</kbd> open
+        </p>
       </div>
 
       <div className="summary-strip" role="group" aria-label="Summary">
         {usage.isError ? (
           <ErrorMessage error={usage.error} onRetry={() => void usage.refetch()} />
         ) : (
-          <dl>
+          <dl className="meta-strip">
             <Stat label="Calls" value={firstPage ? formatCappedCount(firstPage.count, firstPage.count_capped) : usage.data ? formatCount(totals.calls) : '…'} />
             <Stat label="Errors" value={usage.data ? formatCount(totals.errors) : '…'} />
             <Stat label="Tokens in" value={usage.data ? formatCount(totals.tokensIn) : '…'} />
@@ -361,7 +391,7 @@ export function CallLogView() {
         error={list.error}
         onRetry={() => void list.refetch()}
         emptyMessage={
-          isDefaultRange && activeFilterCount(search) === 0
+          isDefaultRange && filterCount === 0
             ? `No calls in the last ${DEFAULT_RANGE}.`
             : 'No calls match these filters.'
         }
@@ -373,6 +403,9 @@ export function CallLogView() {
         hasNextPage={list.hasNextPage}
         isFetchingNextPage={list.isFetchingNextPage}
         onEndReached={() => void list.fetchNextPage()}
+        rowHeight={32}
+        height={560}
+        keyboardNavigation
       />
     </section>
   )

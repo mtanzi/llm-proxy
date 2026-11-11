@@ -4,11 +4,22 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table'
-import type { ColumnDef, SortingState, VisibilityState } from '@tanstack/react-table'
+import type { ColumnDef, RowData, SortingState, VisibilityState } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useRef, useState } from 'react'
 import { EmptyState, ErrorMessage, LoadingState } from './states'
 import { useRowNavigation } from './useRowNavigation'
+
+declare module '@tanstack/react-table' {
+  // The type parameters must match TanStack's declaration.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface ColumnMeta<TData extends RowData, TValue> {
+    /** A number column: right-aligned with tabular figures, header included. */
+    numeric?: boolean
+  }
+}
+
+const cellClass = (base: string, numeric: boolean | undefined) => (numeric ? `${base} num` : base)
 
 export interface DataTableProps<T> {
   data: T[]
@@ -109,115 +120,119 @@ export function DataTable<T>({
     <div className="data-table">
       <details className="column-menu">
         <summary>Columns</summary>
-        {table.getAllLeafColumns().map((column) => (
-          <label key={column.id}>
-            <input
-              type="checkbox"
-              checked={column.getIsVisible()}
-              onChange={column.getToggleVisibilityHandler()}
-            />
-            {typeof column.columnDef.header === 'string' ? column.columnDef.header : column.id}
-          </label>
-        ))}
-      </details>
-      <div
-        role="table"
-        aria-label={label}
-        aria-rowcount={rows.length + 1}
-        aria-busy={isLoading || isFetchingNextPage}
-        style={{ minWidth: totalWidth }}
-      >
-        <div role="rowgroup" className="thead">
-          {table.getHeaderGroups().map((group) => (
-            <div role="row" key={group.id} className="tr" style={{ gridTemplateColumns: gridTemplate }}>
-              {group.headers.map((header) => {
-                const sorted = header.column.getIsSorted()
-                return (
-                  <div
-                    role="columnheader"
-                    key={header.id}
-                    className="th"
-                    aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'}
-                  >
-                    {header.column.getCanSort() ? (
-                      <button type="button" onClick={header.column.getToggleSortingHandler()}>
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                        {sorted === 'asc' ? ' ▲' : sorted === 'desc' ? ' ▼' : ''}
-                      </button>
-                    ) : (
-                      flexRender(header.column.columnDef.header, header.getContext())
-                    )}
-                    {header.column.getCanResize() && (
-                      <div
-                        className="resizer"
-                        aria-hidden="true"
-                        onMouseDown={header.getResizeHandler()}
-                        onTouchStart={header.getResizeHandler()}
-                      />
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+        <div className="column-list">
+          {table.getAllLeafColumns().map((column) => (
+            <label key={column.id}>
+              <input
+                type="checkbox"
+                checked={column.getIsVisible()}
+                onChange={column.getToggleVisibilityHandler()}
+              />
+              {typeof column.columnDef.header === 'string' ? column.columnDef.header : column.id}
+            </label>
           ))}
         </div>
-        {error ? (
-          <StateRow>
-            <ErrorMessage error={error} onRetry={onRetry} />
-          </StateRow>
-        ) : isLoading ? (
-          <StateRow>
-            <LoadingState />
-          </StateRow>
-        ) : rows.length === 0 ? (
-          <StateRow>
-            <EmptyState>{emptyMessage}</EmptyState>
-          </StateRow>
-        ) : (
-          <div ref={scrollRef} className="scroll" style={{ height, overflow: 'auto' }}>
-            <div role="rowgroup" style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
-              {items.map((item) => {
-                const row = rows[item.index]
-                return (
-                  <div
-                    role="row"
-                    key={row.id}
-                    aria-rowindex={item.index + 2}
-                    data-index={item.index}
-                    className={onRowClick ? 'tr clickable' : 'tr'}
-                    tabIndex={
-                      keyboardNavigation ? (item.index === nav.active ? 0 : -1) : onRowClick ? 0 : undefined
-                    }
-                    onFocus={keyboardNavigation ? () => nav.setActive(item.index) : undefined}
-                    onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                    onKeyDown={
-                      onRowClick || keyboardNavigation
-                        ? (e) => {
-                            if (keyboardNavigation && nav.onRowKeyDown(e, item.index)) return
-                            if (e.key === 'Enter' && onRowClick) onRowClick(row.original)
-                          }
-                        : undefined
-                    }
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      height: item.size,
-                      transform: `translateY(${item.start}px)`,
-                      gridTemplateColumns: gridTemplate,
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <div role="cell" key={cell.id} className="td">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </div>
-                    ))}
-                  </div>
-                )
-              })}
-            </div>
-            {isFetchingNextPage && <LoadingState label="Loading more" />}
+      </details>
+      <div className="table-scroll">
+        <div
+          role="table"
+          aria-label={label}
+          aria-rowcount={rows.length + 1}
+          aria-busy={isLoading || isFetchingNextPage}
+          style={{ minWidth: totalWidth }}
+        >
+          <div role="rowgroup" className="thead">
+            {table.getHeaderGroups().map((group) => (
+              <div role="row" key={group.id} className="tr" style={{ gridTemplateColumns: gridTemplate }}>
+                {group.headers.map((header) => {
+                  const sorted = header.column.getIsSorted()
+                  return (
+                    <div
+                      role="columnheader"
+                      key={header.id}
+                      className={cellClass('th', header.column.columnDef.meta?.numeric)}
+                      aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'}
+                    >
+                      {header.column.getCanSort() ? (
+                        <button type="button" onClick={header.column.getToggleSortingHandler()}>
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          {sorted === 'asc' ? ' ▲' : sorted === 'desc' ? ' ▼' : ''}
+                        </button>
+                      ) : (
+                        flexRender(header.column.columnDef.header, header.getContext())
+                      )}
+                      {header.column.getCanResize() && (
+                        <div
+                          className="resizer"
+                          aria-hidden="true"
+                          onMouseDown={header.getResizeHandler()}
+                          onTouchStart={header.getResizeHandler()}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
           </div>
-        )}
+          {error ? (
+            <StateRow>
+              <ErrorMessage error={error} onRetry={onRetry} />
+            </StateRow>
+          ) : isLoading ? (
+            <StateRow>
+              <LoadingState />
+            </StateRow>
+          ) : rows.length === 0 ? (
+            <StateRow>
+              <EmptyState>{emptyMessage}</EmptyState>
+            </StateRow>
+          ) : (
+            <div ref={scrollRef} className="scroll" style={{ height, overflow: 'auto' }}>
+              <div role="rowgroup" style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+                {items.map((item) => {
+                  const row = rows[item.index]
+                  return (
+                    <div
+                      role="row"
+                      key={row.id}
+                      aria-rowindex={item.index + 2}
+                      data-index={item.index}
+                      className={onRowClick ? 'tr clickable' : 'tr'}
+                      tabIndex={
+                        keyboardNavigation ? (item.index === nav.active ? 0 : -1) : onRowClick ? 0 : undefined
+                      }
+                      onFocus={keyboardNavigation ? () => nav.setActive(item.index) : undefined}
+                      onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                      onKeyDown={
+                        onRowClick || keyboardNavigation
+                          ? (e) => {
+                              if (keyboardNavigation && nav.onRowKeyDown(e, item.index)) return
+                              if (e.key === 'Enter' && onRowClick) onRowClick(row.original)
+                            }
+                          : undefined
+                      }
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        height: item.size,
+                        transform: `translateY(${item.start}px)`,
+                        gridTemplateColumns: gridTemplate,
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell) => (
+                        <div role="cell" key={cell.id} className={cellClass('td', cell.column.columnDef.meta?.numeric)}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+              {isFetchingNextPage && <LoadingState label="Loading more" />}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

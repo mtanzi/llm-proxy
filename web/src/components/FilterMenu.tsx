@@ -1,6 +1,9 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
-/** A disclosure that holds filter fields. `activeCount` shows on the button. */
+/**
+ * A button that opens a panel of filter fields. `activeCount` shows on the
+ * button. Escape or a click outside closes the panel.
+ */
 export function FilterMenu({
   activeCount = 0,
   onClear,
@@ -12,17 +15,51 @@ export function FilterMenu({
 }) {
   const [open, setOpen] = useState(false)
   const panelId = useId()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (e: PointerEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [open])
+
   return (
-    <div className="filter-menu">
-      <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)}>
-        Filters{activeCount > 0 ? ` (${activeCount})` : ''}
+    <div
+      className="filter-menu"
+      ref={rootRef}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && open) {
+          e.stopPropagation()
+          setOpen(false)
+          buttonRef.current?.focus()
+        }
+      }}
+    >
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label={activeCount > 0 ? `Filters (${activeCount})` : 'Filters'}
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen(!open)}
+      >
+        Filters
+        {activeCount > 0 && (
+          <span className="filter-count" aria-hidden="true">
+            {activeCount}
+          </span>
+        )}
       </button>
       {onClear && activeCount > 0 && (
         <button type="button" onClick={onClear}>
           Clear filters
         </button>
       )}
-      <div id={panelId} role="group" aria-label="Filters" hidden={!open}>
+      <div id={panelId} className="filter-panel" role="group" aria-label="Filters" hidden={!open}>
         {children}
       </div>
     </div>

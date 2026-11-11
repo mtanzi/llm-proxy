@@ -51,7 +51,7 @@ session → prompt (user turn) → agent (main or sub-agent) → LLM call → to
 | V5 Cost and cache | `/ui/cost` | Cost by key, model, client and session; cache hit ratio over time | `GET /admin/usage`, `GET /admin/calls` |
 | Admin | `/ui/admin/config` | View providers, pricing and key names (with `disabled`), read-only, because they live in the config file and change with `SIGHUP`. No key management: keys are added, disabled and rotated in the config file | `GET /admin/config` |
 
-The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that show message text, tool arguments or tool results are dropped. Behavior that matters for the architecture:
+The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that show message text, tool arguments or tool results are dropped. Every page shares one frame in the Linear look of [ADR 0033](../adrs/0033-ui-v2-session-list-and-session-view.md): a sidebar with the main navigation (the current page marked with the accent), one type scale, and the same filter menu, time-range picker, badges and empty, loading and error states. Behavior that matters for the architecture:
 
 ### V1 Call log
 
@@ -61,6 +61,7 @@ The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that
 - "Group by session" folds consecutive calls of a session into one row with "N turns" (Bifrost pattern), kept in the URL.
 - Counts are exact up to 10,000 and show "10,000+" above that (UI report 6.3). A 24-hour window holds at most about 50,000 rows.
 - A **Live** toggle prepends new calls from the SSE stream. See [Live tail](#live-tail).
+- Look: dense rows with right-aligned numbers (latency, tokens, cost, tool calls), the status as a small badge (an error badge also shows the error class and a glyph, so it does not rely on colour), and model and client as subtle tags. The summary strip and the volume chart use the shared palette. The rows move with the arrow keys or `j` and `k`, and `Enter` opens the focused row, as on the session pages.
 
 ### V2 Session view
 
@@ -77,7 +78,8 @@ The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that
 
 Tabs: Overview, Tools, Usage and cost. All of them show stored numbers, names and hashes. The page never shows what the prompt or the response said.
 
-- **Overview** shows who made the call (key, client, session, agent, sub-agent, prompt id), model, provider, upstream request id, status, error type, stop reason, TTFT and duration. The provider's error message text is not shown, because it is not stored (resolved decision D12, [ADR 0044](../adrs/0044-provider-error-message-text.md)).
+- A **side panel** beside every tab shows the model, provider, time and upstream request id; who made the call (key, client, session link, agent, sub-agent, prompt id); and tokens in and out, cache read and write, cache hit and cost.
+- **Overview** shows a timing bar for time to first byte, TTFT and duration, in the session waterfall's style, and the exchange as a chat-style thread of metadata blocks: a system block when the call is a compaction request or follows a compacted context, the request (prompt id, tokens in), each tool result it carried, the response (status, error type, stop reason, output and reasoning tokens) and each tool call it asked for. A long run of tool blocks is collapsed behind a button. The provider's error message text is not shown, because it is not stored (resolved decision D12, [ADR 0044](../adrs/0044-provider-error-message-text.md)).
 - **Tools** lists each tool requested in this call, beside the call that resolved it, and each tool result this call carries, beside the call that requested it. Each row shows name, call id, argument size, result size, duration, and success or error, and links to the other call. A half that has no pair reads as unknown. There is no argument or result text.
 
 ### V4 Tool-call explorer
