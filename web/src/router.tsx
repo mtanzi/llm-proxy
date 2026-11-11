@@ -11,6 +11,7 @@ import { Layout } from './components/Layout'
 import { Placeholder } from './routes/Placeholder'
 import { CallDetailView } from './views/CallDetail'
 import { CallLogView } from './views/CallLog'
+import { DashboardView } from './views/Dashboard'
 import { SessionListView } from './views/SessionList'
 import { SessionView } from './views/SessionView'
 import { strict } from './search/validate'
@@ -18,6 +19,7 @@ import {
   validateCallDetailSearch,
   validateCallsSearch,
   validateCostSearch,
+  validateDashboardSearch,
   validateNoSearch,
   validateSessionDetailSearch,
   validateSessionsSearch,
@@ -32,12 +34,12 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({ component: Layou
 
 // The SPA is mounted at /ui/ (ADR 0029); the router's basepath is /ui, so
 // these paths carry no prefix. Views replace the placeholder components.
+// The overview dashboard is the landing page (ADR 0052).
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  beforeLoad: () => {
-    throw redirect({ to: '/calls', replace: true })
-  },
+  validateSearch: strict(validateDashboardSearch),
+  component: DashboardView,
 })
 
 const callsRoute = createRoute({
@@ -101,7 +103,7 @@ const notFoundRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '$',
   beforeLoad: () => {
-    throw redirect({ to: '/calls', replace: true })
+    throw redirect({ to: '/', search: {}, replace: true })
   },
 })
 

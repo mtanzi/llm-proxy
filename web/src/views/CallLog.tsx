@@ -240,7 +240,7 @@ const STREAM_LABELS: Record<Exclude<LiveStatus, 'off'>, string> = {
 type FilterPatch = Partial<CallsSearch>
 
 /**
- * V1 call log (ADR 0031): the home view. All state is in the URL search
+ * V1 call log (ADR 0031). All state is in the URL search
  * parameters. Linear look as the session pages (ADR 0033): dense rows,
  * right-aligned numbers, status badges, and j/k or arrow keys to move between
  * rows with Enter to open one.

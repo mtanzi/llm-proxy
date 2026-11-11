@@ -1,10 +1,22 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { createMemoryHistory } from '@tanstack/react-router'
 import axe from 'axe-core'
-import { expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { App } from './App'
 import { createQueryClient } from './queryClient'
 import { createAppRouter } from './router'
+
+// The overview opens the live stream; jsdom has no EventSource.
+class StubEventSource {
+  static CLOSED = 2
+  readyState = 0
+  onopen = null
+  onerror = null
+  addEventListener() {}
+  close() {}
+}
+beforeEach(() => vi.stubGlobal('EventSource', StubEventSource))
+afterEach(() => vi.unstubAllGlobals())
 
 async function renderAt(path: string) {
   const queryClient = createQueryClient()
@@ -15,13 +27,14 @@ async function renderAt(path: string) {
   return { router, ...view }
 }
 
-test('/ui/ redirects to /ui/calls', async () => {
+test('/ui/ is the overview dashboard, not a redirect', async () => {
   const { router } = await renderAt('/ui/')
-  await waitFor(() => expect(router.state.location.pathname).toBe('/calls'))
-  expect(screen.getByRole('heading', { name: 'Calls' })).toBeTruthy()
+  await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeTruthy())
+  expect(router.state.location.pathname).toBe('/')
 })
 
 test.each([
+  ['/ui/', 'Overview'],
   ['/ui/calls', 'Calls'],
   ['/ui/calls/0190a1b2-0000-7000-8000-000000000000', 'Call'],
   ['/ui/sessions', 'Sessions'],
@@ -34,9 +47,9 @@ test.each([
   await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: title })).toBeTruthy())
 })
 
-test('an unknown path falls back to the call log', async () => {
+test('an unknown path falls back to the overview', async () => {
   const { router } = await renderAt('/ui/nope')
-  await waitFor(() => expect(router.state.location.pathname).toBe('/calls'))
+  await waitFor(() => expect(router.state.location.pathname).toBe('/'))
 })
 
 test('a stale URL degrades to defaults instead of failing', async () => {

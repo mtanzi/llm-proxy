@@ -35,7 +35,7 @@ flowchart LR
 
 ## Views
 
-The five views come from the UI report, section 5, in priority order. Its search view (V6) is withdrawn, because bodies are not stored. The UI shows metadata only: numbers, names, ids and hashes. The hierarchy the views share is:
+The five views come from the UI report, section 5, in priority order. The overview dashboard at `/ui` is the landing page and links to them ([ADR 0052](../adrs/0052-ui-overview-dashboard-as-landing-page.md)). Its search view (V6) is withdrawn, because bodies are not stored. The UI shows metadata only: numbers, names, ids and hashes. The hierarchy the views share is:
 
 ```
 session → prompt (user turn) → agent (main or sub-agent) → LLM call → tool call
@@ -43,7 +43,8 @@ session → prompt (user turn) → agent (main or sub-agent) → LLM call → to
 
 | View | Route | Purpose | Main API calls |
 |---|---|---|---|
-| V1 Call log (home) | `/ui/calls` | Paginated, filterable list of every LLM call, with a volume chart and a summary strip | `GET /admin/calls`, `GET /admin/usage`, `GET /admin/stream` |
+| Overview (home) | `/ui` | Headline numbers against the previous equal period, activity by model, live feed, recent sessions, problems and cost breakdowns | `GET /admin/usage`, `GET /admin/sessions`, `GET /admin/calls`, `GET /admin/stream`, `GET /admin/config` |
+| V1 Call log | `/ui/calls` | Paginated, filterable list of every LLM call, with a volume chart and a summary strip | `GET /admin/calls`, `GET /admin/usage`, `GET /admin/stream` |
 | V2 Session list | `/ui/sessions` | One row per session: start, duration, client, key, prompts, calls, tool calls, cost, cache hit, errors, labelled by key, client and start time (no prompt text is stored) | `GET /admin/sessions` |
 | V2 Session view | `/ui/sessions/:key` | Tree and waterfall of prompts, agents, calls and tool calls | `GET /admin/sessions/{key}`, `GET /admin/tool-calls?session=` |
 | V3 Call detail | `/ui/calls/:id` | Who, timings, usage and cost, outcome, tools requested and resolved. No content | `GET /admin/calls/{id}` |
@@ -52,6 +53,16 @@ session → prompt (user turn) → agent (main or sub-agent) → LLM call → to
 | Admin | `/ui/admin/config` | View providers, pricing and key names (with `disabled`), read-only, because they live in the config file and change with `SIGHUP`. No key management: keys are added, disabled and rotated in the config file | `GET /admin/config` |
 
 The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that show message text, tool arguments or tool results are dropped. Every page shares one frame in the Linear look of [ADR 0033](../adrs/0033-ui-v2-session-list-and-session-view.md): a sidebar with the main navigation (the current page marked with the accent), one type scale, and the same filter menu, time-range picker, badges and empty, loading and error states. Behavior that matters for the architecture:
+
+### Overview (home)
+
+- The landing page at `/ui`, first in the sidebar ([ADR 0052](../adrs/0052-ui-overview-dashboard-as-landing-page.md)). An unknown `/ui/*` path falls back to it.
+- A time range of 1h, 24h (default), 7d or 30d, in the URL. No absolute window.
+- Headline numbers: calls, cost, tokens in and out, error rate, cache hit ratio, p50 and p95 latency. Each has a sparkline and the change against the previous equal period, shown with a glyph, a sign and words. Over several usage buckets, p50 and p95 are a call-weighted mean of the bucket percentiles, marked "≈", because the usage API has no percentile over a whole range.
+- Activity: calls or cost per interval stacked by model, with errors per interval as a line on their own scale.
+- Live feed of the latest finished calls (the shared live hook), recent sessions with an error badge, and problems: errors grouped by error class, each linking to the call log filtered to that class.
+- Breakdowns: cost ranked by model, client and key, and the top 5 sessions by cost, linking to V5, V1 and V2.
+- Unknown cost shows as unknown. Cost through a `client_passthrough` provider (from `GET /admin/config`) carries the "API-equivalent" label.
 
 ### V1 Call log
 

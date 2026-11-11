@@ -176,6 +176,26 @@ export function validateCostSearch(search: unknown): CostSearch {
   })
 }
 
+/** The overview dashboard (ADR 0052): a preset range and the activity chart metric. */
+export const DASHBOARD_RANGES = ['1h', '24h', '7d', '30d'] as const
+export type DashboardRange = (typeof DASHBOARD_RANGES)[number]
+export const ACTIVITY_METRICS = ['calls', 'cost'] as const
+export type ActivityMetric = (typeof ACTIVITY_METRICS)[number]
+export interface DashboardSearch {
+  range?: DashboardRange
+  metric?: ActivityMetric
+}
+export function validateDashboardSearch(search: unknown): DashboardSearch {
+  const raw = asRaw(search)
+  const range = oneOf(raw.range, DASHBOARD_RANGES)
+  const metric = oneOf(raw.metric, ACTIVITY_METRICS)
+  // Defaults stay out of the URL: 24h and calls.
+  return compact({
+    range: range === DEFAULT_RANGE ? undefined : range,
+    metric: metric === 'calls' ? undefined : metric,
+  })
+}
+
 /** The config page has no search parameters; anything in the URL is dropped. */
 export function validateNoSearch(): Record<string, never> {
   return {}
