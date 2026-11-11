@@ -6,6 +6,7 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     cooldown:
+      default-days: 7
       semver-patch-days: 3
       semver-minor-days: 7
       semver-major-days: 7
@@ -20,6 +21,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
+      default-days: 7
       semver-patch-days: 3
       semver-minor-days: 7
       semver-major-days: 7
@@ -31,6 +33,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
+      default-days: 7
       semver-patch-days: 3
       semver-minor-days: 7
       semver-major-days: 7

@@ -80,7 +80,7 @@ The `dependabot-automerge` workflow (`.github/workflows/dependabot-automerge.yml
 
 An auto-merged PR gets GitHub auto-merge (squash), pinned to the head commit, and merges only after the required checks on main pass. A PR that does not qualify gets the tier B label, and the workflow leaves its auto-merge state alone. An unknown update type counts as not qualifying.
 
-`.github/dependabot.yml` adds a cooldown before Dependabot proposes a new version: 3 days for patch, 7 for minor and 7 for major. It also groups patch updates per ecosystem, so there is one weekly patch PR per ecosystem. The cooldown gives the community time to find and yank a compromised release before it reaches `main` unattended. Auto-merge is limited to low-risk update types, and the required CI checks still gate every merge.
+`.github/dependabot.yml` adds a cooldown before Dependabot proposes a new version: 3 days for patch, 7 for minor and 7 for major, with a 7-day default for versions Dependabot cannot classify by semver. It also groups patch updates per ecosystem, so there is one weekly patch PR per ecosystem. The cooldown gives the community time to find and yank a compromised release before it reaches `main` unattended. Auto-merge is limited to low-risk update types, and the required CI checks still gate every merge.
 
 ## Version
 
