@@ -86,12 +86,17 @@ function Total({ row, measure, format }: { row: LogRow; measure: Measure; format
   const calls = rowCalls(row)
   const total = sumKnown(calls, measure)
   const missing = calls.filter((c) => measure(c) === null).length
-  const suffix = total !== null && missing > 0 ? ` (+${missing} unknown)` : ''
-  // The title keeps the full value readable when the column is too narrow.
+  const shown = total !== null && missing > 0
+  // The cell shows a compact "+N?" marker so the total fits; the title and label spell it out.
   return (
-    <span title={format(total) + suffix}>
+    <span title={format(total) + (shown ? ` (+${missing} unknown)` : '')}>
       <Maybe text={format(total)} />
-      {suffix && <small className="unknown">{suffix}</small>}
+      {shown && (
+        <>
+          {' '}
+          <small className="unknown" aria-label={`+${missing} unknown`}>{`+${missing}?`}</small>
+        </>
+      )}
     </span>
   )
 }
@@ -192,7 +197,8 @@ const columns: ColumnDef<LogRow>[] = [
   {
     id: 'tokens_in',
     header: 'Tokens in',
-    size: 80,
+    // Fits a grouped total with its marker, such as "220,210 +1?".
+    size: 92,
     meta: numeric,
     accessorFn: (r) => sumKnown(rowCalls(r), inputTokens),
     cell: ({ row }) => <Total row={row.original} measure={inputTokens} format={formatCount} />,
@@ -200,7 +206,7 @@ const columns: ColumnDef<LogRow>[] = [
   {
     id: 'tokens_out',
     header: 'Tokens out',
-    size: 80,
+    size: 92,
     meta: numeric,
     accessorFn: (r) => sumKnown(rowCalls(r), outputTokens),
     cell: ({ row }) => <Total row={row.original} measure={outputTokens} format={formatCount} />,
@@ -208,8 +214,8 @@ const columns: ColumnDef<LogRow>[] = [
   {
     id: 'cost',
     header: 'Cost',
-    // Fits a sub-cent cost such as "$0.007512".
-    size: 92,
+    // Fits a grouped sub-cent cost with its marker, such as "$0.007512 +1?".
+    size: 110,
     meta: numeric,
     accessorFn: (r) => sumKnown(rowCalls(r), cost),
     cell: ({ row }) => <Total row={row.original} measure={cost} format={formatCostMicroUsd} />,

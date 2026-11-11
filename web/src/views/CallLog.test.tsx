@@ -200,7 +200,9 @@ test('group by session folds consecutive calls and is kept in the URL', async ()
   expect(within(tableRows()[2]).getByText('p9')).toBeTruthy()
   // A turn with an unknown cost is not counted as zero.
   expect(within(tableRows()[2]).getByText('$1.00')).toBeTruthy()
-  expect(within(tableRows()[2]).getByText(/\+1 unknown/)).toBeTruthy()
+  // The cell shows a compact marker; its accessible label spells it out.
+  expect(within(tableRows()[2]).getByText('+1?')).toBeTruthy()
+  expect(within(tableRows()[2]).getByLabelText('+1 unknown')).toBeTruthy()
   // The title keeps the full total readable when the column is narrow.
   expect(within(tableRows()[2]).getByTitle('$1.00 (+1 unknown)')).toBeTruthy()
   // A group row opens the session.
