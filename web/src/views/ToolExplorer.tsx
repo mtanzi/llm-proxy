@@ -16,14 +16,13 @@ import { Tag } from '../components/Badge'
 import { ErrorMessage } from '../components/states'
 import { TimeRangePicker } from '../components/TimeRangePicker'
 import { UNKNOWN, formatBytes, formatCount, formatDurationMs, formatText } from '../lib/format'
+import { UNMATCHED } from '../search/routes'
 import type { ToolsSearch } from '../search/routes'
 import { DEFAULT_RANGE, resolveTimeRange } from '../search/timeRange'
 import { formatRatio } from './SessionList'
 import {
   TOOL_FILTER_KEYS,
-  UNMATCHED,
   activeToolFilterCount,
-  isUnmatchedOnly,
   knownDurations,
   pairingLabel,
   sortingSearch,
@@ -322,7 +321,7 @@ export function ToolExplorerView() {
   const isDefault = search.range === undefined && search.from === undefined && search.to === undefined
   const empty =
     isDefault && active === 0 ? `No tool calls in the last ${DEFAULT_RANGE}.` : 'No tool calls match these filters.'
-  const unmatched = isUnmatchedOnly(search.status)
+  const unmatched = search.status !== undefined
 
   return (
     <section aria-labelledby="view-title">

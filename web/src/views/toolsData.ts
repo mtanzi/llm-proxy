@@ -41,14 +41,6 @@ export function activeToolFilterCount(search: ToolsSearch): number {
   return TOOL_FILTER_KEYS.filter((k) => search[k] !== undefined).length
 }
 
-/** The unmatched halves: a use with no result after an hour, and a result with no use. */
-export const UNMATCHED: readonly PairingStatus[] = ['use_only', 'result_only']
-
-/** Whether the pairing filter is exactly the two unmatched halves. */
-export function isUnmatchedOnly(status: readonly PairingStatus[] | undefined): boolean {
-  return status !== undefined && status.length === UNMATCHED.length && UNMATCHED.every((s) => status.includes(s))
-}
-
 /** The summary sort in the URL as TanStack sorting state. */
 export function summarySorting(search: Pick<ToolsSearch, 'sort' | 'order'>): SortingState {
   const id = search.sort ?? DEFAULT_TOOL_SORT

@@ -129,8 +129,8 @@ export function validateSessionDetailSearch(search: unknown): SessionDetailSearc
   return mode === undefined || mode === 'tree' ? {} : { mode }
 }
 
-export const TOOL_SOURCES = ['client', 'server'] as const
-export const TOOL_CALL_STATUSES = ['paired', 'pending', 'use_only', 'result_only'] as const
+/** The unmatched halves: a use with no result after an hour, and a result with no use. */
+export const UNMATCHED = ['use_only', 'result_only'] as const
 /** Columns the tool summary sorts by (ADR 0034). Text columns sort ascending first, numbers descending. */
 export const TOOL_SUMMARY_SORTS = ['name', 'agent_type', 'count', 'error_rate', 'p50', 'p95', 'total'] as const
 export type ToolSummarySort = (typeof TOOL_SUMMARY_SORTS)[number]
@@ -143,10 +143,9 @@ export function defaultSortOrder(sort: ToolSummarySort): SortOrder {
 }
 export interface ToolsSearch extends TimeRangeSearch {
   session?: string
-  agent?: string
   tool?: string[]
-  source?: (typeof TOOL_SOURCES)[number][]
-  status?: (typeof TOOL_CALL_STATUSES)[number][]
+  /** The "Unmatched only" filter: both unmatched halves or nothing. */
+  status?: (typeof UNMATCHED)[number][]
   is_error?: boolean
   duration_ms_gte?: number
   arg_bytes_gte?: number
@@ -167,10 +166,8 @@ export function validateToolsSearch(search: unknown): ToolsSearch {
     order,
     ...validateTimeRange(raw),
     session: textList(raw.session)?.[0],
-    agent: textList(raw.agent)?.[0],
     tool: textList(raw.tool),
-    source: enumList(raw.source, TOOL_SOURCES),
-    status: enumList(raw.status, TOOL_CALL_STATUSES),
+    status: enumList(raw.status, UNMATCHED)?.length === UNMATCHED.length ? [...UNMATCHED] : undefined,
     is_error: bool(raw.is_error),
     duration_ms_gte: int(raw.duration_ms_gte),
     arg_bytes_gte: int(raw.arg_bytes_gte),

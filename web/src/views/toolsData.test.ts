@@ -2,7 +2,6 @@ import { describe, expect, test } from 'vitest'
 import { validateToolsSearch } from '../search/routes'
 import {
   activeToolFilterCount,
-  isUnmatchedOnly,
   knownDurations,
   pairingLabel,
   sortingSearch,
@@ -68,14 +67,6 @@ describe('filters', () => {
       duration_ms_gte: 500,
     })
     expect(activeToolFilterCount(search)).toBe(4)
-  })
-
-  test('unmatched only means exactly the two unmatched halves', () => {
-    expect(isUnmatchedOnly(['use_only', 'result_only'])).toBe(true)
-    expect(isUnmatchedOnly(['result_only', 'use_only'])).toBe(true)
-    expect(isUnmatchedOnly(['use_only'])).toBe(false)
-    expect(isUnmatchedOnly(['use_only', 'result_only', 'pending'])).toBe(false)
-    expect(isUnmatchedOnly(undefined)).toBe(false)
   })
 })
 

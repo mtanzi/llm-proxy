@@ -185,6 +185,19 @@ test('a stale unmatched URL keeps only valid states', async () => {
   expect((screen.getByLabelText('Unmatched only') as HTMLInputElement).checked).toBe(true)
 })
 
+test('the tools URL drops params that are not ADR 0034 filters', async () => {
+  const urls = stubApi()
+  const { router } = await renderAt('/ui/tools?agent=a1&source=server&status=pending&status=paired&bogus=1&session=s1')
+  await waitFor(() => expect(search(router)).toEqual({ session: 's1' }))
+  expect((screen.getByLabelText('Unmatched only') as HTMLInputElement).checked).toBe(false)
+  await waitFor(() => expect(listUrls(urls).length * summaryUrls(urls).length).toBeGreaterThan(0))
+  for (const u of [...listUrls(urls), ...summaryUrls(urls)]) {
+    const p = new URL(u, 'http://x').searchParams
+    expect(p.get('session')).toBe('s1')
+    for (const k of ['agent', 'source', 'status', 'bogus']) expect(p.has(k)).toBe(false)
+  }
+})
+
 test('list rows show sizes and the duration source, and link to V3 and V2', async () => {
   stubApi({
     calls: [
