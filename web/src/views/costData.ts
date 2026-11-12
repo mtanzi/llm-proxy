@@ -1,5 +1,5 @@
 import type { CostGroup } from '../search/routes'
-import { inputTokens, timeSlots } from './dashboardData'
+import { inputTokens, slotCount } from './dashboardData'
 import type { Grain, UsageBucket, Window } from './dashboardData'
 import type { CallSummary } from './callLogRows'
 import { tokensIn } from './callLogRows'
@@ -31,7 +31,7 @@ const GRAIN_ORDER: Grain[] = ['minute', 'hour', 'day']
 export function costGrain(window: Window, requested?: Grain): Grain {
   const span = Date.parse(window.to) - Date.parse(window.from)
   let grain: Grain = requested ?? (span <= 6 * 3_600_000 ? 'minute' : span <= 7 * 86_400_000 ? 'hour' : 'day')
-  while (grain !== 'day' && timeSlots(window, grain).length > MAX_SLOTS) {
+  while (grain !== 'day' && slotCount(window, grain) > MAX_SLOTS) {
     grain = GRAIN_ORDER[GRAIN_ORDER.indexOf(grain) + 1]
   }
   return grain
@@ -95,6 +95,14 @@ export function costShare(cost: number | null, total: number): number | null {
 export interface TaskRow extends CostRow {
   /** The firstmate task id: the key name without its `fm:` prefix. */
   taskId: string
+}
+
+/**
+ * The groups with a known cost in a series filtered to client_passthrough
+ * providers: part of their cost is API-equivalent.
+ */
+export function apiEquivalentGroups(passthroughBuckets: UsageBucket[]): Set<string> {
+  return new Set(passthroughBuckets.filter((b) => b.cost_micro_usd > 0).map((b) => b.group))
 }
 
 /** Cost per firstmate task: the rows of a series grouped by key whose name starts with `fm:`. */
@@ -186,9 +194,13 @@ export interface ChartRow {
   values: (number | null)[]
 }
 
-/** Rows for the intervals with at least one value above zero, so an empty range is not a wall of zeros. */
-export function chartRows(slots: number[], series: { values: (number | null)[] }[]): ChartRow[] {
+/**
+ * Rows for the intervals with at least one value above zero, so an empty range
+ * is not a wall of zeros. With keepZero, a zero is a value too (a ratio of 0%
+ * is data), and only intervals without any value are left out.
+ */
+export function chartRows(slots: number[], series: { values: (number | null)[] }[], keepZero = false): ChartRow[] {
   return slots
     .map((start, i) => ({ start, values: series.map((s) => s.values[i] ?? null) }))
-    .filter((r) => r.values.some((v) => v !== null && v > 0))
+    .filter((r) => r.values.some((v) => v !== null && (keepZero || v > 0)))
 }

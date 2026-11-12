@@ -27,6 +27,8 @@ interface Fixture {
   calls: CallSummary[]
   nextCursor: string | null
   authMode: string
+  /** The usage per group of the calls through the provider named in the query. */
+  byProvider: Record<string, UsageBucket[]>
   /** Hold the usage answers until released, to see the loading state. */
   gate?: Promise<void>
 }
@@ -64,6 +66,7 @@ const defaults: Fixture = {
   ],
   nextCursor: null,
   authMode: 'proxy_key',
+  byProvider: {},
 }
 
 function stubApi(over: Partial<Fixture> = {}) {
@@ -78,6 +81,9 @@ function stubApi(over: Partial<Fixture> = {}) {
       if (url.startsWith('/admin/usage')) {
         await f.gate
         const group = q.get('group_by')
+        if (q.get('provider') !== null) {
+          return json({ group_by: group, grain: q.get('grain'), buckets: f.byProvider[group ?? ''] ?? [] })
+        }
         return json({ group_by: group, grain: q.get('grain'), buckets: group ? (f.byGroup[group] ?? []) : f.overall })
       }
       if (url.startsWith('/admin/config')) {
@@ -225,6 +231,23 @@ test('the cache hit ratio has a chart and a table fallback', async () => {
   expect(values[1]).toContain('70.0%')
 })
 
+test('the cache table lists an interval with a 0% ratio', async () => {
+  const none = { ...usage, cache_read: 0 }
+  stubApi({
+    overall: [
+      bucket({ start: '2026-11-01T09:00:00Z', calls: 5, cost_micro_usd: 100, usage: none, cache_hit_ratio: 0 }),
+      bucket({ start: '2026-11-01T10:00:00Z', calls: 5, cost_micro_usd: 100, usage, cache_hit_ratio: 0.4 }),
+      bucket({ start: '2026-11-01T11:00:00Z', calls: 5, cost_micro_usd: 100, usage: none, cache_hit_ratio: 0 }),
+    ],
+  })
+  await renderAt('/ui/cost')
+  const cache = panel('Cache hit ratio over time')
+  await within(cache).findByRole('img', { name: /Cache hit ratio per hour/ })
+  const table = within(cache).getByRole('table', { name: 'Cache hit ratio per hour', hidden: true })
+  const values = within(table).getAllByRole('row', { hidden: true }).slice(1).map((r) => r.querySelector('td')?.textContent)
+  expect(values).toEqual(['0.0%', '40.0%', '0.0%'])
+})
+
 test('the cost chart has a named legend, a label with the groups and a table fallback', async () => {
   stubApi()
   await renderAt('/ui/cost')
@@ -278,6 +301,30 @@ test('a passthrough prompt is labelled API-equivalent', async () => {
   await renderAt('/ui/cost')
   const table = await within(panel('Cost per prompt')).findByRole('table')
   await waitFor(() => expect(within(table).getByText(/API-equivalent/)).toBeTruthy())
+})
+
+test('a group with calls through a passthrough provider is labelled API-equivalent', async () => {
+  const urls = stubApi({
+    authMode: 'client_passthrough',
+    byProvider: {
+      model: [bucket({ group: 'claude-haiku', cost_micro_usd: 1_000_000 })],
+      session: [bucket({ group: 's-small', cost_micro_usd: 100_000 })],
+      key: [bucket({ group: 'fm:task-b', cost_micro_usd: 1_000_000 })],
+    },
+  })
+  await renderAt('/ui/cost')
+  const label = (table: HTMLElement, name: string) =>
+    within(table).getAllByRole('row').find((r) => r.querySelector('th')?.textContent === name)?.textContent ?? ''
+  const models = await within(panel('Cost by model')).findByRole('table', { name: 'Cost by model' })
+  await waitFor(() => expect(label(models, 'claude-haiku')).toContain('API-equivalent'))
+  expect(label(models, 'claude-opus')).not.toContain('API-equivalent')
+  const sessions = within(panel('Top sessions by cost')).getByRole('table', { name: 'Cost by session' })
+  await waitFor(() => expect(label(sessions, 's-small')).toContain('API-equivalent'))
+  expect(label(sessions, 's-big')).not.toContain('API-equivalent')
+  const tasks = within(panel('Cost per firstmate task')).getByRole('table', { name: 'Cost per firstmate task' })
+  await waitFor(() => expect(label(tasks, 'task-b')).toContain('API-equivalent'))
+  expect(label(tasks, 'task-a')).not.toContain('API-equivalent')
+  expect(urls.some((u) => u.includes('group_by=session') && u.includes('provider=anthropic'))).toBe(true)
 })
 
 test('filters in the URL reach the API and can be cleared', async () => {

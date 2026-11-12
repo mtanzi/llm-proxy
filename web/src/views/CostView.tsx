@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -18,6 +18,7 @@ import { filterQuery } from './callLogRows'
 import {
   GROUP_LABELS,
   TASK_KEY_PREFIX,
+  apiEquivalentGroups,
   costGrain,
   costRows,
   costShare,
@@ -37,6 +38,16 @@ const PROMPT_ROWS = 25
 /** The calls endpoint allows 500 per page. The prompt table reads one page. */
 const PROMPT_SAMPLE = 500
 const GROUP_ROWS = 50
+
+type UsageOptions = ReturnType<typeof readQueryOptions<'/admin/usage'>>
+
+/** The groups of the given client_passthrough series whose cost is partly API-equivalent. */
+function useApiEquivalentGroups(queries: UsageOptions[]): Set<string> {
+  return useQueries({
+    queries,
+    combine: (results) => apiEquivalentGroups(results.flatMap((r) => r.data?.buckets ?? [])),
+  })
+}
 
 function Maybe({ text }: { text: string }) {
   return text === UNKNOWN ? <span className="unknown">{UNKNOWN}</span> : <>{text}</>
@@ -123,10 +134,13 @@ function GroupTable({
   group,
   rows,
   total,
+  apiEquivalent,
 }: {
   group: CostGroup
   rows: CostRow[]
   total: number
+  /** The groups whose cost is partly API-equivalent. */
+  apiEquivalent: Set<string>
 }) {
   if (rows.length === 0) return <EmptyState>No calls in this range.</EmptyState>
   const shown = rows.slice(0, GROUP_ROWS)
@@ -154,7 +168,7 @@ function GroupTable({
                   </th>
                   <td className="num">{formatCount(r.calls)}</td>
                   <td className="num">
-                    <CostCell cost={r.cost} unpriced={r.unpriced} />
+                    <CostCell cost={r.cost} unpriced={r.unpriced} apiEquivalent={apiEquivalent.has(r.group)} />
                   </td>
                   <td className="num">{share === null ? <Maybe text={UNKNOWN} /> : `${share}%`}</td>
                   <td className="num">
@@ -209,7 +223,7 @@ export function CostView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const filters = useMemo(() => filterQuery(search as CallsSearch), [filterKey])
 
-  const usage = (extra: { group_by?: CostGroup | 'provider'; grain: typeof grain }) =>
+  const usage = (extra: { group_by?: CostGroup | 'provider'; grain: typeof grain; provider?: string[] }) =>
     readQueryOptions('/admin/usage', { query: { ...filters, ...window, ...extra } })
   const overall = useQuery(usage({ grain }))
   // The series per interval, grouped by the chosen dimension.
@@ -222,6 +236,12 @@ export function CostView() {
   const passthrough = useMemo(() => passthroughProviders(config.data?.providers), [config.data])
   // Only a client_passthrough provider makes part of the cost API-equivalent.
   const byProvider = useQuery({ ...usage({ grain: 'day', group_by: 'provider' }), enabled: passthrough.size > 0 })
+  // One series per client_passthrough provider marks the groups with API-equivalent cost.
+  const passthroughNames = [...passthrough].filter((p) => !filters.provider || filters.provider.includes(p))
+  const passthroughBy = (g: CostGroup) => passthroughNames.map((p) => usage({ grain: 'day', group_by: g, provider: [p] }))
+  const apiEquivalentRows = useApiEquivalentGroups(passthroughBy(group))
+  const apiEquivalentSessions = useApiEquivalentGroups(passthroughBy('session'))
+  const apiEquivalentKeys = useApiEquivalentGroups(passthroughBy('key'))
   const calls = useQuery(readQueryOptions('/admin/calls', { query: { ...filters, ...window, limit: PROMPT_SAMPLE } }))
 
   const sum = useMemo(() => (overall.data ? totals(overall.data.buckets) : undefined), [overall.data])
@@ -367,6 +387,7 @@ export function CostView() {
                     series={[{ name: 'Cache hit', values: cacheValues }]}
                     grain={grain}
                     format={(v) => formatRatio(v)}
+                    keepZero
                   />
                 </>
               )
@@ -378,7 +399,7 @@ export function CostView() {
       <div className="dash-grid dash-grid-2">
         <Panel id="by-group-title" title={`Cost by ${GROUP_LABELS[group]}`}>
           <QueryState query={table} label="Loading cost (a long range can take a few seconds)">
-            {() => <GroupTable group={group} rows={rows} total={knownCost(rows)} />}
+            {() => <GroupTable group={group} rows={rows} total={knownCost(rows)} apiEquivalent={apiEquivalentRows} />}
           </QueryState>
         </Panel>
 
@@ -389,7 +410,7 @@ export function CostView() {
               const top = topSessions(all, TOP_SESSIONS)
               const total = knownCost(all.filter((r) => r.group !== ''))
               if (top.length === 0) return <EmptyState>No sessions in {rangeText}.</EmptyState>
-              return <GroupTable group="session" rows={top} total={total} />
+              return <GroupTable group="session" rows={top} total={total} apiEquivalent={apiEquivalentSessions} />
             }}
           </QueryState>
         </Panel>
@@ -433,7 +454,7 @@ export function CostView() {
                             </th>
                             <td className="num">{formatCount(t.calls)}</td>
                             <td className="num">
-                              <CostCell cost={t.cost} unpriced={t.unpriced} />
+                              <CostCell cost={t.cost} unpriced={t.unpriced} apiEquivalent={apiEquivalentKeys.has(t.group)} />
                             </td>
                             <td className="num">{share === null ? <Maybe text={UNKNOWN} /> : `${share}%`}</td>
                             <td className="num">

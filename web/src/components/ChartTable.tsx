@@ -15,6 +15,7 @@ export function ChartTable({
   grain,
   format,
   total,
+  keepZero = false,
 }: {
   caption: string
   slots: number[]
@@ -23,8 +24,10 @@ export function ChartTable({
   format: (value: number | null) => string
   /** Add a total column (for stacked series); a ratio chart has none. */
   total?: (values: (number | null)[]) => string
+  /** A zero is a value to list (a ratio of 0%), not an empty interval. */
+  keepZero?: boolean
 }) {
-  const rows = chartRows(slots, series)
+  const rows = chartRows(slots, series, keepZero)
   return (
     <details className="chart-table">
       <summary>Show as table</summary>

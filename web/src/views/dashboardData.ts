@@ -37,6 +37,13 @@ export function timeSlots(window: Window, grain: Grain): number[] {
   return slots
 }
 
+/** The number of slots timeSlots gives for a window, without building them. */
+export function slotCount(window: Window, grain: Grain): number {
+  const step = GRAIN_MS[grain]
+  const start = Math.floor(Date.parse(window.from) / step) * step
+  return Math.max(0, Math.ceil((Date.parse(window.to) - start) / step))
+}
+
 export function inputTokens(usage: UsageBucket['usage']): number {
   return usage.input_uncached + usage.cache_read + usage.cache_write_5m + usage.cache_write_1h
 }

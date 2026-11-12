@@ -163,3 +163,20 @@ test('chart table rows skip intervals without a value', () => {
   ])
   expect(chartRows(slots, [{ values: [null, null, null, null] }])).toEqual([])
 })
+
+test('chart table rows of a ratio keep a 0% interval and skip only missing values', () => {
+  expect(chartRows([0, 1, 2, 3], [{ values: [0, 0.4, null, 0] }], true)).toEqual([
+    { start: 0, values: [0] },
+    { start: 1, values: [0.4] },
+    { start: 3, values: [0] },
+  ])
+  expect(chartRows([0, 1], [{ values: [0, 0] }], true)).toHaveLength(2)
+})
+
+test('a 90-day window at minute grain falls back to day', () => {
+  const quarter = { from: '2026-08-03T00:00:00.000Z', to: '2026-11-01T00:00:00.000Z' }
+  expect(costGrain(quarter, 'minute')).toBe('day')
+  // 400 hours is the limit: an hour grain is kept up to there and no further.
+  expect(costGrain({ from: '2026-11-01T00:00:00.000Z', to: '2026-11-17T16:00:00.000Z' }, 'hour')).toBe('hour')
+  expect(costGrain({ from: '2026-11-01T00:00:00.000Z', to: '2026-11-17T16:00:01.000Z' }, 'hour')).toBe('day')
+})
