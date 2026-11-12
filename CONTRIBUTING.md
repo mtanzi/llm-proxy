@@ -82,6 +82,22 @@ An auto-merged PR gets GitHub auto-merge (squash), pinned to the head commit, an
 
 `.github/dependabot.yml` adds a cooldown before Dependabot proposes a new version: 3 days for patch, 7 for minor and 7 for major, with a 7-day default for versions Dependabot cannot classify by semver. It also groups runtime patch updates into one weekly PR per ecosystem; npm development-dependency patches ride in the `web-dev-tools` group instead. The cooldown gives the community time to find and yank a compromised release before it reaches `main` unattended. Auto-merge is limited to low-risk update types, and the required CI checks still gate every merge.
 
+## Release security gates
+
+The `release` workflow runs `.github/workflows/security-gates.yml` before anything else. The `image` and `binaries` jobs `need` it, so a failed gate stops the release before any image is pushed or binary attached. Run the same gates by hand on any branch from the Actions tab (`Security gates`, `workflow_dispatch`); this needs no tag.
+
+| Gate | Tool | Fails on |
+| --- | --- | --- |
+| Go vulnerabilities | [govulncheck](https://go.dev/doc/security/vuln/) (`v1.9.0`, on the latest stable Go) | a known vulnerability the code can reach |
+| Image vulnerabilities | [Trivy](https://github.com/aquasecurity/trivy) (`0.76.2`) on an amd64 image built from the `Dockerfile` | a critical or high finding that has a fixed version |
+| Secrets | [gitleaks](https://github.com/gitleaks/gitleaks) (`8.30.1`) over the full git history | any finding |
+
+- Trivy runs with `--ignore-unfixed`. A finding with no fixed version cannot be resolved yet, and failing on it would block a release on something the maintainers cannot act on. Once a fix exists, the finding fails the gate.
+- Trivy and gitleaks are downloaded as release binaries, pinned by version and checked against a SHA-256. To upgrade, change the version and checksum together in `security-gates.yml`. The workflow does not use `gitleaks-action`, which needs a license for organisations. New actions in the workflow are pinned by commit SHA.
+- `.gitleaks.toml` extends the default gitleaks rules. Its one allowlist entry covers fake session keys in `internal/proxy/correlation_test.go` (rule `generic-api-key` only). Add an entry only for a verified false positive, scoped to a path and a rule, with a comment. Never allowlist a real secret: rotate it.
+- To run a gate locally, use the same commands as the workflow: `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...`, `trivy image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 <image>`, and `gitleaks git --redact --config .gitleaks.toml .`.
+- Weekly and PR scans are tracked in issue #86. Secret scanning with push protection is a repository setting the maintainer turns on (Settings, Code security).
+
 ## Version
 
 `make build` sets `main.version` with `-ldflags "-X main.version=<version>"`. Override with `make build VERSION=v1.2.3`.

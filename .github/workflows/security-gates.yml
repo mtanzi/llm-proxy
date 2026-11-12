@@ -1,0 +1,71 @@
+name: Security gates
+
+# Release gates (issue #85). The release workflow calls this one, and the image
+# and binaries jobs need it, so a failed gate stops the release before any image
+# is pushed or binary attached. Run it by hand (workflow_dispatch) to check any
+# branch without cutting a tag. Three gates, all free and open source:
+#   govulncheck  reachable known vulnerabilities in the Go module
+#   Trivy        critical and high vulnerabilities in the amd64 image
+#   gitleaks     secrets anywhere in the full git history
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # stable, so the standard library is the newest patch release.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: stable
+      # Fails (exit 3) only on a vulnerability the code can reach.
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  image-scan:
+    name: Trivy image scan
+    runs-on: ubuntu-latest
+    env:
+      TRIVY_VERSION: 0.76.2
+      # sha256 of trivy_0.76.2_Linux-64bit.tar.gz from the release checksums.
+      TRIVY_SHA256: bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Build the amd64 image
+        run: docker build --build-arg VERSION=security-gate -t llm-proxy:release-check .
+      - name: Install Trivy
+        run: |
+          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | sha256sum -c -
+          tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy
+      # --ignore-unfixed skips findings with no fixed version: nothing can be
+      # done about them yet, and failing on them would block a release on
+      # something the maintainers cannot resolve. A finding with a fix fails.
+      - name: Scan for critical and high vulnerabilities
+        run: ./trivy image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 llm-proxy:release-check
+
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      # sha256 of gitleaks_8.30.1_linux_x64.tar.gz from the release checksums.
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      # The binary, not gitleaks-action, which needs a license for organisations.
+      - name: Install gitleaks
+        run: |
+          curl -fsSLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | sha256sum -c -
+          tar -xzf "gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" gitleaks
+      # Exit 1 on any finding. --redact keeps a secret out of the log.
+      - name: Scan the full git history
+        run: ./gitleaks git --redact --no-banner --config .gitleaks.toml .
