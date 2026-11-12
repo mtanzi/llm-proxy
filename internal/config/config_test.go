@@ -125,7 +125,7 @@ func TestExampleFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Keys) != 2 || len(cfg.Pricing) != 1 || len(cfg.Providers) != 1 {
+	if len(cfg.Keys) != 2 || len(cfg.Pricing) != 4 || len(cfg.Providers) != 1 {
 		t.Errorf("example content = %d keys, %d pricing, %d providers", len(cfg.Keys), len(cfg.Pricing), len(cfg.Providers))
 	}
 	for _, line := range strings.Split(string(data), "\n") {
