@@ -88,15 +88,15 @@ A reload that finds a duplicate name, a duplicate hash or a malformed hash is re
 
 1. Read the release notes for migrations that need attention.
 2. [Back up](#backups).
-3. Pull and restart. Set `LLM_PROXY_IMAGE` to the new version, then:
+3. Pin the new version, pull and restart. In the shell or the `.env` file, set `LLM_PROXY_IMAGE` to the new release, for example `LLM_PROXY_IMAGE=ghcr.io/mtanzi/llm-proxy:0.1.1` (the version has no `v`; there is no `latest` tag). Then:
 
    ```sh
    docker compose pull llm-proxy
    docker compose up -d llm-proxy
    ```
 
-   (For a locally built image, use `docker compose build llm-proxy` in place of `pull`.) The old container gets `SIGTERM` and drains in-flight streams for up to `server.drain_timeout`; the file sets `stop_grace_period: 10m` to match. Keep the two equal, and add 30 seconds if you want the final flush to survive a stream that runs to the deadline. A client that loses a connection retries by its own rules.
-4. Check `curl -s http://127.0.0.1:8080/readyz` and the log for the new version.
+   (For a locally built image, leave `LLM_PROXY_IMAGE` unset and use `docker compose build llm-proxy` in place of `pull`.) The old container gets `SIGTERM` and drains in-flight streams for up to `server.drain_timeout`; the file sets `stop_grace_period: 10m` to match. Keep the two equal, and add 30 seconds if you want the final flush to survive a stream that runs to the deadline. A client that loses a connection retries by its own rules.
+4. Check `curl -s http://127.0.0.1:8080/readyz`, and run `docker compose exec llm-proxy llm-proxy version` to confirm the new version.
 
 The new process applies its migrations at start. Migrations are expand-only within a release, so the previous version still works against the expanded schema.
 
