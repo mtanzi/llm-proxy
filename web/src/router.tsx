@@ -8,9 +8,10 @@ import {
 } from '@tanstack/react-router'
 import type { RouterHistory } from '@tanstack/react-router'
 import { Layout } from './components/Layout'
-import { Placeholder } from './routes/Placeholder'
 import { CallDetailView } from './views/CallDetail'
 import { CallLogView } from './views/CallLog'
+import { ConfigView } from './views/ConfigView'
+import { CostView } from './views/CostView'
 import { DashboardView } from './views/Dashboard'
 import { SessionListView } from './views/SessionList'
 import { SessionView } from './views/SessionView'
@@ -34,7 +35,7 @@ export interface RouterContext {
 const rootRoute = createRootRouteWithContext<RouterContext>()({ component: Layout })
 
 // The SPA is mounted at /ui/ (ADR 0029); the router's basepath is /ui, so
-// these paths carry no prefix. Views replace the placeholder components.
+// these paths carry no prefix.
 // The overview dashboard is the landing page (ADR 0052).
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -90,14 +91,14 @@ const costRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'cost',
   validateSearch: strict(validateCostSearch),
-  component: () => <Placeholder title="Cost" />,
+  component: CostView,
 })
 
 const configRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'admin/config',
   validateSearch: strict(validateNoSearch),
-  component: () => <Placeholder title="Config" />,
+  component: ConfigView,
 })
 
 const notFoundRoute = createRoute({

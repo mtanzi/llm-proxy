@@ -47,14 +47,13 @@ test.each([
   await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: title })).toBeTruthy())
 })
 
-// Cost and Config stay routable but unlinked until ADR 0035 builds them (issue 69).
-test('the sidebar links the built pages, not the placeholders', async () => {
+test('the sidebar links every page', async () => {
   await renderAt('/ui/')
   const nav = screen.getByRole('navigation', { name: 'Main' })
   const labels = within(nav)
     .getAllByRole('link')
     .map((a) => a.textContent)
-  expect(labels).toEqual(['Overview', 'Calls', 'Sessions', 'Tools'])
+  expect(labels).toEqual(['Overview', 'Calls', 'Sessions', 'Tools', 'Cost', 'Config'])
 })
 
 test('an unknown path falls back to the overview', async () => {

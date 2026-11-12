@@ -434,3 +434,24 @@ main:focus { outline: none; }
 .fill-5 { fill: var(--series-5); }
 .error-overlay polyline { fill: none; stroke: var(--error); stroke-width: 1.5; stroke-dasharray: 4 3; }
 .error-overlay rect { fill: var(--error); }
+
+/* Cost and cache page, and the read-only config page (ADR 0035). */
+.kpi-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.grid-table th[scope='row'] { height: 28px; padding: 0 8px; color: var(--fg); font-size: inherit; font-weight: 400; background: transparent; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+.table-frame tr:last-child th[scope='row'] { border-bottom: 0; }
+.panel .grid-table th[scope='row'] a { color: var(--fg); }
+.chart-table { margin-top: 8px; font-size: var(--text-xs); }
+.chart-table summary { cursor: pointer; color: var(--muted); }
+.chart-table-frame { max-height: 220px; overflow-y: auto; margin-top: 6px; }
+.ratio-chart { margin: 0; }
+.ratio-chart polyline { fill: none; stroke: var(--series-1); stroke-width: 1.5; }
+.ratio-chart .point { fill: var(--series-1); }
+.ratio-chart .gridline { stroke: var(--border-subtle); stroke-width: 1; }
+.ratio-chart .chart-frame { padding-left: 34px; }
+.axis-y { position: absolute; left: 0; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.axis-y-top { top: 10px; }
+.axis-y-mid { top: 78px; }
+.axis-y-bottom { top: 146px; }
+.config-help { max-width: 72ch; margin: 0 0 12px; line-height: 1.5; }
+.config-section { margin-bottom: 12px; }
+@media (max-width: 720px) { .kpi-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

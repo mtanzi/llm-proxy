@@ -103,6 +103,7 @@ Tabs: Overview, Tools, Usage and cost. All of them show stored numbers, names an
 
 - In-app: top sessions by cost, cost per prompt, cost per firstmate task (key name `fm:<task-id>`), and the cache hit ratio over time.
 - Calls with `auth_mode = client_passthrough` show an "API-equivalent" cost label, because the plan bills the person, not per token.
+- `GET /admin/usage` cannot group by prompt, so cost per prompt is summed from the newest 500 calls of the range (one `GET /admin/calls` page) and the panel says when the range has more.
 - Usage numbers are computed from raw call rows, so very long ranges (months) can take seconds. Rollup tables and Grafana dashboards over them are later items ([backend.md](backend.md#storage-and-scale)).
 
 ## Look and themes

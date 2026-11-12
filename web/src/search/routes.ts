@@ -176,10 +176,13 @@ export function validateToolsSearch(search: unknown): ToolsSearch {
   })
 }
 
-export const GROUP_BY = ['key', 'model', 'client', 'provider', 'session', 'error_class'] as const
+/** The groupings of the cost view (ADR 0035). */
+export const COST_GROUPS = ['model', 'key', 'client', 'session'] as const
+export type CostGroup = (typeof COST_GROUPS)[number]
+export const DEFAULT_COST_GROUP: CostGroup = 'model'
 export const GRAINS = ['minute', 'hour', 'day'] as const
 export interface CostSearch extends TimeRangeSearch, CallFilterSearch {
-  group_by?: (typeof GROUP_BY)[number]
+  group_by?: CostGroup
   grain?: (typeof GRAINS)[number]
 }
 export function validateCostSearch(search: unknown): CostSearch {
@@ -187,7 +190,8 @@ export function validateCostSearch(search: unknown): CostSearch {
   return compact({
     ...validateTimeRange(raw),
     ...validateCallFilters(raw),
-    group_by: oneOf(raw.group_by, GROUP_BY),
+    // The default grouping stays out of the URL.
+    group_by: oneOf(raw.group_by, COST_GROUPS) === DEFAULT_COST_GROUP ? undefined : oneOf(raw.group_by, COST_GROUPS),
     grain: oneOf(raw.grain, GRAINS),
   })
 }

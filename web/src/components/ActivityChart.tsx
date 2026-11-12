@@ -9,7 +9,7 @@ const tone = (s: StackSeries, i: number) => (s.other ? 5 : i)
 const W = 600
 const H = 140
 
-function axisLabel(t: number, grain: ActivityGrain): string {
+export function axisLabel(t: number, grain: ActivityGrain): string {
   const d = new Date(t)
   return grain === 'day'
     ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -29,6 +29,8 @@ export function ActivityChart({
   metric,
   grain,
   end,
+  dimension = 'model',
+  showErrors = true,
 }: {
   slots: number[]
   series: StackSeries[]
@@ -36,12 +38,16 @@ export function ActivityChart({
   metric: 'calls' | 'cost'
   grain: ActivityGrain
   end: number
+  /** What the stacks are grouped by: the label of the chart and its legend. */
+  dimension?: string
+  /** The errors line is part of the overview; the cost view draws stacks only. */
+  showErrors?: boolean
 }) {
   const format = metric === 'calls' ? formatCount : formatCostMicroUsd
   const stackTotals = slots.map((_, i) => series.reduce((sum, s) => sum + s.values[i], 0))
   const max = Math.max(0, ...stackTotals)
   const scale = max > 0 ? max : 1
-  const maxErrors = Math.max(0, ...errors)
+  const maxErrors = showErrors ? Math.max(0, ...errors) : 0
   const totalErrors = errors.reduce((a, b) => a + b, 0)
   const step = slots.length > 0 ? W / slots.length : W
   const bar = Math.max(1, step - 1)
@@ -58,9 +64,9 @@ export function ActivityChart({
     }
   })
   const label =
-    `${metric === 'calls' ? 'Calls' : 'Cost'} per ${grain} by model: ${format(total)} in ${slots.length} intervals` +
-    (series.length > 0 ? `, models ${series.map((s) => s.name).join(', ')}` : '') +
-    `; ${formatCount(totalErrors)} errors`
+    `${metric === 'calls' ? 'Calls' : 'Cost'} per ${grain} by ${dimension}: ${format(total)} in ${slots.length} intervals` +
+    (series.length > 0 ? `, ${dimension}s ${series.map((s) => s.name).join(', ')}` : '') +
+    (showErrors ? `; ${formatCount(totalErrors)} errors` : '')
   return (
     <figure className="activity-chart">
       <figcaption>
@@ -71,18 +77,22 @@ export function ActivityChart({
               <span className="mono">{s.name}</span>
             </li>
           ))}
-          <li className="legend-errors">
-            <span className="swatch swatch-error" aria-hidden="true" />
-            errors (right scale)
-          </li>
+          {showErrors && (
+            <li className="legend-errors">
+              <span className="swatch swatch-error" aria-hidden="true" />
+              errors (right scale)
+            </li>
+          )}
         </ul>
       </figcaption>
       <div className="chart-frame">
         <span className="chart-max" aria-hidden="true">{format(max)}</span>
-        <span className="chart-max chart-max-errors" aria-hidden="true">{`${formatCount(maxErrors)} errors`}</span>
+        {showErrors && (
+          <span className="chart-max chart-max-errors" aria-hidden="true">{`${formatCount(maxErrors)} errors`}</span>
+        )}
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label}>
           {slots.map((t, i) => {
-            if (stackTotals[i] === 0 && errors[i] === 0) return null
+            if (stackTotals[i] === 0 && (!showErrors || errors[i] === 0)) return null
             let y = H
             return (
               <g key={t}>
@@ -92,7 +102,7 @@ export function ActivityChart({
                       .filter((s) => s.values[i] > 0)
                       .map((s) => `, ${s.name} ${format(s.values[i])}`)
                       .join('') +
-                    `; ${formatCount(errors[i])} errors`}
+                    (showErrors ? `; ${formatCount(errors[i])} errors` : '')}
                 </title>
                 {series.map((s, si) => {
                   const v = s.values[i]

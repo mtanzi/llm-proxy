@@ -1,6 +1,6 @@
 # ADR 0035: UI view V5: cost and cache, and the read-only config page
 
-Status: Accepted
+Status: Completed
 
 Date: 2026-10-21
 
