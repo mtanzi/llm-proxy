@@ -49,7 +49,7 @@ session → prompt (user turn) → agent (main or sub-agent) → LLM call → to
 | V2 Session view | `/ui/sessions/:key` | Tree and waterfall of prompts, agents, calls and tool calls | `GET /admin/sessions/{key}`, `GET /admin/tool-calls?session=` |
 | V3 Call detail | `/ui/calls/:id` | Who, timings, usage and cost, outcome, tools requested and resolved. No content | `GET /admin/calls/{id}` |
 | V4 Tool-call explorer | `/ui/tools` | Per-tool summary and a list of tool calls with filters on name, error, duration and sizes | `GET /admin/tool-calls/summary`, `GET /admin/tool-calls` |
-| V5 Cost and cache | `/ui/cost` | Cost by key, model, client and session; cache hit ratio over time | `GET /admin/usage`, `GET /admin/calls` |
+| V5 Cost and cache | `/ui/cost` | Cost by key, model, client and session; cache hit ratio over time | `GET /admin/usage`, `GET /admin/calls`, `GET /admin/config` |
 | Admin | `/ui/admin/config` | View providers, pricing and key names (with `disabled`), read-only, because they live in the config file and change with `SIGHUP`. No key management: keys are added, disabled and rotated in the config file | `GET /admin/config` |
 
 The wireframes for V1 to V4 are in UI report sections 5.1 to 5.4; the parts that show message text, tool arguments or tool results are dropped. Every page shares one frame in the Linear look of [ADR 0033](../adrs/0033-ui-v2-session-list-and-session-view.md), branded Spyglass with a dark and a light theme ([Look and themes](#look-and-themes)): a sidebar with the Spyglass brand, the main navigation (the current page marked with the accent) and the theme toggle, one type scale, and the same filter menu, time-range picker, badges and empty, loading and error states. Behavior that matters for the architecture:
