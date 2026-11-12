@@ -18,8 +18,6 @@ import { CALL_TABS } from '../search/routes'
 import type { CallTab } from '../search/routes'
 import { Thread } from './callThread'
 import { ToolOutcome, buildToolRows, useToolPairs } from './toolPairs'
-export { buildToolRows, fetchToolPairs, toolCallWindow } from './toolPairs'
-export type { ToolCall, ToolRow } from './toolPairs'
 import { cacheHitRatio, formatRatio } from './SessionList'
 
 export type CallDetail = ResponseOf<'/admin/calls/{id}'>
@@ -215,6 +213,7 @@ function Overview({ call }: { call: CallDetail }) {
   return (
     <>
       <Timing call={call} />
+      {pairs.isError && <ErrorMessage error={pairs.error} onRetry={() => void pairs.refetch()} />}
       <Thread call={call} rows={buildToolRows(call, pairs.data?.tool_calls)} />
     </>
   )

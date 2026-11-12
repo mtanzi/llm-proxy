@@ -6,8 +6,9 @@ import { fireEvent } from '@testing-library/react'
 import { App } from '../App'
 import { createQueryClient } from '../queryClient'
 import { createAppRouter } from '../router'
-import { buildToolRows, fetchToolPairs } from './CallDetail'
-import type { CallDetail, ToolCall } from './CallDetail'
+import type { CallDetail } from './CallDetail'
+import { buildToolRows, fetchToolPairs } from './toolPairs'
+import type { ToolCall } from './toolPairs'
 
 const ID = '0190a1b2-0000-7000-8000-000000000001'
 const OTHER = '0190a1b2-0000-7000-8000-000000000002'
@@ -401,6 +402,29 @@ test('an API error shows a message', async () => {
   )
   await renderAt(`/ui/calls/${ID}`)
   await screen.findByRole('alert')
+})
+
+test('a failed pairing query on the overview shows an error with retry', async () => {
+  const call = detail({ tool_uses: [{ source: 'client', tool_call_id: 't1', name: 'Read', arg_bytes: 100 }] })
+  let failPairs = true
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url.startsWith('/admin/calls/')) return new Response(JSON.stringify(call))
+      if (failPairs) {
+        return new Response(JSON.stringify({ error: { type: 'internal', message: 'pairing failed' } }), { status: 500 })
+      }
+      return new Response(JSON.stringify({ tool_calls: [pair({})], next_cursor: null }))
+    }),
+  )
+  await renderAt(`/ui/calls/${ID}`)
+  const alert = await screen.findByRole('alert', {}, { timeout: 5000 })
+  failPairs = false
+  fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+  await waitFor(() =>
+    expect(within(screen.getByRole('article', { name: 'Tool call Read' })).getByText('Success')).toBeTruthy(),
+  )
+  expect(screen.queryByRole('alert')).toBeNull()
 })
 
 test('the overview has no accessibility violations', async () => {
