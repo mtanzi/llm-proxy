@@ -1,8 +1,8 @@
 name: Release
 
-# Runs only on a version tag. It builds the multi-arch image (ADR 0036), pushes
-# it to GitHub Container Registry, and attaches release binaries to the GitHub
-# release.
+# Runs only on a version tag. It first runs the security gates, then builds the
+# multi-arch image (ADR 0036), pushes it
+# to GitHub Container Registry, and attaches release binaries to the GitHub release.
 on:
   push:
     tags: ["v*"]
@@ -14,8 +14,14 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
+  # Security gates (issue #85): a failed gate stops the release.
+  gates:
+    name: Security gates
+    uses: ./.github/workflows/security-gates.yml
+
   image:
     name: Build and push image
+    needs: gates
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -62,7 +68,7 @@ jobs:
 
   binaries:
     name: Release binaries
-    needs: image
+    needs: [gates, image]
     runs-on: ubuntu-latest
     permissions:
       contents: write

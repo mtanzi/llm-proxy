@@ -1,0 +1,12 @@
+# gitleaks config for the release gate (.github/workflows/security-gates.yml).
+# It extends the default rules. The one allowlist entry below is for fake keys.
+title = "llm-proxy gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Fake session keys in a test file. They are made-up strings, not credentials."
+condition = "AND"
+paths = ['''^internal/proxy/correlation_test\.go$''']
+targetRules = ["generic-api-key"]
