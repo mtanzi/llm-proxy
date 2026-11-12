@@ -60,15 +60,15 @@ The `depguard` rules in `.golangci.yml` encode the table above. CI runs build, v
 
 Every PR carries one review label:
 
-- `review: tier A`: no human code review needed. Docs, tests and fixtures.
+- `review: tier A`: no human code review needed. Docs, tests and fixtures, plus small application changes we are confident do not break the application, for example a narrow bug fix covered by tests, or a build or config tweak with no behaviour change. Never auth, migrations, the API spec, config defaults, compose files or `.github/`.
 - `review: tier B`: light human review.
 - `review: tier C`: full human review, for example changes to CI, auth, storage or who can merge.
 
-The `tier-a-automerge` workflow (`.github/workflows/tier-a-automerge.yml`) enables GitHub auto-merge (squash) on a PR with the `review: tier A` label, so GitHub merges it once the required CI checks pass. It disables auto-merge again when a labelled PR changes a file outside the Tier A allowlist, or when a PR without the label has auto-merge that the workflow itself enabled (for example after the `review: tier A` label is removed). It never touches auto-merge a maintainer enabled, so auto-merge on a Tier B or C PR stays on. The allowlist is a backstop, not the decision: `docs/`, `testdata/`, `*.md`, `*_test.go` and `*.test.ts(x)`. A labelled PR with other files fails the workflow and lists them. If the workflow cannot list the PR files or read its auto-merge state, it disables auto-merge and fails. Do not label `.github/` changes Tier A; the allowlist still accepts Markdown files there, so this is a labelling rule, not a workflow check. PRs from forks are skipped.
+The `tier-a-automerge` workflow (`.github/workflows/tier-a-automerge.yml`) enables GitHub auto-merge (squash) on a PR with the `review: tier A` label, so GitHub merges it once the required CI checks pass. It disables auto-merge again when a PR without the label has auto-merge that the workflow itself enabled (for example after the `review: tier A` label is removed). It never touches auto-merge a maintainer enabled, so auto-merge on a Tier B or C PR stays on. The label alone decides: the workflow does not check which files the PR changes, so apply it only to changes that meet the Tier A definition above. If the workflow cannot read its auto-merge state, it disables auto-merge and fails. Do not label `.github/` changes Tier A; this is a labelling rule, not a workflow check. PRs from forks are skipped.
 
 ### Dependabot PRs
 
-The `dependabot-automerge` workflow (`.github/workflows/dependabot-automerge.yml`) handles PRs authored by `dependabot[bot]`; `tier-a-automerge` skips them, because they change `go.mod`, `go.sum` and `package-lock.json`, which the Tier A allowlist rejects. It reads the update type and dependency type with `dependabot/fetch-metadata` (pinned by commit SHA). For a grouped PR, every dependency in the group must meet an auto-merge rule.
+The `dependabot-automerge` workflow (`.github/workflows/dependabot-automerge.yml`) handles PRs authored by `dependabot[bot]`; `tier-a-automerge` skips them, because Dependabot PRs follow their own rules, described here. It reads the update type and dependency type with `dependabot/fetch-metadata` (pinned by commit SHA). For a grouped PR, every dependency in the group must meet an auto-merge rule.
 
 | Update | Label | Auto-merge |
 | --- | --- | --- |

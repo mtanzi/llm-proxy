@@ -2,8 +2,8 @@ name: tier-a-automerge
 
 # Enables GitHub's native auto-merge (squash) on PRs labelled "review: tier A".
 # GitHub merges only after the required checks on main pass. Never checks out
-# or runs PR code. Not a required check. Skips Dependabot PRs, which
-# dependabot-automerge handles.
+# or runs PR code. The label alone decides: no file check. Not a required
+# check. Skips Dependabot PRs, which dependabot-automerge handles.
 on:
   pull_request:
     types: [labeled, unlabeled, synchronize, reopened]
@@ -46,15 +46,5 @@ jobs:
                 gh pr merge "$PR" -R "$REPO" --disable-auto ;;
             esac
             exit 0
-          fi
-          if ! files=$(gh pr diff "$PR" -R "$REPO" --name-only); then
-            echo "Cannot list PR files."
-            gh pr merge "$PR" -R "$REPO" --disable-auto || true; exit 1
-          fi
-          bad=$(printf '%s\n' "$files" \
-            | grep -vE '^(docs/|testdata/|.*\.md$|.*_test\.go$|.*\.test\.tsx?$)' || true)
-          if [ -n "$bad" ]; then
-            echo "Not Tier A, files outside the allowlist:"; echo "$bad"
-            gh pr merge "$PR" -R "$REPO" --disable-auto || true; exit 1
           fi
           gh pr merge "$PR" -R "$REPO" --auto --squash --match-head-commit "$HEAD_SHA"
