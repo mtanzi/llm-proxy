@@ -4,6 +4,8 @@ Spyglass shows you what your AI coding agents do with the model. It is a self-ho
 
 > Spyglass is the product name. The binary, the commands, the config file, the Docker image and this repository are still named `llm-proxy`, so every command below says `llm-proxy`.
 
+![Spyglass Overview page in the dark theme: headline numbers for calls, cost, tokens, error rate, cache hit and latency, activity by model, a live feed and recent sessions.](docs/images/overview-dark.png)
+
 ## What it shows you
 
 - **Every call:** time, model, client, key, status, latency, time to first token, tokens in and out, cache reads and writes, and cost.
