@@ -6,8 +6,9 @@ import { fireEvent } from '@testing-library/react'
 import { App } from '../App'
 import { createQueryClient } from '../queryClient'
 import { createAppRouter } from '../router'
-import { buildToolRows, fetchToolPairs } from './CallDetail'
-import type { CallDetail, ToolCall } from './CallDetail'
+import type { CallDetail } from './CallDetail'
+import { buildToolRows, fetchToolPairs } from './toolPairs'
+import type { ToolCall } from './toolPairs'
 
 const ID = '0190a1b2-0000-7000-8000-000000000001'
 const OTHER = '0190a1b2-0000-7000-8000-000000000002'
@@ -176,7 +177,7 @@ const exchangeBlocks = () =>
     .getAllByRole('article')
     .map((r) => r.getAttribute('aria-label'))
 
-test('the overview renders the exchange as a thread of system, user, tool, assistant blocks', async () => {
+test('the overview renders the exchange as a thread of system, user, assistant, tool call blocks', async () => {
   stubApi(
     detail({
       context_compacted: true,
@@ -191,21 +192,12 @@ test('the overview renders the exchange as a thread of system, user, tool, assis
   )
   await renderAt(`/ui/calls/${ID}`)
   await screen.findByRole('heading', { name: 'Exchange' })
-  // Request side first, then the response and the tools it asked for.
-  expect(exchangeBlocks()).toEqual([
-    'Context compacted',
-    'Request',
-    'Tool result t9',
-    'Response',
-    'Tool call Read',
-    'Tool call Bash',
-  ])
+  // Request side first, then the response and the tools it asked for. No standalone result blocks.
+  expect(exchangeBlocks()).toEqual(['Context compacted', 'Request', 'Response', 'Tool call Read', 'Tool call Bash'])
+  expect(screen.queryByRole('article', { name: /Tool result/ })).toBeNull()
   const request = within(screen.getByRole('article', { name: 'Request' }))
   expect(request.getByText('p-1')).toBeTruthy()
   expect(request.getByText('60')).toBeTruthy()
-  const result = screen.getByRole('article', { name: 'Tool result t9' })
-  expect(result.className).toContain('block-tool-result')
-  expect(within(result).getByText('Error').className).toContain('badge-error')
   const response = screen.getByRole('article', { name: 'Response' })
   expect(response.className).toContain('block-assistant')
   expect(response.className).toContain('has-error')
@@ -214,6 +206,41 @@ test('the overview renders the exchange as a thread of system, user, tool, assis
   expect(within(response).getByText('end_turn')).toBeTruthy()
   expect(within(screen.getByRole('article', { name: 'Tool call Bash' })).getByText('2.0 KiB')).toBeTruthy()
   expect(screen.getAllByText('Content is not stored')).toHaveLength(1)
+})
+
+test('a tool call shows the outcome and size of its result, or why none is known', async () => {
+  stubApi(
+    detail({
+      tool_uses: [
+        { source: 'client', tool_call_id: 't1', name: 'Read', arg_bytes: 100 },
+        { source: 'client', tool_call_id: 't2', name: 'Bash', arg_bytes: 50 },
+        { source: 'client', tool_call_id: 't3', name: 'Grep', arg_bytes: 5 },
+        { source: 'client', tool_call_id: 't4', name: 'Edit', arg_bytes: 5 },
+        { source: 'client', tool_call_id: 't5', name: 'Glob', arg_bytes: 5 },
+      ],
+    }),
+    [
+      pair({}),
+      pair({ tool_call_id: 't2', name: 'Bash', is_error: true, result_bytes: 10 }),
+      pair({ tool_call_id: 't3', name: 'Grep', status: 'pending', result_call_id: null, is_error: null, result_bytes: 0 }),
+      pair({ tool_call_id: 't4', name: 'Edit', status: 'use_only', result_call_id: null, is_error: null, result_bytes: 0 }),
+    ],
+  )
+  await renderAt(`/ui/calls/${ID}`)
+  await screen.findByRole('heading', { name: 'Exchange' })
+  fireEvent.click(screen.getByRole('button', { name: 'Show 2 more tool calls' }))
+  const block = (name: string) => within(screen.getByRole('article', { name: `Tool call ${name}` }))
+  await waitFor(() => expect(block('Read').getByText('Success')).toBeTruthy())
+  expect(block('Read').getByText('2.0 KiB')).toBeTruthy()
+  expect(block('Read').getByText('t1')).toBeTruthy()
+  expect(block('Bash').getByText('Error').className).toContain('badge-error')
+  expect(screen.getByRole('article', { name: 'Tool call Bash' }).className).toContain('has-error')
+  expect(block('Bash').getByText('10 B')).toBeTruthy()
+  expect(block('Grep').getByText('Pending')).toBeTruthy()
+  expect(block('Edit').getByText('No result')).toBeTruthy()
+  // No pair returned for the use: outcome and result size are unknown.
+  expect(block('Glob').getAllByText('unknown')).toHaveLength(2)
+  expect(screen.queryByRole('article', { name: /Tool result/ })).toBeNull()
 })
 
 test('a long run of tool calls collapses behind a button', async () => {
@@ -375,6 +402,29 @@ test('an API error shows a message', async () => {
   )
   await renderAt(`/ui/calls/${ID}`)
   await screen.findByRole('alert')
+})
+
+test('a failed pairing query on the overview shows an error with retry', async () => {
+  const call = detail({ tool_uses: [{ source: 'client', tool_call_id: 't1', name: 'Read', arg_bytes: 100 }] })
+  let failPairs = true
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url.startsWith('/admin/calls/')) return new Response(JSON.stringify(call))
+      if (failPairs) {
+        return new Response(JSON.stringify({ error: { type: 'internal', message: 'pairing failed' } }), { status: 500 })
+      }
+      return new Response(JSON.stringify({ tool_calls: [pair({})], next_cursor: null }))
+    }),
+  )
+  await renderAt(`/ui/calls/${ID}`)
+  const alert = await screen.findByRole('alert', {}, { timeout: 5000 })
+  failPairs = false
+  fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+  await waitFor(() =>
+    expect(within(screen.getByRole('article', { name: 'Tool call Read' })).getByText('Success')).toBeTruthy(),
+  )
+  expect(screen.queryByRole('alert')).toBeNull()
 })
 
 test('the overview has no accessibility violations', async () => {

@@ -311,7 +311,7 @@ main:focus { outline: none; }
 .block-system { border-left-color: var(--bar-strong); background: transparent; border-style: dashed; border-left-style: solid; }
 .block-user { border-left-color: var(--fg); }
 .block-assistant { border-left-color: var(--accent); }
-.block-tool-call, .block-tool-result { margin-left: 24px; padding: 6px 12px; border-left-color: var(--bar); }
+.block-tool-call { margin-left: 24px; padding: 6px 12px; border-left-color: var(--bar); }
 .block.has-error { border-left-color: var(--error); }
 .thread-more button { margin-left: 24px; color: var(--muted); }
 

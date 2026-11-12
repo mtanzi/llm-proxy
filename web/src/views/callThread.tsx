@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import type { ResponseOf } from '../api/client'
 import { StatusBadge, isErrorStatus } from '../components/Badge'
+import { ToolOutcome } from './toolPairs'
+import type { ToolRow } from './toolPairs'
 import { UNKNOWN, formatBytes, formatCount, formatText, zeroAsUnknown } from '../lib/format'
 
 type CallDetail = ResponseOf<'/admin/calls/{id}'>
 
-export type BlockRole = 'system' | 'user' | 'assistant' | 'tool-call' | 'tool-result'
+export type BlockRole = 'system' | 'user' | 'assistant' | 'tool-call'
 
 export interface ThreadBlock {
   key: string
@@ -22,7 +24,6 @@ const ROLE_LABELS: Record<BlockRole, string> = {
   user: 'User',
   assistant: 'Assistant',
   'tool-call': 'Tool call',
-  'tool-result': 'Tool result',
 }
 
 /** A run of tool blocks longer than this shows its first COLLAPSED_SHOWN blocks and a button for the rest. */
@@ -38,6 +39,11 @@ function count(value: number | null): React.ReactNode {
   return value === null ? <span className="unknown">{UNKNOWN}</span> : formatCount(value)
 }
 
+function unknownBytes(value: number | null): React.ReactNode {
+  const shown = formatBytes(value)
+  return shown === UNKNOWN ? <span className="unknown">{UNKNOWN}</span> : shown
+}
+
 function mono(value: string): React.ReactNode {
   return value === '' ? <span className="unknown">{UNKNOWN}</span> : <code>{value}</code>
 }
@@ -45,11 +51,12 @@ function mono(value: string): React.ReactNode {
 /**
  * The call as a chat-style thread, in request then response order. Only
  * stored metadata is shown (ADR 0002): what the request carried (prompt id,
- * input tokens, the tool results it sent back) and what the response
- * returned (outcome, output tokens, the tools it asked for). A system block
+ * input tokens) and what the response returned (outcome, output tokens, the
+ * tools it asked for). Each tool call carries the outcome and size of its
+ * result, from the pairing rows of the Tools tab. A system block
  * notes a compaction request or a context compacted before this call.
  */
-export function buildThread(call: CallDetail): ThreadBlock[] {
+export function buildThread(call: CallDetail, rows: ToolRow[] = []): ThreadBlock[] {
   const u = call.usage
   const blocks: ThreadBlock[] = []
   if (call.compaction) {
@@ -69,19 +76,6 @@ export function buildThread(call: CallDetail): ThreadBlock[] {
       ['Tokens in', count(zeroAsUnknown(u.input_uncached + u.cache_read + u.cache_write_5m + u.cache_write_1h))],
     ],
   })
-  call.tool_results.forEach((r, i) =>
-    blocks.push({
-      key: `result-${i}-${r.tool_call_id}`,
-      role: 'tool-result',
-      name: `Tool result ${r.tool_call_id}`,
-      title: r.tool_call_id,
-      error: r.is_error,
-      fields: [
-        ['Result size', formatBytes(r.result_bytes)],
-        ['Outcome', r.is_error ? <span className="badge badge-error">Error</span> : <span className="badge badge-ok">Success</span>],
-      ],
-    }),
-  )
   const failed = isErrorStatus(call.status, call.error_class)
   blocks.push({
     key: 'response',
@@ -97,31 +91,34 @@ export function buildThread(call: CallDetail): ThreadBlock[] {
       ['Reasoning', count(zeroAsUnknown(u.reasoning))],
     ],
   })
-  call.tool_uses.forEach((t, i) =>
+  call.tool_uses.forEach((t, i) => {
+    const key = `use-${i}-${t.tool_call_id}`
+    const row = rows.find((r) => r.key === key)
     blocks.push({
-      key: `use-${i}-${t.tool_call_id}`,
+      key,
       role: 'tool-call',
       name: `Tool call ${formatText(t.name)}`,
       title: formatText(t.name),
-      error: false,
+      error: row?.isError === true,
       fields: [
-        ['Call id', mono(t.tool_call_id)],
+        ['Outcome', <ToolOutcome key="o" row={row ?? { isError: null, status: null }} />],
+        ['Result size', unknownBytes(row?.resultBytes ?? null)],
         ['Argument size', formatBytes(t.arg_bytes)],
+        ['Call id', mono(t.tool_call_id)],
       ],
-    }),
-  )
+    })
+  })
   return blocks
 }
 
 type Run = { role: BlockRole; blocks: ThreadBlock[] }
 
-/** Consecutive blocks of one tool role form a run; other blocks are runs of one. */
+/** Consecutive tool call blocks form a run; other blocks are runs of one. */
 export function threadRuns(blocks: ThreadBlock[]): Run[] {
   const runs: Run[] = []
   for (const b of blocks) {
     const last = runs[runs.length - 1]
-    const tool = b.role === 'tool-call' || b.role === 'tool-result'
-    if (tool && last?.role === b.role) last.blocks.push(b)
+    if (b.role === 'tool-call' && last?.role === b.role) last.blocks.push(b)
     else runs.push({ role: b.role, blocks: [b] })
   }
   return runs
@@ -132,7 +129,7 @@ function Block({ block }: { block: ThreadBlock }) {
     <article className={`block block-${block.role}${block.error ? ' has-error' : ''}`} aria-label={block.name}>
       <div className="block-head">
         <span className="kind">{ROLE_LABELS[block.role]}</span>
-        <span className={block.role === 'tool-result' ? 'title mono' : 'title'}>{block.title}</span>
+        <span className="title">{block.title}</span>
       </div>
       {block.fields.length > 0 && (
         <dl className="fields">
@@ -153,7 +150,7 @@ function RunBlocks({ run }: { run: Run }) {
   const long = run.blocks.length > COLLAPSE_AFTER
   const shown = long && !open ? run.blocks.slice(0, COLLAPSED_SHOWN) : run.blocks
   const hidden = run.blocks.length - COLLAPSED_SHOWN
-  const noun = run.role === 'tool-call' ? 'tool calls' : 'tool results'
+  const noun = 'tool calls'
   return (
     <>
       {shown.map((b) => (
@@ -173,8 +170,8 @@ function RunBlocks({ run }: { run: Run }) {
 }
 
 /** The Exchange section of the call detail overview. */
-export function Thread({ call }: { call: CallDetail }) {
-  const runs = threadRuns(buildThread(call))
+export function Thread({ call, rows }: { call: CallDetail; rows?: ToolRow[] }) {
+  const runs = threadRuns(buildThread(call, rows))
   return (
     <section aria-label="Exchange">
       <h2>Exchange</h2>
