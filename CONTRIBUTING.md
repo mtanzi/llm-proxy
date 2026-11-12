@@ -93,10 +93,17 @@ The `release` workflow runs `.github/workflows/security-gates.yml` before anythi
 | Secrets | [gitleaks](https://github.com/gitleaks/gitleaks) (`8.30.1`) over the full git history | any finding |
 
 - Trivy runs with `--ignore-unfixed`. A finding with no fixed version cannot be resolved yet, and failing on it would block a release on something the maintainers cannot act on. Once a fix exists, the finding fails the gate.
-- Trivy and gitleaks are downloaded as release binaries, pinned by version and checked against a SHA-256. To upgrade, change the version and checksum together in `security-gates.yml`. The workflow does not use `gitleaks-action`, which needs a license for organisations. New actions in the workflow are pinned by commit SHA.
+- Trivy and gitleaks are downloaded as release binaries, pinned by version and checked against a SHA-256. To upgrade, change the version and checksum together: Trivy in `.github/actions/trivy-scan/action.yml`, gitleaks in `security-gates.yml`. The govulncheck and Trivy steps live in those shared actions (`.github/actions/govulncheck` and `trivy-scan`), so the release gates, the PR scans and the weekly scan all use one pinned copy. The workflow does not use `gitleaks-action`, which needs a license for organisations. New actions in the workflow are pinned by commit SHA.
 - `.gitleaks.toml` extends the default gitleaks rules. Its one allowlist entry covers fake session keys in `internal/proxy/correlation_test.go` (rule `generic-api-key` only). Add an entry only for a verified false positive, scoped to a path and a rule, with a comment. Never allowlist a real secret: rotate it.
 - To run a gate locally, use the same commands as the workflow: `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...`, `trivy image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 <image>`, and `gitleaks git --redact --config .gitleaks.toml .`.
-- Weekly and PR scans are tracked in issue #86. Secret scanning with push protection is a repository setting the maintainer turns on (Settings, Code security).
+- Secret scanning with push protection is a repository setting the maintainer turns on (Settings, Code security). It is the routine secret check; gitleaks runs at release only.
+
+## Routine security scans
+
+The release gates only run at release time. Two routine scans catch a vulnerability disclosed afterwards. Neither blocks day-to-day work.
+
+- **Weekly scan** (`.github/workflows/security-weekly.yml`, Mondays 06:17 UTC, or `workflow_dispatch`): runs govulncheck on `main`, Trivy on an image built from `main`, and Trivy on the latest released image (`ghcr.io/mtanzi/llm-proxy:<version>`, the newest non-draft, non-pre-release release). On a finding the run fails and one open issue labelled `security-scan` is created, or updated if one is already open, so there is never one issue per week. Fix the findings, then close the issue; the next failing scan opens a new one. Findings also appear in the run summary.
+- **Pull request scans** (`.github/workflows/security-scans.yml`): runs govulncheck and the Trivy image scan on every PR and shows the result. They are not required checks on `main`: a vulnerability in an unrelated dependency would otherwise block every PR, including Tier A and Dependabot auto-merges, until it is fixed. Do not add them to the branch rules. A red result on a PR that does not touch dependencies usually means a new disclosure; the weekly issue tracks it.
 
 ## Version
 
