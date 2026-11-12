@@ -38,7 +38,8 @@ Spyglass shows you what your AI coding agents do with the model. It is a self-ho
 | Sessions | `/ui/sessions` | One row per session with duration, calls, tool calls, cost, cache hit and errors |
 | Session view | `/ui/sessions/:key` | The tree and the time waterfall of prompts, agents, calls and tool calls |
 | Tools | `/ui/tools` | Per-tool count, error rate, p50 and p95 duration and total time, split by agent type, and every tool call with its sizes, outcome and duration source. No argument or result text |
-| Cost, Config | `/ui/cost`, `/ui/admin/config` | Placeholder pages, not linked in the sidebar yet: the cost and cache page and the read-only config page are planned ([ADR 0035](docs/adrs/0035-ui-v5-cost-and-cache-and-config-page.md)) |
+| Cost and cache | `/ui/cost` | Cost by key, model, client and session, top sessions, cost per prompt and per firstmate task, and the cache hit ratio over time. Unknown cost shows as unknown; `client_passthrough` cost is labelled API-equivalent |
+| Config | `/ui/admin/config` | Providers, pricing and key names with their `disabled` flag, read-only. No hashes or credentials; keys change in the config file and take effect on `SIGHUP` |
 
 ## Quick start: personal local setup
 

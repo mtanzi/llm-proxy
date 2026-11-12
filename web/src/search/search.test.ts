@@ -122,7 +122,10 @@ describe('other routes', () => {
   })
 
   test('cost search checks group_by and grain', () => {
-    expect(validateCostSearch({ group_by: 'model', grain: 'day' })).toEqual({ group_by: 'model', grain: 'day' })
+    expect(validateCostSearch({ group_by: 'key', grain: 'day' })).toEqual({ group_by: 'key', grain: 'day' })
+    // The default grouping stays out of the URL; groupings the view does not offer are dropped.
+    expect(validateCostSearch({ group_by: 'model' })).toEqual({})
+    expect(validateCostSearch({ group_by: 'error_class' })).toEqual({})
     expect(validateCostSearch({ group_by: 'tool', grain: 'week' })).toEqual({})
   })
 
