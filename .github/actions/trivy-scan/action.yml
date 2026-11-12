@@ -1,0 +1,60 @@
+name: Trivy image scan
+description: >
+  Scan a container image for critical and high vulnerabilities that have a fix.
+  Used by the release gates, the pull request scans and the weekly scan, so the
+  Trivy version and checksum are pinned in one place. To upgrade, change the
+  version and checksum together.
+
+inputs:
+  image:
+    description: Image to scan, for example ghcr.io/mtanzi/llm-proxy:0.1.0.
+    required: true
+  build:
+    description: >
+      Set to "true" to build the image from the Dockerfile in the checked-out
+      repository and tag it as `image`, instead of pulling it.
+    default: "false"
+
+outputs:
+  report:
+    description: Scanner output (last 20000 bytes), set only when the scan fails.
+    value: ${{ steps.scan.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build the amd64 image
+      if: ${{ inputs.build == 'true' }}
+      shell: bash
+      run: docker build --build-arg VERSION=security-gate -t "${IMAGE}" .
+      env:
+        IMAGE: ${{ inputs.image }}
+    - name: Install Trivy
+      shell: bash
+      env:
+        TRIVY_VERSION: 0.76.2
+        # sha256 of trivy_0.76.2_Linux-64bit.tar.gz from the release checksums.
+        TRIVY_SHA256: bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
+      run: |
+        curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+        echo "${TRIVY_SHA256}  trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | sha256sum -c -
+        tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -C "${RUNNER_TEMP}" trivy
+        rm "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+    # --ignore-unfixed skips findings with no fixed version: nothing can be
+    # done about them yet, and failing on them would block a release on
+    # something the maintainers cannot resolve. A finding with a fix fails.
+    - name: Scan for critical and high vulnerabilities
+      id: scan
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+      run: |
+        set +e
+        "${RUNNER_TEMP}/trivy" image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 "${IMAGE}" 2>&1 | tee "${RUNNER_TEMP}/trivy.txt"
+        code=${PIPESTATUS[0]}
+        if [ "${code}" -ne 0 ]; then
+          tail -c 20000 "${RUNNER_TEMP}/trivy.txt" > "${RUNNER_TEMP}/trivy.tail"
+          { echo "### Trivy: ${IMAGE}"; echo '```'; cat "${RUNNER_TEMP}/trivy.tail"; echo '```'; } >> "${GITHUB_STEP_SUMMARY}"
+          { echo 'report<<REPORT_EOF'; cat "${RUNNER_TEMP}/trivy.tail"; echo; echo 'REPORT_EOF'; } >> "${GITHUB_OUTPUT}"
+        fi
+        exit "${code}"

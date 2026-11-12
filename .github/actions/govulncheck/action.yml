@@ -1,0 +1,30 @@
+name: govulncheck
+description: >
+  Run govulncheck on the Go module in the checked-out repository. Fails only on
+  a known vulnerability the code can reach. Used by the release gates, the pull
+  request scans and the weekly scan, so the version is pinned in one place.
+
+outputs:
+  report:
+    description: Scanner output (last 20000 bytes), set only when the scan fails.
+    value: ${{ steps.scan.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    # stable, so the standard library is the newest patch release.
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      with:
+        go-version: stable
+    - id: scan
+      shell: bash
+      run: |
+        set +e
+        go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./... 2>&1 | tee "${RUNNER_TEMP}/govulncheck.txt"
+        code=${PIPESTATUS[0]}
+        if [ "${code}" -ne 0 ]; then
+          tail -c 20000 "${RUNNER_TEMP}/govulncheck.txt" > "${RUNNER_TEMP}/govulncheck.tail"
+          { echo '### govulncheck'; echo '```'; cat "${RUNNER_TEMP}/govulncheck.tail"; echo '```'; } >> "${GITHUB_STEP_SUMMARY}"
+          { echo 'report<<REPORT_EOF'; cat "${RUNNER_TEMP}/govulncheck.tail"; echo; echo 'REPORT_EOF'; } >> "${GITHUB_OUTPUT}"
+        fi
+        exit "${code}"

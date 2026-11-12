@@ -1,0 +1,119 @@
+name: Weekly security scan
+
+# Routine scan (issue #86). A vulnerability disclosed after a release, in a
+# dependency of code or images already shipped, would go unnoticed until the next
+# release, because the release gates (security-gates.yml) only run at release
+# time. Every week this scans main (govulncheck and a fresh image build) and the
+# latest released image. On a finding the run fails and one open issue labelled
+# `security-scan` is created or updated, so there is never one issue per week.
+# Run it by hand (workflow_dispatch) to check now.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SCAN_LABEL: security-scan
+
+jobs:
+  govulncheck:
+    name: govulncheck (main)
+    runs-on: ubuntu-latest
+    outputs:
+      report: ${{ steps.scan.outputs.report }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - id: scan
+        uses: ./.github/actions/govulncheck
+
+  image-main:
+    name: Trivy (main image)
+    runs-on: ubuntu-latest
+    outputs:
+      report: ${{ steps.scan.outputs.report }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - id: scan
+        uses: ./.github/actions/trivy-scan
+        with:
+          image: llm-proxy:release-check
+          build: "true"
+
+  image-released:
+    name: Trivy (latest released image)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      report: ${{ steps.scan.outputs.report }}
+      image: ${{ steps.release.outputs.image }}
+    steps:
+      # Checkout only supplies the shared scanner action; the scanned image is the release.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Newest published release that is not a draft or pre-release. The image
+      # tag is the version without the leading v.
+      - id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
+          echo "image=ghcr.io/${GITHUB_REPOSITORY}:${tag#v}" >> "${GITHUB_OUTPUT}"
+      - id: scan
+        uses: ./.github/actions/trivy-scan
+        with:
+          image: ${{ steps.release.outputs.image }}
+
+  report:
+    name: Open or update the issue
+    needs: [govulncheck, image-main, image-released]
+    if: ${{ always() && contains(needs.*.result, 'failure') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      RESULT_GOVULNCHECK: ${{ needs.govulncheck.result }}
+      REPORT_GOVULNCHECK: ${{ needs.govulncheck.outputs.report }}
+      RESULT_IMAGE_MAIN: ${{ needs.image-main.result }}
+      REPORT_IMAGE_MAIN: ${{ needs.image-main.outputs.report }}
+      RESULT_IMAGE_RELEASED: ${{ needs.image-released.result }}
+      REPORT_IMAGE_RELEASED: ${{ needs.image-released.outputs.report }}
+      IMAGE_RELEASED: ${{ needs.image-released.outputs.image }}
+    steps:
+      - name: Create or update the scan issue
+        run: |
+          section() { # title result report
+            [ "$2" = "failure" ] || return 0
+            printf '### %s\n\n' "$1"
+            if [ -n "$3" ]; then
+              printf '```\n%s\n```\n\n' "$3"
+            else
+              printf 'The scan failed before it produced findings. See the run for the log.\n\n'
+            fi
+          }
+          {
+            printf 'The weekly security scan found problems. Run: %s\n\n' "${RUN_URL}"
+            section 'govulncheck on main' "${RESULT_GOVULNCHECK}" "${REPORT_GOVULNCHECK}"
+            section 'Trivy on the main image' "${RESULT_IMAGE_MAIN}" "${REPORT_IMAGE_MAIN}"
+            section "Trivy on the latest released image (${IMAGE_RELEASED:-unknown})" "${RESULT_IMAGE_RELEASED}" "${REPORT_IMAGE_RELEASED}"
+            printf 'This issue is updated by the next weekly scan while findings remain. Close it once they are fixed.\n'
+          } > body.md
+
+          gh label create "${SCAN_LABEL}" --color B60205 \
+            --description "Findings from the weekly security scan" 2>/dev/null || true
+
+          existing=$(gh issue list --label "${SCAN_LABEL}" --state open --limit 1 --json number --jq '.[0].number // empty')
+          if [ -n "${existing}" ]; then
+            gh issue edit "${existing}" --body-file body.md
+            gh issue comment "${existing}" --body "Still failing in the latest weekly scan: ${RUN_URL}"
+          else
+            gh issue create --label "${SCAN_LABEL}" \
+              --title "Security scan: vulnerabilities found" --body-file body.md
+          fi

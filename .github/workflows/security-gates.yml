@@ -7,9 +7,24 @@ name: Security gates
 #   govulncheck  reachable known vulnerabilities in the Go module
 #   Trivy        critical and high vulnerabilities in the amd64 image
 #   gitleaks     secrets anywhere in the full git history
+#
+# The scanner steps live in .github/actions/govulncheck and
+# .github/actions/trivy-scan, shared with the weekly and pull request scans
+# (issue #86). Those two scans pass gitleaks: false: gitleaks stays a release
+# gate only, and GitHub secret scanning is the routine secret check.
 on:
   workflow_call:
+    inputs:
+      gitleaks:
+        description: Run the gitleaks history scan.
+        type: boolean
+        default: true
   workflow_dispatch:
+    inputs:
+      gitleaks:
+        description: Run the gitleaks history scan.
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -20,37 +35,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # stable, so the standard library is the newest patch release.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version: stable
-      # Fails (exit 3) only on a vulnerability the code can reach.
-      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - uses: ./.github/actions/govulncheck
 
   image-scan:
     name: Trivy image scan
     runs-on: ubuntu-latest
-    env:
-      TRIVY_VERSION: 0.76.2
-      # sha256 of trivy_0.76.2_Linux-64bit.tar.gz from the release checksums.
-      TRIVY_SHA256: bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Build the amd64 image
-        run: docker build --build-arg VERSION=security-gate -t llm-proxy:release-check .
-      - name: Install Trivy
-        run: |
-          curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          echo "${TRIVY_SHA256}  trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | sha256sum -c -
-          tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" trivy
-      # --ignore-unfixed skips findings with no fixed version: nothing can be
-      # done about them yet, and failing on them would block a release on
-      # something the maintainers cannot resolve. A finding with a fix fails.
-      - name: Scan for critical and high vulnerabilities
-        run: ./trivy image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 llm-proxy:release-check
+      - uses: ./.github/actions/trivy-scan
+        with:
+          image: llm-proxy:release-check
+          build: "true"
 
   secrets:
     name: gitleaks
+    if: ${{ inputs.gitleaks }}
     runs-on: ubuntu-latest
     env:
       GITLEAKS_VERSION: 8.30.1

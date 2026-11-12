@@ -1,0 +1,19 @@
+name: Security scans
+
+# Pull request scans (issue #86): govulncheck and the Trivy image scan, shown on
+# every PR but deliberately NOT a required check on main. A vulnerability
+# disclosed in an unrelated dependency would otherwise block every PR, including
+# Tier A and Dependabot auto-merges, until it is fixed. The weekly scan files an
+# issue instead. gitleaks stays a release gate only.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scans:
+    name: Scans
+    uses: ./.github/workflows/security-gates.yml
+    with:
+      gitleaks: false
