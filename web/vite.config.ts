@@ -7,6 +7,13 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   base: '/ui/',
   plugins: [react()],
+  build: {
+    // The admin UI is served from the local admin listener, so one ~530 kB
+    // (~160 kB gzipped) bundle is acceptable. If the bundle grows past this
+    // limit, switch routes in src/router.tsx to lazy loading instead of
+    // raising the limit again.
+    chunkSizeWarningLimit: 700,
+  },
   server: {
     proxy: {
       '/admin': 'http://localhost:9090',
