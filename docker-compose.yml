@@ -4,7 +4,8 @@
 # Before the first start, create config.yaml and the secret files as in the
 # runbook's "First start" (it keeps secrets/ private).
 # Paths and the image can be overridden from the environment or an .env file:
-#   LLM_PROXY_IMAGE        image to run (default: build from this directory)
+#   LLM_PROXY_IMAGE        image to run (default: build from this directory).
+#                          Pin a release: LLM_PROXY_IMAGE=ghcr.io/mtanzi/llm-proxy:0.1.0
 #   LLM_PROXY_CONFIG_FILE  config file to mount (default: ./config.yaml)
 #   LLM_PROXY_SECRETS_DIR  directory that holds the secret files (default: ./secrets)
 #   LLM_PROXY_PORT         host port of the data plane (default: 8080)

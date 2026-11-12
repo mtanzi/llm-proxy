@@ -41,6 +41,38 @@ Spyglass shows you what your AI coding agents do with the model. It is a self-ho
 | Cost and cache | `/ui/cost` | Cost by key, model, client and session, top sessions, cost per prompt and per firstmate task, and the cache hit ratio over time. Unknown cost shows as unknown; `client_passthrough` cost is labelled API-equivalent |
 | Config | `/ui/admin/config` | Providers, pricing and key names with their `disabled` flag, read-only. No hashes or credentials; keys change in the config file and take effect on `SIGHUP` |
 
+## Install a release
+
+To run llm-proxy without a Go and Node toolchain, use a published release. Releases are listed on the [releases page](https://github.com/mtanzi/llm-proxy/releases). Set `VERSION` to the release you want, for example `0.1.0`.
+
+**Binary.** Each release has one binary per platform (`linux` or `darwin`, on `amd64` or `arm64`) and a `SHA256SUMS` file. The binary has the UI embedded and still needs a Postgres database.
+
+```sh
+VERSION=0.1.0
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # linux or darwin
+ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+BASE=https://github.com/mtanzi/llm-proxy/releases/download/v$VERSION
+FILE=llm-proxy-v$VERSION-$OS-$ARCH
+
+curl -fsSLO "$BASE/$FILE" -O "$BASE/SHA256SUMS"
+grep -F " $FILE" SHA256SUMS > SHA256SUMS.one   # keep only the line for your file
+sha256sum -c SHA256SUMS.one                    # on macOS: shasum -a 256 -c SHA256SUMS.one
+chmod +x "$FILE" && mv "$FILE" llm-proxy
+./llm-proxy version
+```
+
+Do not run the binary if the check does not print `OK`.
+
+**Container image.** The image is public and has no `latest` tag. Name the version, without the `v`:
+
+```sh
+docker pull ghcr.io/mtanzi/llm-proxy:0.1.0
+```
+
+To run the image with Postgres from [docker-compose.yml](docker-compose.yml), set `LLM_PROXY_IMAGE=ghcr.io/mtanzi/llm-proxy:0.1.0` in the shell or an `.env` file. Without it, compose builds the image from this directory. See [Deploy with compose](#deploy-with-compose).
+
+Then follow the steps below from step 1, skipping the build in step 2 and using your downloaded `llm-proxy` in place of `bin/llm-proxy`.
+
 ## Quick start: personal local setup
 
 One person, one machine, Claude Code signed in with their own account. The proxy forwards that sign-in and never stores it. You need Docker, Go, Node 22, `curl` and `openssl`. The full procedure, with troubleshooting, is in [docs/personal-local-setup.md](docs/personal-local-setup.md).
@@ -95,7 +127,7 @@ Spyglass has two listeners with different trust rules. Read this before you run 
 
 ## Deploy with compose
 
-For a shared or always-on setup, run `llm-proxy` and Postgres from [docker-compose.yml](docker-compose.yml) with an Anthropic API key. The [runbook](docs/runbook.md) covers the first start, keys, secret rotation, upgrades, backups, TLS, metrics and sizing. The design behind it is in [deployment.md](docs/architecture/deployment.md).
+For a shared or always-on setup, run `llm-proxy` and Postgres from [docker-compose.yml](docker-compose.yml) with an Anthropic API key. The [runbook](docs/runbook.md) covers running a pinned release image, the first start, keys, secret rotation, upgrades, backups, TLS, metrics and sizing. The design behind it is in [deployment.md](docs/architecture/deployment.md).
 
 ## Configuration
 
