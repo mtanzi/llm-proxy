@@ -157,20 +157,21 @@ func usageRaw(raw json.RawMessage) json.RawMessage {
 }
 
 type sessionSummaryJSON struct {
-	SessionKey   string         `json:"session_key"`
-	Key          string         `json:"key"`
-	Client       string         `json:"client"`
-	FirstTS      time.Time      `json:"first_ts"`
-	LastTS       time.Time      `json:"last_ts"`
-	EndedAt      time.Time      `json:"ended_at"`
-	Calls        int            `json:"calls"`
-	Prompts      int            `json:"prompts"`
-	ToolCalls    int            `json:"tool_calls"`
-	Errors       int            `json:"errors"`
-	AgentCount   int            `json:"agent_count"`
-	Models       []string       `json:"models"`
-	Usage        usageJSON      `json:"usage"`
-	CostMicroUSD *core.MicroUSD `json:"cost_micro_usd"`
+	SessionKey    string         `json:"session_key"`
+	Key           string         `json:"key"`
+	Client        string         `json:"client"`
+	FirstTS       time.Time      `json:"first_ts"`
+	LastTS        time.Time      `json:"last_ts"`
+	EndedAt       time.Time      `json:"ended_at"`
+	Calls         int            `json:"calls"`
+	Prompts       int            `json:"prompts"`
+	ToolCalls     int            `json:"tool_calls"`
+	Errors        int            `json:"errors"`
+	AgentCount    int            `json:"agent_count"`
+	Models        []string       `json:"models"`
+	Usage         usageJSON      `json:"usage"`
+	CostMicroUSD  *core.MicroUSD `json:"cost_micro_usd"`
+	UnpricedCalls int            `json:"unpriced_calls"`
 }
 
 func toSessionSummary(s core.SessionSummary) sessionSummaryJSON {
@@ -181,6 +182,7 @@ func toSessionSummary(s core.SessionSummary) sessionSummaryJSON {
 	return sessionSummaryJSON{
 		SessionKey: s.SessionKey, Key: s.KeyName, Client: s.Client, FirstTS: s.FirstTS.UTC(), LastTS: s.LastTS.UTC(),
 		EndedAt: s.EndedAt.UTC(), Calls: s.Calls, Prompts: s.PromptCount, ToolCalls: s.ToolCallCount, Errors: s.Errors, AgentCount: s.AgentCount, Models: models, Usage: toUsage(s.Usage), CostMicroUSD: s.Cost,
+		UnpricedCalls: s.UnpricedCalls,
 	}
 }
 
