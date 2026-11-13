@@ -1,10 +1,18 @@
 import {
+  columnResizingFeature,
+  columnSizingFeature,
+  columnVisibilityFeature,
+  createSortedRowModel,
   flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
-  useReactTable,
+  rowSortingFeature,
+  sortFn_alphanumeric,
+  sortFn_basic,
+  sortFn_datetime,
+  sortFn_text,
+  tableFeatures,
+  useTable,
 } from '@tanstack/react-table'
-import type { ColumnDef, RowData, SortingState, VisibilityState } from '@tanstack/react-table'
+import type { CellData, ColumnDef, RowData, TableFeatures, SortingState, ColumnVisibilityState } from '@tanstack/react-table'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useRef, useState } from 'react'
 import { EmptyState, ErrorMessage, LoadingState } from './states'
@@ -13,18 +21,35 @@ import { useRowNavigation } from './useRowNavigation'
 declare module '@tanstack/react-table' {
   // The type parameters must match TanStack's declaration.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  interface ColumnMeta<TData extends RowData, TValue> {
+  interface ColumnMeta<TFeatures extends TableFeatures, TData extends RowData, TValue extends CellData> {
     /** A number column: right-aligned with tabular figures, header included. */
     numeric?: boolean
   }
 }
 
+/** The table features DataTable uses (v9 registers features explicitly). */
+const features = tableFeatures({
+  columnVisibilityFeature,
+  columnSizingFeature,
+  columnResizingFeature,
+  rowSortingFeature,
+  sortedRowModel: createSortedRowModel(),
+  sortFns: {
+    alphanumeric: sortFn_alphanumeric,
+    text: sortFn_text,
+    datetime: sortFn_datetime,
+    basic: sortFn_basic,
+  },
+})
+
+/** Column definition for a DataTable row type. */
+export type DataTableColumn<T extends RowData> = ColumnDef<typeof features, T, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+
 const cellClass = (base: string, numeric: boolean | undefined) => (numeric ? `${base} num` : base)
 
-export interface DataTableProps<T> {
+export interface DataTableProps<T extends RowData> {
   data: T[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  columns: ColumnDef<T, any>[]
+  columns: DataTableColumn<T>[]
   getRowId: (row: T) => string
   /** Accessible name of the table. */
   label: string
@@ -62,7 +87,7 @@ const END_THRESHOLD = 5
  * loaded rows, visibility and sizing; TanStack Virtual keeps only visible rows
  * in the DOM.
  */
-export function DataTable<T>({
+export function DataTable<T extends RowData>({
   data,
   columns,
   getRowId,
@@ -84,12 +109,11 @@ export function DataTable<T>({
   const [localSorting, setLocalSorting] = useState<SortingState>([])
   const controlled = controlledSorting !== undefined && onSortingChange !== undefined
   const sorting = controlled ? controlledSorting : localSorting
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({})
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // TanStack Table returns unmemoizable functions; the React Compiler skips this component.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const table = useReactTable({
+  const table = useTable({
+    features,
     data,
     columns,
     getRowId,
@@ -102,11 +126,11 @@ export function DataTable<T>({
     enableSortingRemoval: !controlled,
     onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: 'onChange',
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
   })
   const rows = table.getRowModel().rows
 
+  // TanStack Virtual returns unmemoizable functions; the React Compiler skips this component.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,

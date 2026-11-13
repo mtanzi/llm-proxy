@@ -1,11 +1,11 @@
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
 import type { ResponseOf } from '../api/client'
 import { infiniteListOptions } from '../api/queries'
 import { ContentNotStored } from '../components/ContentNotStored'
 import { DataTable } from '../components/DataTable'
+import type { DataTableColumn } from '../components/DataTable'
 import { FilterMenu, NumberFilter, TextListFilter } from '../components/FilterMenu'
 import { TimeRangePicker } from '../components/TimeRangePicker'
 import { UNKNOWN, formatCostMicroUsd, formatCount, formatDurationMs, formatText } from '../lib/format'
@@ -36,7 +36,7 @@ function Cell({ text }: { text: string }) {
   return text === UNKNOWN ? <span className="unknown">{UNKNOWN}</span> : <>{text}</>
 }
 
-const columns: ColumnDef<SessionSummary>[] = [
+const columns: DataTableColumn<SessionSummary>[] = [
   {
     id: 'start',
     header: 'Start',

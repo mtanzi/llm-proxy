@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from './DataTable'
+import type { DataTableColumn } from './DataTable'
 
 interface Row {
   id: string
@@ -9,7 +9,7 @@ interface Row {
   n: number
 }
 
-const columns: ColumnDef<Row>[] = [
+const columns: DataTableColumn<Row>[] = [
   { accessorKey: 'name', header: 'Name', size: 200 },
   { accessorKey: 'n', header: 'Number', size: 100 },
 ]

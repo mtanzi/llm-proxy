@@ -1,10 +1,10 @@
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
 import { infiniteListOptions, readQueryOptions } from '../api/queries'
 import { listQueryKey } from '../api/keys'
 import { DataTable } from '../components/DataTable'
+import type { DataTableColumn } from '../components/DataTable'
 import {
   BooleanFilter,
   FilterMenu,
@@ -107,7 +107,7 @@ const outputTokens: Measure = (c) => zeroAsUnknown(c.usage.output)
 const cost: Measure = (c) => c.cost_micro_usd
 const numeric = { numeric: true }
 
-const columns: ColumnDef<LogRow>[] = [
+const columns: DataTableColumn<LogRow>[] = [
   {
     id: 'time',
     header: 'Time',
