@@ -38,7 +38,7 @@ jobs:
       # Tags follow the git tag: v1.2.3 gives 1.2.3 only. No latest or other
       # moving tag; deployments pin a version.
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
           flavor: latest=false
