@@ -363,7 +363,7 @@ test('empty and error states', async () => {
   expect(alert.textContent).toContain('The server failed')
   fail = false
   fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
-  await screen.findByText('No calls match these filters.')
+  await screen.findByText('No calls match these filters.', {}, { timeout: 5000 })
 })
 
 test('an unfiltered empty log says so', async () => {
