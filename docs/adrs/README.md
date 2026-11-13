@@ -106,7 +106,8 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0052](0052-ui-overview-dashboard-as-landing-page.md) | UI overview dashboard as the landing page | Accepted | 0024, 0025, 0030, 0031, 0033 |
 | [0053](0053-spyglass-brand-palettes-and-theme-switching.md) | Spyglass brand, palettes and theme switching | Accepted | 0029, 0033, 0052 |
 | [0054](0054-rename-to-spyglass.md) | Rename llm-proxy to Spyglass | Accepted | 0053 |
-| [0055](0055-agent-facing-cli-axi-toon-output.md) | Agent-facing CLI with AXI (TOON) output | Proposed | 0009, 0019, 0021, 0023, 0024, 0025, 0052, 0054 |
+| [0055](0055-agent-facing-cli-axi-toon-output.md) | Agent-facing CLI with AXI (TOON) output | Proposed | 0009, 0019, 0021, 0023, 0024, 0052, 0054, 0056 |
+| [0056](0056-session-unpriced-calls.md) | Unpriced calls per session | Proposed | 0020, 0021, 0024, 0052 |
 
 ## Suggested implementation order
 
@@ -121,7 +122,7 @@ The phase numbers below are the v1 plan, with these meanings: 1 proxy core, 2 co
 7. **Firstmate (phase 5):** 0040 (routing and ledger reporter), with keys issued by hand. v1 ends at 0040.
 8. **Accepted decisions:** 0042 to 0045 are Accepted with their recommended options: hint headers on for crewmates (0042, D5), no tool snippets (0043, D11), no provider error text (0044, D12), and no per-key body capture (0045, D13). The gap-review defaults (0046, D9, D10) are Completed: their decisions are recorded in the ADR table. They need no phase: the ADRs they touch already assume them. Set the hint-header variable when 0040 first routes Claude Code through the proxy.
 9. **Amendments to Completed ADRs:** 0047 (credential modes) and 0048 (call record and filter changes) are Completed: they changed code that had already landed, and their "Work required" lists landed with the ADRs they edit in place: 0047 with 0012, 0048 with 0010, 0014, 0016, 0019 and 0020. 0048 lands before 0025, whose stream carries `call.finished` only. 0049 (precedence and corrections) is Completed: it needs no code. 0050 (upstream identity encoding) is Completed: it landed after 0011 and 0013. 0051 (recorder isolates unwritable records) is Completed: it amends 0016 and the `WriteBatch` error contract of 0003 and 0017.
-10. **Agent-facing CLI (after v1):** 0055, after 0054 (the `spyglass` binary name) and the admin API of 0023 to 0025. Its phase 1 needs no API change. Phase 2 (`setup hooks`, agent skill) and phase 3 (analysis commands) follow in order.
+10. **Agent-facing CLI (after v1):** 0056 (the `unpriced_calls` field on the session summary), then 0055, after 0054 (the `spyglass` binary name) and the admin API of 0023 and 0024. 0055 covers the shared decisions and phase 1 (orient and look up). Install for an agent (`setup hooks`, agent skill) and the analysis commands are listed under "Later" in 0055, and each becomes its own ADR when its trigger is met.
 11. **Deferred:** 0041 (per-task key injection) is out of v1. Its trigger is "manual key issuing becomes the bottleneck".
 
 The test harness of 0018 and the fixtures of 0038 are used by most other ADRs, so start them early.
