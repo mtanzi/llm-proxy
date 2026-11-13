@@ -14,17 +14,12 @@ var version = "dev"
 
 const usage = `usage: spyglass [command] [flags]
 
-With no command, spyglass prints the home view: today's cost, calls and
-errors, read from the admin API (SPYGLASS_ADMIN_URL).
-
 commands:
-  serve     run the proxy
-  keygen    generate a virtual key and its config entry
-  version   print the build version
-  describe  the data model of the admin client commands
-  config    providers, pricing and key names
-  sessions  list or show sessions
-  calls     list or show calls
+  serve    run the proxy
+  keygen   generate a virtual key and its config entry
+  version  print the build version
+
+Run spyglass --help for the admin client commands.
 `
 
 func main() {

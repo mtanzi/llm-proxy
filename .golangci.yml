@@ -148,6 +148,7 @@ linters:
         cli-test:
           list-mode: strict
           files:
+            - "**/internal/cli/*_test.go"
             - "**/internal/cli/**/*_test.go"
           allow:
             - $gostd

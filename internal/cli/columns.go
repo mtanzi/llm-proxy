@@ -60,9 +60,9 @@ func (t colTable[T]) names() []string {
 	return out
 }
 
-// pick selects the columns to show: the declared defaults, then any extra
-// named columns, or exactly the --fields list when it is given.
-func (t colTable[T]) pick(cmd, fields string, extra ...string) ([]column[T], error) {
+// pick selects the columns to show: the declared defaults, or exactly the
+// --fields list when it is given.
+func (t colTable[T]) pick(cmd, fields string) ([]column[T], error) {
 	byName := map[string]column[T]{}
 	for _, c := range t.cols {
 		byName[c.name] = c
@@ -87,11 +87,6 @@ func (t colTable[T]) pick(cmd, fields string, extra ...string) ([]column[T], err
 	}
 	for _, c := range t.cols {
 		if c.deflt {
-			out = append(out, c)
-		}
-	}
-	for _, n := range extra {
-		if c, ok := byName[n]; ok {
 			out = append(out, c)
 		}
 	}
