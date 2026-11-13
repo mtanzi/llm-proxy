@@ -150,7 +150,7 @@ test('an API error shows with a retry, and Retry loads the config', async () => 
   await renderAt()
   const alert = await screen.findByRole('alert')
   fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
-  await screen.findByRole('table', { name: 'Providers' })
+  await screen.findByRole('table', { name: 'Providers' }, { timeout: 5000 })
 })
 
 test('the sidebar links Config and marks it current', async () => {

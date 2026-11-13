@@ -283,10 +283,26 @@ func TestWatchReload(t *testing.T) {
 	done := make(chan struct{})
 	go func() { h.WatchReload(ctx, sigs); close(done) }()
 
+	waitReloads := func(result string, want uint64) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for h.Reloads(result) < want {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %d %s reload(s), have %d", want, result, h.Reloads(result))
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	// The unbuffered send returns once the signal is received, before the
+	// reload reads the file, so wait for each reload to be counted before
+	// changing the file again.
 	m.set(cfgPath, "nonsense: true")
 	sigs <- syscall.SIGHUP
+	waitReloads(ResultFailure, 1)
 	m.set(cfgPath, base)
 	sigs <- syscall.SIGHUP
+	waitReloads(ResultSuccess, 1)
 	cancel()
 	<-done
 

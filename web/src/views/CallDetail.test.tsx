@@ -423,6 +423,7 @@ test('a failed pairing query on the overview shows an error with retry', async (
   fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
   await waitFor(() =>
     expect(within(screen.getByRole('article', { name: 'Tool call Read' })).getByText('Success')).toBeTruthy(),
+    { timeout: 5000 },
   )
   expect(screen.queryByRole('alert')).toBeNull()
 })

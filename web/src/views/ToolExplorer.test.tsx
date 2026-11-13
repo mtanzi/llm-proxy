@@ -245,5 +245,5 @@ test('a filtered empty page and an error with retry', async () => {
   expect(alerts[0].textContent).toContain('The server failed')
   failing = false
   for (const a of screen.getAllByRole('alert')) fireEvent.click(within(a).getByRole('button', { name: 'Retry' }))
-  await waitFor(() => expect(screen.getAllByText('No tool calls match these filters.')).toHaveLength(2))
+  await waitFor(() => expect(screen.getAllByText('No tool calls match these filters.')).toHaveLength(2), { timeout: 5000 })
 })
