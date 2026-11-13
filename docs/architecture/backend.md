@@ -4,13 +4,14 @@ Part of the [architecture set](README.md). v1 is an observe-only logging proxy f
 
 ## Shape
 
-One Go module, one static binary, `spyglass`, with three subcommands:
+One Go module, one static binary, `spyglass`, with these subcommands:
 
 | Subcommand | Purpose |
 |---|---|
 | `serve` | Applies the embedded migrations, then runs the data plane, the admin plane, the recorder and the retention job |
 | `keygen --name <name>` | Generates a virtual key, prints the plaintext once and the config entry with its SHA-256. Touches no config file and no database; see [Auth](#auth-virtual-keys) |
 | `version` | Prints the build version |
+| `describe`, `config`, `sessions list\|show`, `calls list\|show`, and no argument (the home view) | The agent-facing CLI ([ADR 0055](../adrs/0055-agent-facing-cli-axi-toon-output.md), [cli.md](cli.md)). Read-only `GET` clients of the admin API, `SPYGLASS_ADMIN_URL` (default `http://127.0.0.1:9090`), TOON output on stdout. They do not read the config file and never touch the database |
 
 **Storage model.** The proxy never stores request or response bodies. The tap reads each exchange in memory, the extractor keeps a small set of facts (who, provider, tokens, cost, timings, outcome, tool-call metadata), and the recorder inserts them as append-only rows through the `CallWriter` store port, implemented in v1 by the `store/postgres` adapter. There is no capture journal and no body table. Consequences: no search over prompt or response text, call detail shows numbers and tool names but not content, and a wrong parsing rule cannot be recomputed for past rows; a fix applies to new calls only. This resolves decisions D1 and D2 ([README](README.md#resolved-decisions)).
 
@@ -578,6 +579,9 @@ spyglass/
 │   │                       batch writer, retry, drop counting, shutdown flush
 │   ├── api/                admin JSON handlers, SSE stream, cursor wire format,
 │   │                       OpenAPI document
+│   ├── cli/                agent-facing CLI: admin API client, commands, output helpers.
+│   │                       Client of /admin; imports only toon (see cli.md)
+│   ├── toon/               encode-only TOON 3.3 subset. Standard library only
 │   ├── config/             YAML and env loading, secret references, key validation,
 │   │                       SIGHUP snapshot swap
 │   ├── store/
@@ -593,7 +597,7 @@ spyglass/
 └── docs/
 ```
 
-That is 11 packages under `internal/` (`ui` is the embed) plus `cmd/spyglass`, against 27 in the first draft, and one more package (`family/openai`) in v2. Merges: `server`, `auth`, `correlate`, `route`, `proxy` and `tap` became `proxy`; `extract/*` became `family/anthropic`; `writer` and `live` became `recorder`; `adminapi` and `query` became `api`; `configcache` became `keyring`; `domain` and the `store` ports became `core`; `metrics` collectors moved into the packages that update them. `budget`, `alerts` and `otelexport` are deferred.
+That is 13 packages under `internal/` (`ui` is the embed) plus `cmd/spyglass`, against 27 in the first draft, and one more package (`family/openai`) in v2. Merges: `server`, `auth`, `correlate`, `route`, `proxy` and `tap` became `proxy`; `extract/*` became `family/anthropic`; `writer` and `live` became `recorder`; `adminapi` and `query` became `api`; `configcache` became `keyring`; `domain` and the `store` ports became `core`; `metrics` collectors moved into the packages that update them. `budget`, `alerts` and `otelexport` are deferred.
 
 Dependency rules:
 
@@ -605,6 +609,7 @@ Dependency rules:
 - `store/postgres` imports `core` and its drivers, and nothing else from the module.
 - **Only `cmd/spyglass` (the wiring) imports `store/postgres`.** It builds the adapter from config, passes it to each consumer as the port it needs, applies migrations and starts the retention job. Tests wire fakes the same way.
 - `family/anthropic` is the only package that decodes provider body formats. It returns call records and keeps no bytes.
+- `cli` imports `toon` and the standard library, and nothing else from the module. It is a client of the admin API, outside the hexagon, like the browser: it cannot import `api`, `config`, `core` or a store. Its tests also import the root `api` package (the embedded OpenAPI document). `toon` imports the standard library only. `cmd/spyglass` only dispatches to `cli.Run`.
 - `recorder` is the only caller of `CallWriter`. Nothing else writes call or tool records.
 - An import check in CI (a `depguard` rule or `go list -deps`) enforces the rules above.
 

@@ -131,6 +131,31 @@ linters:
             - github.com/jackc/pgx
             - github.com/pressly/goose
             - github.com/testcontainers/testcontainers-go
+        toon:
+          list-mode: strict
+          files:
+            - "**/internal/toon/**"
+          allow:
+            - $gostd
+        cli:
+          list-mode: strict
+          files:
+            - "**/internal/cli/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/mtanzi/spyglass/internal/toon
+        cli-test:
+          list-mode: strict
+          files:
+            - "**/internal/cli/*_test.go"
+            - "**/internal/cli/**/*_test.go"
+          allow:
+            - $gostd
+            - github.com/mtanzi/spyglass/api
+            - github.com/mtanzi/spyglass/internal/toon
+            - github.com/santhosh-tekuri/jsonschema/v6
+            - go.yaml.in/yaml/v3
         proxy:
           files:
             - "**/internal/proxy/**"

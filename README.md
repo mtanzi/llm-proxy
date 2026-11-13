@@ -118,6 +118,19 @@ Open <http://127.0.0.1:9090/ui/>. The newest call is also at `curl -s 'http://12
 
 > **The admin plane has no sign-in.** The UI and the `/admin/*` API show every call to anyone who can reach port 9090. They listen on loopback only, and `serve` refuses any other address. Do not forward, tunnel or proxy that port to anyone else. To reach the UI of a compose deployment, see the [runbook](docs/runbook.md#reach-the-admin-ui).
 
+## Ask from the terminal
+
+The same binary is a read-only client of the admin API, made for agents such as Claude Code and equally usable by people and scripts. Output is [TOON](https://toon-format.org) on stdout ([ADR 0055](docs/adrs/0055-agent-facing-cli-axi-toon-output.md)).
+
+```sh
+bin/spyglass                                   # today's cost, calls, errors and the most expensive sessions
+bin/spyglass calls list --since 1h --limit 10  # calls, newest first, with the total count
+bin/spyglass sessions show team/a:1            # one session: summary, agents, prompts, calls
+bin/spyglass describe                          # every field with its unit
+```
+
+It reads `SPYGLASS_ADMIN_URL` (default `http://127.0.0.1:9090`) and sends no key, because the admin plane has no sign-in. Exit codes: 0 success, 1 error, 2 usage error. Each command has `--help` with examples.
+
 ## Security
 
 Spyglass has two listeners with different trust rules. Read this before you run it anywhere but your own machine.

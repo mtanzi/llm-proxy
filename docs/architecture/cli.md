@@ -1,8 +1,8 @@
 # Agent-facing CLI architecture
 
-Status: **designed, not built.** This document describes the architecture that [ADR 0055](../adrs/0055-agent-facing-cli-axi-toon-output.md) (Status: Proposed) decides. No CLI code exists yet. Everything under "With the CLI" is a target. Everything under "Today" describes landed behaviour, as written in [backend.md](backend.md) and [deployment.md](deployment.md).
+Status: **phase 1 built.** This document describes the architecture that [ADR 0055](../adrs/0055-agent-facing-cli-axi-toon-output.md) (Status: Completed) decided, and that `internal/cli`, `internal/toon` and the dispatch in `cmd/spyglass` now implement. "Today" describes the server and its two planes. "With the CLI" describes the client that now ships in the same binary. The later phases listed in the ADR are not built.
 
-The ADR is the source for command behaviour, flags, output rules and the list of API gaps. It covers the shared decisions and phase 1. Later phases are listed in its "Later" section, and the session `unpriced_calls` field is [ADR 0056](../adrs/0056-session-unpriced-calls.md). This document gives the overall picture: what the system looks like now, what it looks like with the CLI, and what does and does not change. Where the two disagree, the ADR wins until it is Completed (see [Source precedence](README.md#source-precedence)).
+The ADR is the source for command behaviour, flags, output rules and the list of API gaps. It covers the shared decisions and phase 1. Later phases are listed in its "Later" section, and the session `unpriced_calls` field is [ADR 0056](../adrs/0056-session-unpriced-calls.md). This document gives the overall picture: what the system looks like now, what it looks like with the CLI, and what does and does not change. Where the two disagree, the ADR is the source for command behaviour (see [Source precedence](README.md#source-precedence)).
 
 ## Summary
 
@@ -176,7 +176,7 @@ New code, all internal to the `spyglass` module, in two packages:
 
 **Decode types.** The CLI owns small decode types for the fields it reads and is checked against `api/openapi.yaml`, like the web UI. It does not import `internal/api` or `internal/config`, whose wire types are unexported and tied to the server. Tests validate the fake-server fixtures against the embedded `api.OpenAPIYAML` and check that every field the CLI reads exists in the spec.
 
-**Import rule, checked by `depguard`.** `internal/cli` has a strict allow-list: `$gostd`, `github.com/mtanzi/spyglass/api` (the embedded spec, for tests) and `internal/toon`. It cannot import `store/postgres`, a database driver, `internal/api`, `internal/config`, `core` or a package that opens a listener. `internal/toon` allows `$gostd` only. This keeps the CLI a pure API client and keeps the "only `cmd/spyglass` wiring imports `store/postgres`" rule of [backend.md](backend.md#package-layout) meaningful. Adding the two rules to `.golangci.yml`, and the two packages to the package tree of backend.md and the layout table of `CONTRIBUTING.md`, is part of the phase 1 work.
+**Import rule, checked by `depguard`.** `internal/cli` has a strict allow-list: `$gostd` and `internal/toon`, with a second rule for its test files (see the ADR's "Packages and the import rule" and `.golangci.yml`). It cannot import `store/postgres`, a database driver, `internal/api`, `internal/config`, `core` or a package that opens a listener. `internal/toon` allows `$gostd` only. This keeps the CLI a pure API client and keeps the "only `cmd/spyglass` wiring imports `store/postgres`" rule of [backend.md](backend.md#package-layout) meaningful.
 
 ## Connection and remote use
 
