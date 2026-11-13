@@ -1,4 +1,4 @@
-// Command llm-proxy is the LLM proxy server binary.
+// Command spyglass is the LLM proxy server binary.
 package main
 
 import (
@@ -10,7 +10,7 @@ import (
 // version is set at build time: go build -ldflags "-X main.version=v1.2.3".
 var version = "dev"
 
-const usage = `usage: llm-proxy <command> [flags]
+const usage = `usage: spyglass <command> [flags]
 
 commands:
   serve    run the proxy
@@ -37,7 +37,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "serve":
 		return runServe(args[1:], stderr)
 	default:
-		_, _ = fmt.Fprintf(stderr, "llm-proxy: unknown command %q\n\n%s", args[0], usage)
+		_, _ = fmt.Fprintf(stderr, "spyglass: unknown command %q\n\n%s", args[0], usage)
 		return 2
 	}
 }

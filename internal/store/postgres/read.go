@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // Page size of ListCalls: DefaultLimit when Page.Limit is not positive, and

@@ -18,7 +18,7 @@ const repoRoot = "../.."
 
 func TestPersonalExampleLoads(t *testing.T) {
 	// The personal setup needs no provider credential file.
-	o := fakeOpts(map[string]string{"LLM_PROXY_DATABASE_URL": "postgres://u:p@127.0.0.1:5432/llmproxy"}, nil)
+	o := fakeOpts(map[string]string{"SPYGLASS_DATABASE_URL": "postgres://u:p@127.0.0.1:5432/llmproxy"}, nil)
 	cfg, err := loadFile(t, filepath.Join(repoRoot, "config.personal.example.yaml"), o)
 	if err != nil {
 		t.Fatal(err)
@@ -53,12 +53,12 @@ func TestComposeMatchesExampleConfig(t *testing.T) {
 	if err := yaml.Unmarshal(data, &compose); err != nil {
 		t.Fatal(err)
 	}
-	svc, ok := compose.Services["llm-proxy"]
+	svc, ok := compose.Services["spyglass"]
 	if !ok {
-		t.Fatal("docker-compose.yml has no llm-proxy service")
+		t.Fatal("docker-compose.yml has no spyglass service")
 	}
 
-	cfgPath := svc.Environment["LLM_PROXY_CONFIG"]
+	cfgPath := svc.Environment["SPYGLASS_CONFIG"]
 	mounted := false
 	for _, v := range svc.Volumes {
 		mounted = mounted || strings.HasSuffix(v, ":"+cfgPath+":ro")
@@ -77,7 +77,7 @@ func TestComposeMatchesExampleConfig(t *testing.T) {
 	for _, f := range []string{cfg.Database.URL.File, cfg.Providers[0].Credential.Ref.File} {
 		name := strings.TrimPrefix(f, "/run/secrets/")
 		if _, ok := compose.Secrets[name]; !ok || !contains(svc.Secrets, name) {
-			t.Errorf("config reads %s, but the llm-proxy service has no secret %q", f, name)
+			t.Errorf("config reads %s, but the spyglass service has no secret %q", f, name)
 		}
 	}
 

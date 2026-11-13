@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/keyring"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/keyring"
 )
 
 const plaintextPrefix = "plaintext key (shown once, give it to the client and keep it nowhere else): "

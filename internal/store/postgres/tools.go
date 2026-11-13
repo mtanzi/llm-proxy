@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // Tool calls are derived when read (ADR 0020). A tool_events row of kind

@@ -8,7 +8,7 @@ There are two deployment tiers: one container plus Postgres for a home lab or sm
 
 | Piece | Form | State |
 |---|---|---|
-| `llm-proxy serve` | One static Go binary in a distroless container. Applies its embedded migrations at start | None on disk; the call queue and the key map are in memory. Keys, providers and pricing come from the config file; call records are in the store (the `store/postgres` adapter) |
+| `spyglass serve` | One static Go binary in a distroless container. Applies its embedded migrations at start | None on disk; the call queue and the key map are in memory. Keys, providers and pricing come from the config file; call records are in the store (the `store/postgres` adapter) |
 | Postgres 16 or later | Separate container or managed service | Call tables |
 | Optional: reverse proxy (Caddy, a cloud load balancer) or Tailscale | In front of the listeners | TLS certificates |
 | Optional: Prometheus, Grafana | Existing observability stack | Their own |
@@ -27,7 +27,7 @@ flowchart LR
     end
     subgraph host[One host]
         rp[Optional TLS front:<br/>Caddy or Tailscale serve]
-        subgraph app[llm-proxy container]
+        subgraph app[spyglass container]
             dp[":8080 data plane"]
             ap[":9090 admin plane and UI"]
         end
@@ -41,7 +41,7 @@ flowchart LR
     app --> pg
 ```
 
-- One `llm-proxy` container runs everything: data plane, admin plane, recorder and the retention job.
+- One `spyglass` container runs everything: data plane, admin plane, recorder and the retention job.
 - Postgres runs beside it with its own volume.
 - The data plane binds to a private address. The admin plane has no sign-in, so it binds to loopback, and `serve` refuses to start if `listen.admin` is not a loopback address. Remote access to the data plane goes through a tunnel such as WireGuard or Tailscale.
 - Sized for about 12,000 to 50,000 calls per day (UI report 6.1 estimates); see [Sizing](#sizing).
@@ -69,12 +69,12 @@ A load balancer in front of replicas must not buffer responses, must keep idle c
   3. Runtime stage: `gcr.io/distroless/static-debian12:nonroot`, the binary only.
 - Runs as the distroless `nonroot` user (uid 65532).
 - Multi-arch: `linux/amd64` and `linux/arm64`.
-- Entrypoint `llm-proxy`; command `serve`.
+- Entrypoint `spyglass`; command `serve`.
 - Image tags follow release versions. Deployments pin a version, never `latest`.
 
 ## Configuration
 
-One YAML file, path from `--config` or `LLM_PROXY_CONFIG`. Every scalar key can be overridden by an environment variable named `LLM_PROXY_<SECTION>_<KEY>`; a secret reference is overridden by its parts (`LLM_PROXY_DATABASE_URL_ENV` or `LLM_PROXY_DATABASE_URL_FILE`), and the lists (`providers`, `keys`, `pricing`) are not overridable. Secrets are never inlined; they are referenced by environment variable or file.
+One YAML file, path from `--config` or `SPYGLASS_CONFIG`. Every scalar key can be overridden by an environment variable named `SPYGLASS_<SECTION>_<KEY>` (the `LLM_PROXY_` names of release 0.1.0 are read when the `SPYGLASS_` name is unset, with a deprecation warning, until 0.3.0; [ADR 0054](../adrs/0054-rename-to-spyglass.md)); a secret reference is overridden by its parts (`SPYGLASS_DATABASE_URL_ENV` or `SPYGLASS_DATABASE_URL_FILE`), and the lists (`providers`, `keys`, `pricing`) are not overridable. Secrets are never inlined; they are referenced by environment variable or file.
 
 ```yaml
 listen:
@@ -85,7 +85,7 @@ listen:
     key_file: ""
 
 database:
-  url: { env: LLM_PROXY_DATABASE_URL }
+  url: { env: SPYGLASS_DATABASE_URL }
   max_conns: 20
 
 providers:                      # resolved decision D7; see upstream-connection.md
@@ -135,7 +135,7 @@ log:
 | Database URL and password | Postgres connection | Environment variable or file |
 
 - Virtual keys are not secrets of the proxy: the config file holds only their SHA-256 hashes. They are 256-bit random values, so there is no pepper and no extra secret to back up. The plaintext key lives only with the client that uses it.
-- **Generate a key** outside the proxy. With the helper, `llm-proxy keygen --name marco-laptop` prints the plaintext key once (`lp_` plus base62 of 32 random bytes) and the `keys` entry to paste into the config. Without it, any 256-bit random value with the `lp_` prefix works, because the proxy hashes the presented string as is:
+- **Generate a key** outside the proxy. With the helper, `spyglass keygen --name marco-laptop` prints the plaintext key once (`lp_` plus base62 of 32 random bytes) and the `keys` entry to paste into the config. Without it, any 256-bit random value with the `lp_` prefix works, because the proxy hashes the presented string as is:
 
   ```sh
   key="lp_$(openssl rand -hex 32)"
@@ -150,7 +150,7 @@ log:
 
 Resolved decision D6: one person routes their own Claude login through their own proxy. `proxy_key` stays the default; this is the opt-in. It is for one person's own traffic, on one machine, never shared. Heavy or shared use goes through `proxy_key` with an API key. Rules and terms notes are in [upstream-connection.md](upstream-connection.md#claude-code-with-a-claude-subscription).
 
-Generate a key (`llm-proxy keygen --name me-laptop`, or the `openssl` lines under [Secrets](#secrets)) and use a config like this:
+Generate a key (`spyglass keygen --name me-laptop`, or the `openssl` lines under [Secrets](#secrets)) and use a config like this:
 
 ```yaml
 listen:
@@ -158,7 +158,7 @@ listen:
   admin: "127.0.0.1:9090"
 
 database:
-  url: { env: LLM_PROXY_DATABASE_URL }
+  url: { env: SPYGLASS_DATABASE_URL }
 
 providers:
   - name: anthropic
@@ -178,13 +178,13 @@ Claude Code, in `~/.claude/settings.json` (not a committed project file):
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
-    "ANTHROPIC_CUSTOM_HEADERS": "x-llm-proxy-key: lp_…",
+    "ANTHROPIC_CUSTOM_HEADERS": "x-spyglass-key: lp_…",
     "CLAUDE_CODE_GATEWAY_HINT_HEADERS": "1"
   }
 }
 ```
 
-Do not set `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or `apiKeyHelper`; sign in with `/login`. The proxy stores no token, and the call record carries `auth_mode = client_passthrough` only. A call without a valid `x-llm-proxy-key` gets `401`, and so does a call that carries an `lp_` value in `Authorization` or `x-api-key`.
+Do not set `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or `apiKeyHelper`; sign in with `/login`. The proxy stores no token, and the call record carries `auth_mode = client_passthrough` only. A call without a valid `x-spyglass-key` gets `401`, and so does a call that carries an `lp_` value in `Authorization` or `x-api-key`.
 
 ## Migrations
 
@@ -201,7 +201,7 @@ Do not set `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or `apiKeyHelper`; sign i
 - Retention is one daily job in `store/postgres`: `DELETE … WHERE ts < cutoff` in batches of 10,000 rows. `calls` and `tool_events` 400 days.
 - Encryption of the Postgres volume follows the operator's normal policy for a database that holds usage metadata. It no longer needs to protect prompts or outputs, because none are stored.
 - A normalization fix applies to new calls only. Rows already written are not recomputed, because there are no raw bytes to recompute from. `usage_raw` is kept on each call row so the fix can be applied to old rows where the raw usage is enough.
-- Queue capacity bounds the data lost to a crash or a long Postgres outage (default 10,000 records, a few MB of memory). Dropped records are counted in `llm_proxy_calls_dropped_total`.
+- Queue capacity bounds the data lost to a crash or a long Postgres outage (default 10,000 records, a few MB of memory). Dropped records are counted in `spyglass_calls_dropped_total`.
 
 ### Sizing
 
@@ -224,7 +224,7 @@ At the upper end that is about 20 million `calls` rows over 400 days, 0.14 to 0.
 | model | day | 90 | 1.05 s | 1.05 s |
 | session | day | 120,000 | 1.52 s | 1.94 s |
 
-Each query reads every row of the range (one pass, one sort per group for the percentiles), so the time grows with rows in range, not with the number of buckets, apart from the output size of a session grouping. The ungrouped and per-key 30-day views sit at the 1 s usage trigger for rollup tables in [backend.md](backend.md#storage-and-scale). Re-run it with `LLM_PROXY_SIZING_ROWS=1500000 go test -run TestUsageSizing -v ./internal/store/postgres`. Partitioning and rollups come back at the triggers in [backend.md](backend.md#storage-and-scale).
+Each query reads every row of the range (one pass, one sort per group for the percentiles), so the time grows with rows in range, not with the number of buckets, apart from the output size of a session grouping. The ungrouped and per-key 30-day views sit at the 1 s usage trigger for rollup tables in [backend.md](backend.md#storage-and-scale). Re-run it with `SPYGLASS_SIZING_ROWS=1500000 go test -run TestUsageSizing -v ./internal/store/postgres`. Partitioning and rollups come back at the triggers in [backend.md](backend.md#storage-and-scale).
 
 ## Backups
 
@@ -259,21 +259,21 @@ Prometheus metrics at `/metrics` on the admin listener. This is a minimal set; e
 
 | Metric | Watch for |
 |---|---|
-| `llm_proxy_requests_total{family,provider,status,error_class}` | Error rates |
-| `llm_proxy_request_duration_seconds`, `llm_proxy_ttft_seconds` | Latency |
-| `llm_proxy_proxy_overhead_seconds` | Time the proxy adds before the upstream request is sent; target p99 under 5 ms (gap review R15). It runs from request arrival, before the first data-plane middleware, to the upstream request headers being written. It includes the client body upload and the upstream connection wait (DNS, dial and TLS), so a slow client or a cold connection shows here |
-| `llm_proxy_inflight_streams` | Streaming requests being forwarded now; load and drain progress |
-| `llm_proxy_call_queue_depth`, `llm_proxy_calls_dropped_total{reason}` | Lost log records (should be zero). A rate above zero on `reason="unwritable"` means the store rejected records the writer does not sanitize: a bug; the error log names each call id and the SQLSTATE |
-| `llm_proxy_writer_errors_total` | Store writes (Postgres in v1) failing |
-| `llm_proxy_writer_systematic_failure` | 1 while the writer is blocked on a batch of 8 or more records that the store rejects in full: a systematic bug, for example a migration the writer does not match. The queue fills until it is fixed |
-| `llm_proxy_live_events_dropped_total` | Slow UI subscribers |
-| `llm_proxy_config_reloads_total{result}` | `SIGHUP` reloads that failed, so the proxy kept the previous snapshot |
-| `llm_proxy_retention_deleted_total` | Rows the retention job deleted |
-| `llm_proxy_retention_last_run_timestamp_seconds` | Retention job not running: the timestamp stops moving (0 before the first run) |
+| `spyglass_requests_total{family,provider,status,error_class}` | Error rates |
+| `spyglass_request_duration_seconds`, `spyglass_ttft_seconds` | Latency |
+| `spyglass_proxy_overhead_seconds` | Time the proxy adds before the upstream request is sent; target p99 under 5 ms (gap review R15). It runs from request arrival, before the first data-plane middleware, to the upstream request headers being written. It includes the client body upload and the upstream connection wait (DNS, dial and TLS), so a slow client or a cold connection shows here |
+| `spyglass_inflight_streams` | Streaming requests being forwarded now; load and drain progress |
+| `spyglass_call_queue_depth`, `spyglass_calls_dropped_total{reason}` | Lost log records (should be zero). A rate above zero on `reason="unwritable"` means the store rejected records the writer does not sanitize: a bug; the error log names each call id and the SQLSTATE |
+| `spyglass_writer_errors_total` | Store writes (Postgres in v1) failing |
+| `spyglass_writer_systematic_failure` | 1 while the writer is blocked on a batch of 8 or more records that the store rejects in full: a systematic bug, for example a migration the writer does not match. The queue fills until it is fixed |
+| `spyglass_live_events_dropped_total` | Slow UI subscribers |
+| `spyglass_config_reloads_total{result}` | `SIGHUP` reloads that failed, so the proxy kept the previous snapshot |
+| `spyglass_retention_deleted_total` | Rows the retention job deleted |
+| `spyglass_retention_last_run_timestamp_seconds` | Retention job not running: the timestamp stops moving (0 before the first run) |
 
-Label sets are bounded, so no series count grows with traffic. `family` and `provider` come from the code and the config file, `status` is an HTTP status code, `error_class` is the closed set of call error classes, `reason` is `queue_full`, `shutdown` or `unwritable`, and `result` is `success` or `failure`. No metric carries a key name, session, model or call id; per-key detail comes from the call log. `llm_proxy_requests_total` counts forwarded calls that finished, so a request rejected before forwarding (bad virtual key, unknown path) is in the access log and not in this counter.
+Label sets are bounded, so no series count grows with traffic. `family` and `provider` come from the code and the config file, `status` is an HTTP status code, `error_class` is the closed set of call error classes, `reason` is `queue_full`, `shutdown` or `unwritable`, and `result` is `success` or `failure`. No metric carries a key name, session, model or call id; per-key detail comes from the call log. `spyglass_requests_total` counts forwarded calls that finished, so a request rejected before forwarding (bad virtual key, unknown path) is in the access log and not in this counter.
 
-The Go runtime and process collectors are served beside these. `cmd/llm-proxy/testdata/metrics.golden` pins the names, types and label names above.
+The Go runtime and process collectors are served beside these. `cmd/spyglass/testdata/metrics.golden` pins the names, types and label names above.
 
 - Logs: `log/slog` JSON to stdout, one line per request with the call id. Logs never contain bodies or credentials.
 - Dropped calls and writer errors are visible only in `/metrics` in v1. There is no alert feed; see [backend.md](backend.md#later-versions).
@@ -288,7 +288,7 @@ The Go runtime and process collectors are served beside these. `cmd/llm-proxy/te
 
 ### Shutdown and the stop grace period
 
-On `SIGTERM` the process reports not-ready on both `/readyz` endpoints, stops accepting connections, waits for in-flight streams up to `server.drain_timeout`, flushes the recorder queue within 30 seconds, then stops the retention job, closes the store and exits. A second signal forces an immediate exit and logs it. Streams still open at the drain deadline are cut, and the process waits up to 2 seconds for their handlers to hand the final records to the recorder before it closes the queue. Records still queued at the flush deadline are counted in `llm_proxy_calls_dropped_total{reason="shutdown"}` and their number is logged.
+On `SIGTERM` the process reports not-ready on both `/readyz` endpoints, stops accepting connections, waits for in-flight streams up to `server.drain_timeout`, flushes the recorder queue within 30 seconds, then stops the retention job, closes the store and exits. A second signal forces an immediate exit and logs it. Streams still open at the drain deadline are cut, and the process waits up to 2 seconds for their handlers to hand the final records to the recorder before it closes the queue. Records still queued at the flush deadline are counted in `spyglass_calls_dropped_total{reason="shutdown"}` and their number is logged.
 
 The data listener closes right after `/readyz` flips to not-ready, with no pause between them. A load balancer or orchestrator in front of the proxy that polls `/readyz` keeps routing new connections until its next probe, and those connections are refused. Make it stop routing before the proxy gets `SIGTERM`: for example, Kubernetes removes the pod from its endpoints, and a `preStop` hook that sleeps covers the propagation delay. The single-host Compose setup has no load balancer in front and is not affected.
 
@@ -309,10 +309,10 @@ Compatibility rules:
 
 The tested compose file is [docker-compose.yml](../../docker-compose.yml) in the repository root, with [config.example.yaml](../../config.example.yaml) and the secret files under `secrets/*.example`. CI starts it against a fake upstream ([scripts/compose-test.sh](../../scripts/compose-test.sh)). Recurring tasks are in the [runbook](../runbook.md); the single-person setup is in the [personal local setup](../personal-local-setup.md). What the file does:
 
-- Postgres 16 with a named volume and a `pg_isready` health check. `llm-proxy` waits for it to be healthy.
+- Postgres 16 with a named volume and a `pg_isready` health check. `spyglass` waits for it to be healthy.
 - The config is mounted read-only. The database URL (which carries the password), the Postgres password and the provider key reach the containers as file secrets.
-- `llm-proxy` mounts no data volume: it writes nothing to disk. `serve` migrates the database at start, so there is no migrate service.
+- `spyglass` mounts no data volume: it writes nothing to disk. `serve` migrates the database at start, so there is no migrate service.
 - The data plane is published on `127.0.0.1:8080`; front it with Tailscale or Caddy for remote clients. `stop_grace_period: 10m` matches `server.drain_timeout`.
 - The admin listener is loopback-only, so inside the container it is not reachable through a published port. To open the UI at `http://127.0.0.1:9090/ui/`, run `serve` on the host (see [Personal local setup](#personal-local-setup-subscription-passthrough)), or use the host network (`network_mode: host`, Linux) with `listen.admin: 127.0.0.1:9090`. There is no sign-in.
-- Before the first start, generate a key and add its entry under `keys:`. Without a `keys` entry every data-plane request gets `401`. After later key changes, run `docker compose kill -s HUP llm-proxy`.
+- Before the first start, generate a key and add its entry under `keys:`. Without a `keys` entry every data-plane request gets `401`. After later key changes, run `docker compose kill -s HUP spyglass`.
 - Point Claude Code at `http://127.0.0.1:8080` as described in [upstream-connection.md](upstream-connection.md#claude-code-with-a-proxy-held-api-key).

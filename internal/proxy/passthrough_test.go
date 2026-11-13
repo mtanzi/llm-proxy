@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // oauthToken stands in for the client's own subscription credential.
@@ -20,7 +20,7 @@ const oauthToken = "sk-ant-oat01-PASSTHROUGH-MARKER"
 func passthroughAuth(extra ...string) []string {
 	return append([]string{
 		"Authorization", "Bearer " + oauthToken,
-		"X-Llm-Proxy-Key", clientKey,
+		"X-Spyglass-Key", clientKey,
 		"Anthropic-Beta", "oauth-2025-04-20,claude-code-20250219",
 	}, extra...)
 }
@@ -52,7 +52,7 @@ func TestPassthroughForwardsClientCredentialUnchanged(t *testing.T) {
 func TestPassthroughForwardsClientXAPIKeyUnchanged(t *testing.T) {
 	got := make(chan seen, 1)
 	e := newEnvMode(t, capture(got, nil), config.AuthClientPassthrough, nil)
-	_ = readAll(t, e.do(t, "POST", "/v1/messages", "{}", "X-Llm-Proxy-Key", clientKey, "X-Api-Key", "sk-ant-api03-client").Body)
+	_ = readAll(t, e.do(t, "POST", "/v1/messages", "{}", "X-Spyglass-Key", clientKey, "X-Api-Key", "sk-ant-api03-client").Body)
 	up := <-got
 	if g := up.header.Values("X-Api-Key"); len(g) != 1 || g[0] != "sk-ant-api03-client" {
 		t.Errorf("upstream x-api-key = %q", g)
@@ -71,8 +71,51 @@ func TestPassthroughKeyHeaderNeverReachesUpstream(t *testing.T) {
 			}
 		}
 	}
-	if g := up.header.Values("X-Llm-Proxy-Key"); len(g) != 0 {
-		t.Errorf("x-llm-proxy-key reached upstream: %q", g)
+	if g := up.header.Values("X-Spyglass-Key"); len(g) != 0 {
+		t.Errorf("x-spyglass-key reached upstream: %q", g)
+	}
+}
+
+// The deprecated x-llm-proxy-key (ADR 0054) authenticates like x-spyglass-key,
+// never reaches the upstream, and is warned about once, without its value.
+func TestPassthroughLegacyKeyHeader(t *testing.T) {
+	var logs syncBuffer
+	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	got := make(chan seen, 3)
+	e := newEnvMode(t, capture(got, nil), config.AuthClientPassthrough, logger)
+	legacy := []string{"Authorization", "Bearer " + oauthToken, "X-Llm-Proxy-Key", clientKey}
+	for range 2 {
+		resp := e.do(t, "POST", "/v1/messages", "{}", legacy...)
+		_ = readAll(t, resp.Body)
+		if resp.StatusCode != 200 {
+			t.Fatalf("status %d", resp.StatusCode)
+		}
+		up := <-got
+		if g := up.header.Values("X-Llm-Proxy-Key"); len(g) != 0 {
+			t.Errorf("x-llm-proxy-key reached upstream: %q", g)
+		}
+		if rec := e.rec.next(t); rec.KeyName != "alice" {
+			t.Errorf("record key %q, want alice", rec.KeyName)
+		}
+	}
+	// Both headers: the new one is used, and neither reaches the upstream.
+	resp := e.do(t, "POST", "/v1/messages", "{}", append(passthroughAuth(), "X-Llm-Proxy-Key", "lp_nope")...)
+	_ = readAll(t, resp.Body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("both headers: status %d", resp.StatusCode)
+	}
+	up := <-got
+	if g := append(up.header.Values("X-Llm-Proxy-Key"), up.header.Values("X-Spyglass-Key")...); len(g) != 0 {
+		t.Errorf("a key header reached upstream: %q", g)
+	}
+	_ = e.rec.next(t)
+
+	out := logs.String()
+	if n := strings.Count(out, "x-llm-proxy-key header"); n != 1 {
+		t.Errorf("deprecation warnings = %d, want 1; logs:\n%s", n, out)
+	}
+	if strings.Contains(out, clientKey) || strings.Contains(out, "lp_nope") {
+		t.Errorf("logs carry a virtual key:\n%s", out)
 	}
 }
 
@@ -83,21 +126,27 @@ func TestWrongPlaceCredentialIsRejected(t *testing.T) {
 		hdr  []string
 	}{
 		{"passthrough virtual key in Authorization", config.AuthClientPassthrough,
-			[]string{"X-Llm-Proxy-Key", clientKey, "Authorization", "Bearer " + clientKey}},
+			[]string{"X-Spyglass-Key", clientKey, "Authorization", "Bearer " + clientKey}},
 		{"passthrough virtual key in bare Authorization", config.AuthClientPassthrough,
-			[]string{"X-Llm-Proxy-Key", clientKey, "Authorization", clientKey}},
+			[]string{"X-Spyglass-Key", clientKey, "Authorization", clientKey}},
 		{"passthrough virtual key in x-api-key", config.AuthClientPassthrough,
-			[]string{"X-Llm-Proxy-Key", clientKey, "X-Api-Key", clientKey}},
+			[]string{"X-Spyglass-Key", clientKey, "X-Api-Key", clientKey}},
 		{"passthrough virtual key only in Authorization", config.AuthClientPassthrough,
 			[]string{"Authorization", "Bearer " + clientKey}},
 		{"passthrough request without key header", config.AuthClientPassthrough,
 			[]string{"Authorization", "Bearer " + oauthToken}},
 		{"passthrough unknown key header", config.AuthClientPassthrough,
-			[]string{"Authorization", "Bearer " + oauthToken, "X-Llm-Proxy-Key", "lp_nope"}},
+			[]string{"Authorization", "Bearer " + oauthToken, "X-Spyglass-Key", "lp_nope"}},
+		{"proxy_key with x-spyglass-key", config.AuthProxyKey,
+			append(auth(), "X-Spyglass-Key", clientKey)},
+		{"proxy_key with only x-spyglass-key", config.AuthProxyKey,
+			[]string{"X-Spyglass-Key", clientKey}},
 		{"proxy_key with x-llm-proxy-key", config.AuthProxyKey,
 			append(auth(), "X-Llm-Proxy-Key", clientKey)},
-		{"proxy_key with only x-llm-proxy-key", config.AuthProxyKey,
-			[]string{"X-Llm-Proxy-Key", clientKey}},
+		{"passthrough virtual key in Authorization with legacy header", config.AuthClientPassthrough,
+			[]string{"X-Llm-Proxy-Key", clientKey, "Authorization", "Bearer " + clientKey}},
+		{"passthrough unknown legacy key header", config.AuthClientPassthrough,
+			[]string{"Authorization", "Bearer " + oauthToken, "X-Llm-Proxy-Key", "lp_nope"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			hit := make(chan seen, 1)

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/family/anthropic"
+	"github.com/mtanzi/spyglass/internal/family/anthropic"
 )
 
 // MaxBytes enforces the one request-size limit (server.max_request_bytes). It

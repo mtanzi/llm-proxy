@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/recorder"
+	"github.com/mtanzi/spyglass/internal/recorder"
 )
 
 // Bounds for the steps of Shutdown that have no config setting. They only

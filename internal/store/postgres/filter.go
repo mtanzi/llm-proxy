@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // where builds the WHERE clause of a call query. Values are only ever bind

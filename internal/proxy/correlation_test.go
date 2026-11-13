@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 func loadFixture(t *testing.T, name string) http.Header {
@@ -173,7 +173,7 @@ func TestCorrelateOversizeUserAgentIsNull(t *testing.T) {
 
 // credentialHeaders hold secrets. Correlation must neither read them into the
 // record nor log them, and must leave them in place for the forwarder.
-var credentialHeaders = []string{"Authorization", "X-Api-Key", "X-Llm-Proxy-Key", "Proxy-Authorization", "Cookie"}
+var credentialHeaders = []string{"Authorization", "X-Api-Key", "X-Spyglass-Key", "X-Llm-Proxy-Key", "Proxy-Authorization", "Cookie"}
 
 func TestCorrelateNeverReadsOrLogsCredentials(t *testing.T) {
 	var logs bytes.Buffer

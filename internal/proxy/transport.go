@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
+	"github.com/mtanzi/spyglass/internal/config"
 )
 
 // Upstream timeouts. The response-header timeout is long because a

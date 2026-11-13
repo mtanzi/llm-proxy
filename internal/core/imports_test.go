@@ -11,7 +11,7 @@ import (
 // asks the go tool, which knows which packages are standard. The coretest
 // subpackage is checked by depguard.
 func TestImportsStandardLibraryOnly(t *testing.T) {
-	const self = "github.com/mtanzi/llm-proxy/internal/core"
+	const self = "github.com/mtanzi/spyglass/internal/core"
 	out, err := exec.Command("go", "list", "-deps", "-test", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", ".").Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)

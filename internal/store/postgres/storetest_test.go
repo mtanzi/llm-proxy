@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/store/postgres"
-	"github.com/mtanzi/llm-proxy/internal/store/storetest"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/store/postgres"
+	"github.com/mtanzi/spyglass/internal/store/storetest"
 )
 
 func TestContract(t *testing.T) {

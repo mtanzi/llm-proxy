@@ -11,11 +11,11 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // Reload results, the values of the result label of
-// llm_proxy_config_reloads_total (exported by ADR 0026).
+// spyglass_config_reloads_total (exported by ADR 0026).
 const (
 	ResultSuccess = "success"
 	ResultFailure = "failure"
@@ -134,7 +134,7 @@ func (h *Holder) Reload() error {
 }
 
 // Reloads returns how many reloads ended with the given result, ResultSuccess
-// or ResultFailure. It is the source of llm_proxy_config_reloads_total{result}.
+// or ResultFailure. It is the source of spyglass_config_reloads_total{result}.
 func (h *Holder) Reloads(result string) uint64 {
 	switch result {
 	case ResultSuccess:

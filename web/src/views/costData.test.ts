@@ -72,14 +72,14 @@ test('share is a whole percent of the known cost; unknown has none', () => {
 
 test('cost per firstmate task groups the fm: keys by their task id', () => {
   const rows = costRows([
-    bucket({ group: 'fm:llm-proxy-adr-0035', cost_micro_usd: 3_000_000 }),
+    bucket({ group: 'fm:spyglass-adr-0035', cost_micro_usd: 3_000_000 }),
     bucket({ group: 'fm:other-task', cost_micro_usd: 9_000_000 }),
     bucket({ group: 'fm:', cost_micro_usd: 1 }),
     bucket({ group: 'laptop', cost_micro_usd: 99_000_000 }),
     bucket({ group: 'xfm:not-a-task', cost_micro_usd: 99_000_000 }),
   ])
   const tasks = taskRows(rows)
-  expect(tasks.map((t) => t.taskId)).toEqual(['other-task', 'llm-proxy-adr-0035'])
+  expect(tasks.map((t) => t.taskId)).toEqual(['other-task', 'spyglass-adr-0035'])
   expect(tasks[0].group).toBe('fm:other-task')
 })
 

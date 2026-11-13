@@ -4,7 +4,7 @@ Part of the [architecture set](README.md). v1 is an observe-only logging proxy f
 
 ## Shape
 
-One Go module, one static binary, `llm-proxy`, with three subcommands:
+One Go module, one static binary, `spyglass`, with three subcommands:
 
 | Subcommand | Purpose |
 |---|---|
@@ -34,7 +34,7 @@ flowchart TB
         br[Browser: React UI]
     end
 
-    subgraph bin[llm-proxy serve]
+    subgraph bin[spyglass serve]
         subgraph inbound[Inbound adapters]
             proxy["proxy<br/>auth, correlation,<br/>ReverseProxy, tap"]
             api["api<br/>JSON, SSE"]
@@ -53,7 +53,7 @@ flowchart TB
             rt["http.RoundTripper<br/>per provider"]
         end
         cfg["config<br/>YAML: providers,<br/>pricing, keys"]
-        wiring["cmd/llm-proxy<br/>wiring"]
+        wiring["cmd/spyglass<br/>wiring"]
     end
 
     up[Provider APIs]
@@ -76,7 +76,7 @@ flowchart TB
     proxy -.reads snapshot.-> cfg
 ```
 
-Everything between the Go components and Postgres goes through the store ports. Only `cmd/llm-proxy` wiring imports the `store/postgres` adapter (see [Storage ports and adapters](#storage-ports-and-adapters)).
+Everything between the Go components and Postgres goes through the store ports. Only `cmd/spyglass` wiring imports the `store/postgres` adapter (see [Storage ports and adapters](#storage-ports-and-adapters)).
 
 Two properties hold for every arrow out of the data plane:
 
@@ -95,7 +95,7 @@ Clean architecture with small rings. `core` at the centre holds entities, pure r
 | Adapters, inbound | `proxy` (data plane), `api` (admin plane), `ui` | `core`, application packages, `family/*` (`proxy` only) |
 | Adapters, outbound | `store/postgres`; upstream is `http.RoundTripper` | `core`, drivers |
 | Configuration | `config` | `core`, `yaml` |
-| Wiring | `cmd/llm-proxy` | everything |
+| Wiring | `cmd/spyglass` | everything |
 
 **Upstream port.** The standard library already has one: `http.RoundTripper`. `proxy` takes a `RoundTripper` per provider; tests pass a fake or an `httptest.Server`. A custom `Upstream` interface would wrap `RoundTripper` in a narrower shape and lose `ReverseProxy`'s streaming, flushing and cancellation behaviour (see [Proxy passthrough and streaming](#proxy-passthrough-and-streaming)). There is no custom upstream port.
 
@@ -120,10 +120,10 @@ The hot path is one flow, so it is one package with one file per concern: auth, 
 
 - **Virtual keys** look like `lp_<base62 of 32 random bytes>`. They live in the `keys` section of the config file, one entry per key: a `name`, the `sha256` (hex) of the key, and an optional `disabled` flag. The file never holds the plaintext (gap review R1). Keys are 256 bits of randomness, so a plain hash cannot be brute-forced and no server pepper is needed.
 - **Key names** are unique and stay stable: the call record stores the name, so renaming a key splits its history. `fm:<task-id>` is a valid name. A name is the only per-key identifier; there is no display prefix.
-- **Generating a key** happens outside the proxy. `llm-proxy keygen --name <name>` draws 32 bytes from the system random source, prints the plaintext key once, and prints the config entry to paste (`name` and `sha256`). The proxy keeps nothing. Without the helper, `openssl rand -hex 32` behind an `lp_` prefix gives an equally strong key, and `sha256sum` gives its hash; the proxy treats the presented key as an opaque string and hashes it. [deployment.md](deployment.md#secrets) has the exact commands.
+- **Generating a key** happens outside the proxy. `spyglass keygen --name <name>` draws 32 bytes from the system random source, prints the plaintext key once, and prints the config entry to paste (`name` and `sha256`). The proxy keeps nothing. Without the helper, `openssl rand -hex 32` behind an `lp_` prefix gives an equally strong key, and `sha256sum` gives its hash; the proxy treats the presented key as an opaque string and hashes it. [deployment.md](deployment.md#secrets) has the exact commands.
 - **Changing keys** is a config edit plus `SIGHUP`. Add: append an entry. Revoke: set `disabled: true` or delete the entry. Rotate: add the new entry, switch the client, then disable the old one. There is no key API.
-- **Where the key is read from.** Each provider has one fixed `auth_mode`. For a `proxy_key` provider (the default) the client sends its virtual key as its API credential: `Authorization: Bearer lp_…` or `x-api-key: lp_…`. For a `client_passthrough` provider the client's own credential occupies `Authorization`, so the virtual key travels in a separate `x-llm-proxy-key` header. [upstream-connection.md](upstream-connection.md#credential-modes) explains both modes.
-- **One header check.** A presented `lp_` virtual key is never forwarded upstream. A request that carries a credential in the wrong place for the provider's mode is rejected with `401`: for a `client_passthrough` provider, an `lp_` value in `Authorization` or `x-api-key`; for a `proxy_key` provider, an `x-llm-proxy-key` header.
+- **Where the key is read from.** Each provider has one fixed `auth_mode`. For a `proxy_key` provider (the default) the client sends its virtual key as its API credential: `Authorization: Bearer lp_…` or `x-api-key: lp_…`. For a `client_passthrough` provider the client's own credential occupies `Authorization`, so the virtual key travels in a separate `x-spyglass-key` header (or its deprecated 0.1.0 name `x-llm-proxy-key`, read only when `x-spyglass-key` is absent; ADR 0054). [upstream-connection.md](upstream-connection.md#credential-modes) explains both modes.
+- **One header check.** A presented `lp_` virtual key is never forwarded upstream. A request that carries a credential in the wrong place for the provider's mode is rejected with `401`: for a `client_passthrough` provider, an `lp_` value in `Authorization` or `x-api-key`; for a `proxy_key` provider, an `x-spyglass-key` or `x-llm-proxy-key` header.
 - **Lookup** is an in-memory map from SHA-256 to key record, owned by `keyring`. `keyring` builds it from the keys of a config snapshot, and the map travels with that snapshot: `SIGHUP` builds a new snapshot and swaps it atomically, and a request in flight keeps the map it started with. The handler hashes the presented key and looks the hash up. The config loader rejects a snapshot with a duplicate name, a duplicate hash or a malformed hash, and the proxy keeps the previous snapshot and logs the error. Nothing about keys touches the store.
 - **Checks:** the key exists and is not disabled. A failure returns a protocol-correct Anthropic error body with a stable `type` per error class (gap review R3). Expiry, request-rate and concurrency limits and budgets are deferred ([Later versions](#later-versions)).
 - **Admin plane** has no auth in v1. The admin listener is loopback-only and `serve` refuses to start otherwise (see [Shape](#shape)). Admin sign-in is a later item ([Later versions](#later-versions)).
@@ -160,7 +160,7 @@ The correlation step reads harness headers into the call record. It never parses
 
 Built on `net/http/httputil.ReverseProxy`. The approaches report verified the relevant behaviour with an experiment (section 6): immediate flushing of `text/event-stream`, cancellation propagation, body closing on client abort, and no measurable added latency.
 
-- **`Rewrite`** sets the upstream URL from the configured provider, applies the credential mode (replace the client credential with the provider key, or pass it through), removes `x-llm-proxy-key` and sets `Accept-Encoding: identity`, so the upstream sends an uncompressed body that the tap can scan ([ADR 0050](../adrs/0050-upstream-identity-encoding.md)). All other headers and body bytes are forwarded unchanged. `anthropic-version`, `anthropic-beta` and every other `anthropic-*` header are forwarded as open lists, as Anthropic's guide requires.
+- **`Rewrite`** sets the upstream URL from the configured provider, applies the credential mode (replace the client credential with the provider key, or pass it through), removes `x-spyglass-key` and `x-llm-proxy-key` and sets `Accept-Encoding: identity`, so the upstream sends an uncompressed body that the tap can scan ([ADR 0050](../adrs/0050-upstream-identity-encoding.md)). All other headers and body bytes are forwarded unchanged. `anthropic-version`, `anthropic-beta` and every other `anthropic-*` header are forwarded as open lists, as Anthropic's guide requires.
 - **`Transport`** is a plain `http.Transport` with default pool and HTTP/2 settings, one per provider. v1 has no retry and no fallback. An upstream 4xx or 5xx reaches the client unchanged, with `x-request-id` added, and the client applies its own retry rules. Claude Code's retry logic matches on the upstream's error wording, so error bodies are never wrapped (gap review R3).
 - **Response headers** pass through unchanged, in particular `content-type`, `retry-after`, `x-should-retry` and `anthropic-ratelimit-unified-*`. The upstream's own request id header is stored as `upstream_request_id` on the call row.
 - **Upstream timeouts:** a `net.Dialer` timeout, `Transport.ResponseHeaderTimeout` for time to headers, and an idle-between-chunks watchdog in the tap (provider setting `idle_timeout`). SSE `ping` events are never stripped: during long thinking pauses they are the only bytes on the stream.
@@ -217,18 +217,18 @@ A path or method the data plane does not serve gets a proxy-generated 404 with `
 
 The one "finished call" use case. It receives `Finished` events from the proxy and does three things, none of them blocking:
 
-1. **Live fan-out.** Each subscriber of the live tail (the SSE handler in `api`) gets a bounded channel. A slow subscriber loses events, and the loss is counted (`llm_proxy_live_events_dropped_total`).
-2. **Bounded queue.** `Finished` goes to the queue with a non-blocking `select`. When the queue is full the recorder drops the record and increments `llm_proxy_calls_dropped_total` with a `reason` label (`queue_full`, `shutdown`, or `unwritable` for a record the store rejects; see Failure below).
+1. **Live fan-out.** Each subscriber of the live tail (the SSE handler in `api`) gets a bounded channel. A slow subscriber loses events, and the loss is counted (`spyglass_live_events_dropped_total`).
+2. **Bounded queue.** `Finished` goes to the queue with a non-blocking `select`. When the queue is full the recorder drops the record and increments `spyglass_calls_dropped_total` with a `reason` label (`queue_full`, `shutdown`, or `unwritable` for a record the store rejects; see Failure below).
 3. **Batch writer.** One goroutine drains the queue and hands batches to `CallWriter.WriteBatch`. There is no intermediate store: the queue is the only buffer. The recorder contains no SQL.
 
 Writer details:
 
 - **Batching:** a batch closes at 500 records or 500 ms, whichever comes first. These are constants in code. Only `queue_capacity` (default 10,000) is configurable until measurement says otherwise.
 - **Write path in `store/postgres`:** one transaction, a multi-row `INSERT … ON CONFLICT DO NOTHING` into `calls` and `tool_events`. At 0.14 to 0.58 calls per second on average this is ample. The call id is a UUIDv7 assigned at request start, so a retried batch inserts nothing twice (gap review B5). The port contract is "idempotent on call id and atomic per batch"; the SQL is the adapter's choice.
-- **Failure (ADR 0051):** every failed `WriteBatch` call is counted (`llm_proxy_writer_errors_total`). The store adapter classifies the error; the recorder never inspects a driver error.
+- **Failure (ADR 0051):** every failed `WriteBatch` call is counted (`spyglass_writer_errors_total`). The store adapter classifies the error; the recorder never inspects a driver error.
   - A **transient** error (connection, timeout, outage, and every error the adapter does not recognize) retries the same batch with backoff. While the store is down the queue fills; the recorder then drops and counts new records as `queue_full`. The data plane never notices.
-  - An error that matches `core.ErrUnwritable` means the batch holds a record the store will never accept. Postgres classes 22 (data exception), 23 (integrity constraint violation) and 54 (program limit exceeded), and a value `pgx` cannot encode, are unwritable. The recorder splits the batch in halves until each rejected record stands alone. The other records commit. When the split is done, each rejected record is dropped, counted as `llm_proxy_calls_dropped_total{reason="unwritable"}` and logged with its call id, key name, SQLSTATE and constraint or column, never a body field. A rate above zero on that reason is the alert: it points to a cause the write-path sanitizing (ADR 0017) does not cover.
-  - **Systematic failure:** when every record of a batch of at least 8 records (`recorder.SystematicMinRecords`) is unwritable, the cause is taken as a bug, not as bad records. The recorder drops nothing, keeps the batch and retries it with backoff, and `llm_proxy_writer_systematic_failure` is 1 until a write commits. A value of 1 is the alert: the writer is blocked and the queue fills. Smaller all-fail batches are dropped per record.
+  - An error that matches `core.ErrUnwritable` means the batch holds a record the store will never accept. Postgres classes 22 (data exception), 23 (integrity constraint violation) and 54 (program limit exceeded), and a value `pgx` cannot encode, are unwritable. The recorder splits the batch in halves until each rejected record stands alone. The other records commit. When the split is done, each rejected record is dropped, counted as `spyglass_calls_dropped_total{reason="unwritable"}` and logged with its call id, key name, SQLSTATE and constraint or column, never a body field. A rate above zero on that reason is the alert: it points to a cause the write-path sanitizing (ADR 0017) does not cover.
+  - **Systematic failure:** when every record of a batch of at least 8 records (`recorder.SystematicMinRecords`) is unwritable, the cause is taken as a bug, not as bad records. The recorder drops nothing, keeps the batch and retries it with backoff, and `spyglass_writer_systematic_failure` is 1 until a write commits. A value of 1 is the alert: the writer is blocked and the queue fills. Smaller all-fail batches are dropped per record.
   - A crash loses the queue contents, at most `queue_capacity` records; this is the accepted cost of having no durable buffer. On a shutdown abort, every record of the batch in hand that is not yet stored or dropped counts as `reason="shutdown"`, with the queue.
 - **Shutdown:** on SIGTERM, after in-flight streams finish or the drain deadline passes, the queue is closed and the writer flushes what remains within 30 seconds, then exits. See [Listener and router](#listener-and-router).
 - **Appends only.** The writer does no joins, no read-modify-write and no session or agent updates. It also does not publish to the live tail after commit: the fan-out happens at `Finished`, before the commit, as an in-process event.
@@ -403,7 +403,7 @@ Notes on the shapes:
 
 Decision D14 (revised by C2): there is no in-memory store adapter. A second implementation of the read side would have to reimplement filters, keyset paging, percentiles and tool pairing in Go.
 
-- The contract suite `internal/store/storetest` and the `CallReader` tests run against a real Postgres, a container started per test run (or `LLM_PROXY_TEST_DATABASE_URL`). They need Docker or a local Postgres. CI runs them.
+- The contract suite `internal/store/storetest` and the `CallReader` tests run against a real Postgres, a container started per test run (or `SPYGLASS_TEST_DATABASE_URL`). They need Docker or a local Postgres. CI runs them.
 - Unit tests of `recorder`, `keyring` and `proxy` use small fakes of the narrow ports: a `CallWriter` that appends to a slice. `keyring` needs no fake: its tests build a key map from literal `core.Key` values and cover lookup, a disabled key, an unknown key, and rejection of duplicate names and malformed hashes at config load. `api` handler tests use a fake `CallReader` that returns canned values.
 
 ### Contract test suite
@@ -441,7 +441,7 @@ sequenceDiagram
     P->>K: Lookup(sha256(virtual key))
     K-->>P: key or 401 in the client's protocol shape
     P->>P: correlation from headers
-    P->>U: ReverseProxy: credential applied, x-llm-proxy-key removed
+    P->>U: ReverseProxy: credential applied, x-spyglass-key removed
     U-->>P: status, headers
     P-->>C: same status and headers, plus x-request-id
     loop each chunk
@@ -556,9 +556,9 @@ Notes:
 ## Package layout
 
 ```
-llm-proxy/
+spyglass/
 ├── cmd/
-│   └── llm-proxy/          main: flags, config load, migrations at start, wiring, serve, version
+│   └── spyglass/          main: flags, config load, migrations at start, wiring, serve, version
 ├── internal/
 │   ├── core/               entities (CallRecord, ToolUse, ToolResult, Usage, Key), pure rules
 │   │                       (Cost, Filter.Match), port interfaces
@@ -593,17 +593,17 @@ llm-proxy/
 └── docs/
 ```
 
-That is 11 packages under `internal/` (`ui` is the embed) plus `cmd/llm-proxy`, against 27 in the first draft, and one more package (`family/openai`) in v2. Merges: `server`, `auth`, `correlate`, `route`, `proxy` and `tap` became `proxy`; `extract/*` became `family/anthropic`; `writer` and `live` became `recorder`; `adminapi` and `query` became `api`; `configcache` became `keyring`; `domain` and the `store` ports became `core`; `metrics` collectors moved into the packages that update them. `budget`, `alerts` and `otelexport` are deferred.
+That is 11 packages under `internal/` (`ui` is the embed) plus `cmd/spyglass`, against 27 in the first draft, and one more package (`family/openai`) in v2. Merges: `server`, `auth`, `correlate`, `route`, `proxy` and `tap` became `proxy`; `extract/*` became `family/anthropic`; `writer` and `live` became `recorder`; `adminapi` and `query` became `api`; `configcache` became `keyring`; `domain` and the `store` ports became `core`; `metrics` collectors moved into the packages that update them. `budget`, `alerts` and `otelexport` are deferred.
 
 Dependency rules:
 
 - `core` imports only the standard library.
 - `family/*` imports `core` and `gjson`. No `net/http` server types, no I/O.
 - `proxy` imports `core`, `family/*` and `config` types, and defines small interfaces for what it needs (`KeyLookup`, `Recorder`). It imports no `store` package.
-- `httpmw` imports `core` and `family/anthropic` (for the protocol error bodies), and no `store` package. `proxy` and `api` build their muxes; `cmd/llm-proxy` wraps them with `httpmw`.
+- `httpmw` imports `core` and `family/anthropic` (for the protocol error bodies), and no `store` package. `proxy` and `api` build their muxes; `cmd/spyglass` wraps them with `httpmw`.
 - `recorder`, `keyring` and `api` import `core` (and `api` imports `recorder` for subscribing, and `config` for the read-only view of `GET /admin/config`). None imports `store/postgres` or a database driver.
 - `store/postgres` imports `core` and its drivers, and nothing else from the module.
-- **Only `cmd/llm-proxy` (the wiring) imports `store/postgres`.** It builds the adapter from config, passes it to each consumer as the port it needs, applies migrations and starts the retention job. Tests wire fakes the same way.
+- **Only `cmd/spyglass` (the wiring) imports `store/postgres`.** It builds the adapter from config, passes it to each consumer as the port it needs, applies migrations and starts the retention job. Tests wire fakes the same way.
 - `family/anthropic` is the only package that decodes provider body formats. It returns call records and keeps no bytes.
 - `recorder` is the only caller of `CallWriter`. Nothing else writes call or tool records.
 - An import check in CI (a `depguard` rule or `go list -deps`) enforces the rules above.
@@ -636,7 +636,7 @@ Everything below is out of v1. Each item has a trigger for adding it back. The v
 | Request-rate and concurrency limits, key expiry | Any key may call any model at any rate | More than one person holds keys |
 | Alerts, `AlertLog`, `/admin/alerts`, the firstmate alert adapter | Proxy health is visible through `/metrics` | The firstmate process-event adapter, [llm-proxy-design.md](../llm-proxy-design.md) §2.3 (b) |
 | OTel span export | Calls are visible only in the proxy's UI and database | Someone wants calls in Tempo, Jaeger or Phoenix. It is a second `recorder` subscriber; nothing in `core` changes. Spans would follow the OpenTelemetry GenAI semantic conventions, pinned to one schema version |
-| Admin sign-in | No sign-in: the admin plane is loopback-only, and `serve` refuses to start on a non-loopback admin address | Exposing the admin UI or API beyond localhost, or shared use. The earlier design: one admin token read from a secret file (`admin.token`, `admin.session_ttl`). The browser pastes it into a sign-in page, and `POST /admin/session` exchanges it for an in-memory session cookie (`HttpOnly`, `Secure` over TLS, `SameSite=Strict`, path `/admin`, 12-hour expiry; a cookie is needed because `EventSource` cannot send `Authorization`). `DELETE /admin/session` signs out, state-changing requests require an `X-Requested-With: llm-proxy-ui` header, and scripts and the firstmate adapter send `Authorization: Bearer <admin token>` |
+| Admin sign-in | No sign-in: the admin plane is loopback-only, and `serve` refuses to start on a non-loopback admin address | Exposing the admin UI or API beyond localhost, or shared use. The earlier design: one admin token read from a secret file (`admin.token`, `admin.session_ttl`). The browser pastes it into a sign-in page, and `POST /admin/session` exchanges it for an in-memory session cookie (`HttpOnly`, `Secure` over TLS, `SameSite=Strict`, path `/admin`, 12-hour expiry; a cookie is needed because `EventSource` cannot send `Authorization`). `DELETE /admin/session` signs out, state-changing requests require an `X-Requested-With: spyglass-ui` header, and scripts and the firstmate adapter send `Authorization: Bearer <admin token>` |
 | Admin scopes (`admin` and `read`), `admin_tokens` table | Not available, because there is no admin sign-in | Several admins, read-only viewers, or OIDC, after admin sign-in |
 
 ### Storage and scale

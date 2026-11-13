@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // SizingRowsEnv names the variable that turns on TestUsageSizing: the number of
 // generated calls. The test measures the 30-day aggregates that
 // docs/architecture/deployment.md, "Sizing", quotes. It is off by default
 // because it takes minutes and a few GB of disk.
-const sizingRowsEnv = "LLM_PROXY_SIZING_ROWS"
+const sizingRowsEnv = "SPYGLASS_SIZING_ROWS"
 
 func TestUsageSizing(t *testing.T) {
 	n, _ := strconv.Atoi(os.Getenv(sizingRowsEnv))

@@ -16,15 +16,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/family/anthropic"
-	"github.com/mtanzi/llm-proxy/internal/httpmw"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/family/anthropic"
+	"github.com/mtanzi/spyglass/internal/httpmw"
 )
 
 // Header names the handler sets or removes.
 const (
-	headerProxyKey        = "X-Llm-Proxy-Key"
+	headerProxyKey        = "X-Spyglass-Key"
+	headerLegacyProxyKey  = "X-Llm-Proxy-Key" // deprecated alias of headerProxyKey (ADR 0054)
 	headerAPIKey          = "X-Api-Key"
 	headerAuthorization   = "Authorization"
 	headerAcceptEncoding  = "Accept-Encoding"
@@ -71,12 +72,13 @@ type Handler struct {
 	tap        Tap
 	log        *slog.Logger
 	metrics    *Metrics
+	legacyKey  sync.Once    // warns once that a client sent x-llm-proxy-key
 	streams    atomic.Int64 // streaming requests being forwarded now
 	calls      atomic.Int64 // forwarded calls whose record is not yet sent
 }
 
 // InflightStreams is the number of streaming requests being forwarded now. It
-// is the value of llm_proxy_inflight_streams, kept even when the handler has no
+// is the value of spyglass_inflight_streams, kept even when the handler has no
 // Metrics; graceful shutdown (ADR 0027) logs it when the drain deadline passes.
 func (h *Handler) InflightStreams() int64 { return h.streams.Load() }
 
@@ -149,6 +151,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		httpmw.WriteError(w, errResp)
 		return
+	}
+	if usesLegacyKeyHeader(r.Header) {
+		h.legacyKey.Do(func() {
+			h.log.Warn("a client sent the deprecated x-llm-proxy-key header; send x-spyglass-key instead",
+				"call_id", reqID, "key_name", keyName)
+		})
 	}
 	target, err := url.Parse(provider.BaseURL)
 	if err != nil {
@@ -240,8 +248,8 @@ func pickProvider(snap *config.Snapshot) (config.Provider, bool) {
 // rewrite points the outbound request at the provider and applies the
 // credential. Every header it does not name is forwarded unchanged, so
 // anthropic-version, anthropic-beta and the other anthropic-* headers keep
-// their values. A virtual key never goes upstream: x-llm-proxy-key is removed
-// in every mode. In proxy_key mode the client credential, which is the virtual
+// their values. A virtual key never goes upstream: x-spyglass-key and its
+// deprecated alias x-llm-proxy-key are removed in every mode. In proxy_key mode the client credential, which is the virtual
 // key, is replaced by the provider key. In client_passthrough mode the client's
 // own Authorization and x-api-key are forwarded as they came, and the proxy
 // holds and injects no credential of its own. Accept-Encoding is set to
@@ -250,6 +258,7 @@ func rewrite(pr *httputil.ProxyRequest, target *url.URL, p config.Provider) {
 	pr.SetURL(target)
 	out := pr.Out.Header
 	out.Del(headerProxyKey)
+	out.Del(headerLegacyProxyKey)
 	// Ask for an uncompressed body so the tap can scan every response
 	// (ADR 0050). The client's Accept-Encoding is not forwarded.
 	out.Set(headerAcceptEncoding, "identity")
@@ -276,7 +285,7 @@ type flight struct {
 
 	failure   core.FailureKind
 	extracted bool // the tap ran the extractor
-	inflight  bool // counted in llm_proxy_inflight_streams until finish
+	inflight  bool // counted in spyglass_inflight_streams until finish
 
 	// Proxy overhead (ADR 0026): arrival at the chain to the upstream request
 	// headers written. The transport calls the trace hook on its own goroutine.
@@ -284,7 +293,7 @@ type flight struct {
 	sent    sync.Once
 }
 
-// clientTrace measures llm_proxy_proxy_overhead_seconds. It observes once, when
+// clientTrace measures spyglass_proxy_overhead_seconds. It observes once, when
 // the headers of the first upstream request attempt are written.
 func (f *flight) clientTrace() *httptrace.ClientTrace {
 	if f.h.metrics == nil {

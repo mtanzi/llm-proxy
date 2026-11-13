@@ -11,7 +11,7 @@ set -eu
 ct_setup "${1:?usage: restore-test.sh IMAGE}"
 
 # Stack A: the source. One call through the proxy, then a dump.
-a=llm-proxy-rt-a-$$
+a=spyglass-rt-a-$$
 ct_start "$a"
 [ "$(ct_send)" = 200 ] || {
 	echo "FAIL request through the proxy" >&2
@@ -29,7 +29,7 @@ echo "ok  pg_dump wrote $(wc -c <"$tmp/llmproxy.dump" | tr -d ' ') bytes"
 ct_compose "$a" down -v --timeout 20 >/dev/null 2>&1
 
 # Stack B: a fresh Postgres with a new volume. Restore, then start serve.
-b=llm-proxy-rt-b-$$
+b=spyglass-rt-b-$$
 projects="$projects $b"
 ct_compose "$b" up -d --wait --wait-timeout 120 postgres fake-upstream
 ct_compose "$b" exec -T postgres pg_restore -U llmproxy -d llmproxy --no-owner <"$tmp/llmproxy.dump"

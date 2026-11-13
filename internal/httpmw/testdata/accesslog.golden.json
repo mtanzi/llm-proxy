@@ -9,7 +9,8 @@
     "User-Agent": "test-agent",
     "X-Api-Key": "[redacted]",
     "X-Llm-Proxy-Key": "[redacted]",
-    "X-Request-Id": "client-1"
+    "X-Request-Id": "client-1",
+    "X-Spyglass-Key": "[redacted]"
   },
   "level": "INFO",
   "method": "POST",

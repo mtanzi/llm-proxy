@@ -5,7 +5,7 @@ Recorded Anthropic exchanges. Three kinds of test read them:
 - the extractor goldens (`internal/family/anthropic`, `make goldens`),
 - the fake upstream (`internal/fakeupstream`), which replays them with
   controllable timing,
-- the end-to-end tests (`cmd/llm-proxy/e2e_test.go`, `make e2e`).
+- the end-to-end tests (`cmd/spyglass/e2e_test.go`, `make e2e`).
 
 All text in them is fake. Prompt, response and tool text starts with
 `FAKEPROMPT-`, so a test can tell it from real data and the no-bodies checks can

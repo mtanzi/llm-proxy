@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/core/coretest"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/core/coretest"
 )
 
 // spyReader wraps the canned reader and records what the handlers pass in.

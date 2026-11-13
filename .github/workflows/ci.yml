@@ -85,7 +85,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
-      LLM_PROXY_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SPYGLASS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -109,7 +109,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
-      LLM_PROXY_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+      SPYGLASS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -134,15 +134,15 @@ jobs:
         with:
           context: .
           load: true
-          tags: llm-proxy:ci
+          tags: spyglass:ci
           build-args: VERSION=ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Check size and non-root user
-        run: scripts/check-image.sh llm-proxy:ci
+        run: scripts/check-image.sh spyglass:ci
       - name: Smoke test against Postgres
-        run: scripts/smoke-image.sh llm-proxy:ci
+        run: scripts/smoke-image.sh spyglass:ci
       - name: Compose stack test
-        run: scripts/compose-test.sh llm-proxy:ci
+        run: scripts/compose-test.sh spyglass:ci
       - name: Backup restore test
-        run: scripts/restore-test.sh llm-proxy:ci
+        run: scripts/restore-test.sh spyglass:ci

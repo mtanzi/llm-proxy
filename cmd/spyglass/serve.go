@@ -16,14 +16,14 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/mtanzi/llm-proxy/internal/api"
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/httpmw"
-	"github.com/mtanzi/llm-proxy/internal/keyring"
-	"github.com/mtanzi/llm-proxy/internal/proxy"
-	"github.com/mtanzi/llm-proxy/internal/recorder"
-	"github.com/mtanzi/llm-proxy/internal/store/postgres"
+	"github.com/mtanzi/spyglass/internal/api"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/httpmw"
+	"github.com/mtanzi/spyglass/internal/keyring"
+	"github.com/mtanzi/spyglass/internal/proxy"
+	"github.com/mtanzi/spyglass/internal/recorder"
+	"github.com/mtanzi/spyglass/internal/store/postgres"
 )
 
 // This file is the composition root (ADR 0028): the one place that knows the
@@ -51,7 +51,7 @@ var _ storeAdapter = (*postgres.Store)(nil)
 // startup step that can fail prints one line that names the step.
 func runServe(args []string, stderr io.Writer) int {
 	fail := func(step string, err error) int {
-		_, _ = fmt.Fprintf(stderr, "llm-proxy serve: %s: %v\n", step, err)
+		_, _ = fmt.Fprintf(stderr, "spyglass serve: %s: %v\n", step, err)
 		return 1
 	}
 
@@ -66,10 +66,14 @@ func runServe(args []string, stderr io.Writer) int {
 		return 2
 	}
 	if fs.NArg() > 0 {
-		_, _ = fmt.Fprintf(stderr, "llm-proxy serve: unexpected argument %q\n", fs.Arg(0))
+		_, _ = fmt.Fprintf(stderr, "spyglass serve: unexpected argument %q\n", fs.Arg(0))
 		return 2
 	}
-	opts := config.Options{BuildKeys: func(keys []core.Key) (config.KeyIndex, error) { return keyring.New(keys) }}
+	var envWarn envWarnings
+	opts := config.Options{
+		BuildKeys:  func(keys []core.Key) (config.KeyIndex, error) { return keyring.New(keys) },
+		Deprecated: envWarn.note,
+	}
 	path, err := config.Path(*cfgFlag, opts)
 	if err != nil {
 		return fail("config", err)
@@ -84,6 +88,7 @@ func runServe(args []string, stderr io.Writer) int {
 
 	// Step 2: logging with redaction.
 	log := newLogger(cfg.Log, stderr)
+	envWarn.setLogger(log)
 
 	holder := config.NewHolder(path, opts, log)
 	if err := holder.Load(); err != nil {

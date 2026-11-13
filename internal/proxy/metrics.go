@@ -9,11 +9,11 @@ import (
 
 // Metric names of the collectors this package updates (ADR 0026).
 const (
-	MetricRequests        = "llm_proxy_requests_total"
-	MetricRequestDuration = "llm_proxy_request_duration_seconds"
-	MetricTTFT            = "llm_proxy_ttft_seconds"
-	MetricOverhead        = "llm_proxy_proxy_overhead_seconds"
-	MetricInflightStreams = "llm_proxy_inflight_streams"
+	MetricRequests        = "spyglass_requests_total"
+	MetricRequestDuration = "spyglass_request_duration_seconds"
+	MetricTTFT            = "spyglass_ttft_seconds"
+	MetricOverhead        = "spyglass_proxy_overhead_seconds"
+	MetricInflightStreams = "spyglass_inflight_streams"
 )
 
 // Metrics are the proxy's Prometheus collectors. Create it with NewMetrics and

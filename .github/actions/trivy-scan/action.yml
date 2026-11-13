@@ -7,7 +7,7 @@ description: >
 
 inputs:
   image:
-    description: Image to scan, for example ghcr.io/mtanzi/llm-proxy:0.1.0.
+    description: Image to scan, for example ghcr.io/mtanzi/spyglass:<version>.
     required: true
   build:
     description: >

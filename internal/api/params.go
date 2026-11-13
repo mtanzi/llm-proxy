@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // Page size of the call list: the default, and the most a client may ask for.

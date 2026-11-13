@@ -19,9 +19,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/store/postgres/pgtest"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/store/postgres/pgtest"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }

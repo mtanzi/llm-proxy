@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // HeaderRequestID carries the call id on every response and, when a client

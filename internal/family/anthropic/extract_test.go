@@ -11,7 +11,7 @@ import (
 
 	"github.com/tidwall/gjson"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 const fixturesDir = "../../../testdata/fixtures"

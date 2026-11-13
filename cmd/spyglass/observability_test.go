@@ -16,10 +16,10 @@ import (
 
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/keyring"
-	"github.com/mtanzi/llm-proxy/internal/store/postgres"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/keyring"
+	"github.com/mtanzi/spyglass/internal/store/postgres"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/metrics.golden")
@@ -197,22 +197,22 @@ func TestMetricsGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != string(want) {
-		t.Errorf("metrics differ from %s (run go test ./cmd/llm-proxy -run TestMetricsGolden -update and review):\n--- got\n%s--- want\n%s", path, got, want)
+		t.Errorf("metrics differ from %s (run go test ./cmd/spyglass -run TestMetricsGolden -update and review):\n--- got\n%s--- want\n%s", path, got, want)
 	}
 
 	// /metrics serves the same registry over HTTP.
 	mrr := httptest.NewRecorder()
 	s.Admin.Handler.ServeHTTP(mrr, httptest.NewRequest("GET", "/metrics", nil))
-	if mrr.Code != http.StatusOK || !strings.Contains(mrr.Body.String(), "llm_proxy_requests_total{") {
-		t.Errorf("/metrics = %d, body lacks llm_proxy_requests_total", mrr.Code)
+	if mrr.Code != http.StatusOK || !strings.Contains(mrr.Body.String(), "spyglass_requests_total{") {
+		t.Errorf("/metrics = %d, body lacks spyglass_requests_total", mrr.Code)
 	}
 }
 
-// metricsGolden renders the llm_proxy_ families: name, type, label names and help.
+// metricsGolden renders the spyglass_ families: name, type, label names and help.
 func metricsGolden(fams []*dto.MetricFamily) string {
 	var lines []string
 	for _, f := range fams {
-		if !strings.HasPrefix(f.GetName(), "llm_proxy_") {
+		if !strings.HasPrefix(f.GetName(), "spyglass_") {
 			continue
 		}
 		set := map[string]bool{}

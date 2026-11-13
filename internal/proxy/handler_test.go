@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/httpmw"
-	"github.com/mtanzi/llm-proxy/internal/keyring"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/httpmw"
+	"github.com/mtanzi/spyglass/internal/keyring"
 )
 
 const (

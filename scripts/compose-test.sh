@@ -10,14 +10,14 @@ set -eu
 ct_setup "${1:?usage: compose-test.sh IMAGE}"
 
 # The compose file parses, and the shutdown grace period matches the drain.
-ct_compose llm-proxy-ct config >"$tmp/compose.rendered"
+ct_compose spyglass-ct config >"$tmp/compose.rendered"
 grep -q 'stop_grace_period: 10m' "$tmp/compose.rendered" || {
 	echo "FAIL stop_grace_period is not 10m" >&2
 	exit 1
 }
 echo "ok  docker compose config"
 
-p=llm-proxy-ct-$$
+p=spyglass-ct-$$
 ct_start "$p"
 
 [ "$(ct_send)" = 200 ] || {
@@ -52,9 +52,9 @@ fi
 echo "ok  401 without a key; admin plane not published"
 
 # SIGHUP, as in the runbook.
-ct_compose "$p" kill -s HUP llm-proxy
+ct_compose "$p" kill -s HUP spyglass
 i=0
-until ct_admin "$p" http://127.0.0.1:9090/metrics | grep -q '^llm_proxy_config_reloads_total{result="success"} 1$'; do
+until ct_admin "$p" http://127.0.0.1:9090/metrics | grep -q '^spyglass_config_reloads_total{result="success"} 1$'; do
 	i=$((i + 1))
 	[ "$i" -le 15 ] || {
 		echo "FAIL SIGHUP did not reload the config" >&2

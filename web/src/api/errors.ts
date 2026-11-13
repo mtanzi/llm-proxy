@@ -80,7 +80,7 @@ export function errorMessage(error: unknown): string {
     case 'internal':
       return 'The server failed. Try again later.'
     case 'network':
-      return 'Cannot reach the server. Check that llm-proxy is running.'
+      return 'Cannot reach the server. Check that Spyglass is running.'
     case 'unknown':
       return 'Something went wrong. Try again.'
   }
