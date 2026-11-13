@@ -15,7 +15,7 @@ The goal: a self-hosted Go proxy that logs every LLM call and every tool call as
 | [frontend.md](frontend.md) | The React UI embedded in the Go binary: views, routing, data fetching, virtualization, live tail, admin access, what the UI can show without bodies, build and embedding |
 | [upstream-connection.md](upstream-connection.md) | How the proxy reaches the Anthropic API with API keys, how Claude Code with a Claude subscription (Pro or Max login) can route through it, and the documented limits on that. The OpenAI family and Codex CLI setup are in its v2 section |
 | [deployment.md](deployment.md) | The single-container topology, the later multi-replica tier, configuration, secrets, migrations, `store/postgres` storage and retention, sizing, backups, TLS, observability, upgrades, the docker-compose file |
-| [cli.md](cli.md) | The agent-facing CLI designed in [ADR 0055](../adrs/0055-agent-facing-cli-axi-toon-output.md) (Proposed, not yet built): the current architecture, the architecture with the CLI, what changes and what does not, the two keys and two planes, the hexagonal view, the internal packages, connection and remote use, the phases and the API gaps |
+| [cli.md](cli.md) | The agent-facing CLI designed in [ADR 0055](../adrs/0055-agent-facing-cli-axi-toon-output.md) (Completed, phase 1 built): the current architecture, the architecture with the CLI, what changes and what does not, the two keys and two planes, the hexagonal view, the internal packages, connection and remote use, the phases and the API gaps |
 
 Read [backend.md](backend.md) first. The other three documents assume its vocabulary.
 

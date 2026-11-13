@@ -65,6 +65,43 @@ func TestE2EStreamedAndNonStreamedCallsBecomeRows(t *testing.T) {
 	}
 }
 
+// A client command reads the real admin API the suite started, through the real
+// wiring: the call the proxy recorded shows up in `spyglass calls list`, and
+// the home view answers for the current UTC day (ADR 0055).
+func TestE2ECLICallsListReadsTheRealAdminAPI(t *testing.T) {
+	e := newE2E(t)
+	chat := e2eFixture(t, "short_chat")
+	e.Upstream.Enqueue(fakeupstream.Reply{Fixture: chat})
+	if _, err := e.Stream(e.DefaultClient(), chat); err != nil {
+		t.Fatal(err)
+	}
+	call := e.WaitCalls(1)[0]
+
+	t.Setenv("SPYGLASS_ADMIN_URL", e.AdminURL())
+	var out, errb bytes.Buffer
+	if code := run([]string{"calls", "list"}, &out, &errb); code != 0 {
+		t.Fatalf("calls list: code=%d\nstdout:\n%s\nstderr:\n%s", code, out.String(), errb.String())
+	}
+	for _, want := range []string{"count: 1\n", "showing: 1\n", "calls[1]{id,model,status,cost_usd}:\n  " + call.ID + ",claude-opus-4-8,200,"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("calls list output lacks %q:\n%s", want, out.String())
+		}
+	}
+	if errb.Len() != 0 {
+		t.Errorf("a client command wrote to stderr: %q", errb.String())
+	}
+
+	out.Reset()
+	if code := run(nil, &out, &errb); code != 0 || !strings.Contains(out.String(), "today:\n") || !strings.Contains(out.String(), "top_sessions[") {
+		t.Errorf("home view: code=%d\n%s", code, out.String())
+	}
+
+	out.Reset()
+	if code := run([]string{"calls", "show", call.ID}, &out, &errb); code != 0 || !strings.Contains(out.String(), "id: "+call.ID+"\n") {
+		t.Errorf("calls show: code=%d\n%s", code, out.String())
+	}
+}
+
 // The use half comes from one call's response and the result half from a later
 // call's request; the API pairs them when it reads.
 func TestE2EToolHalvesPairAtRead(t *testing.T) {

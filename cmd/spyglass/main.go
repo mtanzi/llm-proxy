@@ -5,17 +5,26 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/mtanzi/spyglass/internal/cli"
 )
 
 // version is set at build time: go build -ldflags "-X main.version=v1.2.3".
 var version = "dev"
 
-const usage = `usage: spyglass <command> [flags]
+const usage = `usage: spyglass [command] [flags]
+
+With no command, spyglass prints the home view: today's cost, calls and
+errors, read from the admin API (SPYGLASS_ADMIN_URL).
 
 commands:
-  serve    run the proxy
-  keygen   generate a virtual key and its config entry
-  version  print the build version
+  serve     run the proxy
+  keygen    generate a virtual key and its config entry
+  version   print the build version
+  describe  the data model of the admin client commands
+  config    providers, pricing and key names
+  sessions  list or show sessions
+  calls     list or show calls
 `
 
 func main() {
@@ -25,10 +34,11 @@ func main() {
 // run dispatches a subcommand and returns the process exit code.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = io.WriteString(stderr, usage)
-		return 2
+		return cli.Run(nil, stdout, stderr, os.Getenv)
 	}
 	switch args[0] {
+	case "describe", "config", "sessions", "calls", "help", "-h", "--help":
+		return cli.Run(args, stdout, stderr, os.Getenv)
 	case "keygen":
 		return runKeygen(args[1:], stdout, stderr)
 	case "version":

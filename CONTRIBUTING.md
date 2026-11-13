@@ -18,6 +18,8 @@ One Go module, one static binary `spyglass` built from `cmd/spyglass`. Everythin
 | `config` | Configuration | `core`, `yaml` (`go.yaml.in/yaml/v3`) |
 | `store/postgres` | Postgres adapter | `core`, drivers (`pgx`, goose); its tests and `pgtest` also `testcontainers-go` |
 | `store/storetest` | Shared store contract tests | `core`, `store/postgres` |
+| `cli` | Agent-facing CLI: read-only client of the admin API, commands and output (ADR 0055) | standard library, `toon`; tests also the root `api` package (embedded spec), `jsonschema`, `yaml` |
+| `toon` | Encode-only TOON 3.3 encoder for the CLI output | standard library only |
 | `fakeupstream` | Fake Anthropic upstream that replays fixtures (test support only) | standard library only |
 
 Only `cmd/spyglass` and the test-only contract suite `store/storetest` import `store/postgres`. A new package needs a reason.

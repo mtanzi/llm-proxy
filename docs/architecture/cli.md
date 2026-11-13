@@ -1,8 +1,8 @@
 # Agent-facing CLI architecture
 
-Status: **designed, not built.** This document describes the architecture that [ADR 0055](../adrs/0055-agent-facing-cli-axi-toon-output.md) (Status: Proposed) decides. No CLI code exists yet. Everything under "With the CLI" is a target. Everything under "Today" describes landed behaviour, as written in [backend.md](backend.md) and [deployment.md](deployment.md).
+Status: **phase 1 built.** This document describes the architecture that [ADR 0055](../adrs/0055-agent-facing-cli-axi-toon-output.md) (Status: Completed) decided, and that `internal/cli`, `internal/toon` and the dispatch in `cmd/spyglass` now implement. "Today" describes the server and its two planes. "With the CLI" describes the client that now ships in the same binary. The later phases listed in the ADR are not built.
 
-The ADR is the source for command behaviour, flags, output rules and the list of API gaps. It covers the shared decisions and phase 1. Later phases are listed in its "Later" section, and the session `unpriced_calls` field is [ADR 0056](../adrs/0056-session-unpriced-calls.md). This document gives the overall picture: what the system looks like now, what it looks like with the CLI, and what does and does not change. Where the two disagree, the ADR wins until it is Completed (see [Source precedence](README.md#source-precedence)).
+The ADR is the source for command behaviour, flags, output rules and the list of API gaps. It covers the shared decisions and phase 1. Later phases are listed in its "Later" section, and the session `unpriced_calls` field is [ADR 0056](../adrs/0056-session-unpriced-calls.md). This document gives the overall picture: what the system looks like now, what it looks like with the CLI, and what does and does not change. Where the two disagree, the ADR is the source for command behaviour (see [Source precedence](README.md#source-precedence)).
 
 ## Summary
 

@@ -1,6 +1,6 @@
 # ADR 0055: Agent-facing CLI with AXI (TOON) output
 
-Status: Proposed
+Status: Completed
 
 Date: 2026-11-13
 
@@ -45,7 +45,7 @@ The CLI owns small decode types and is checked against `api/openapi.yaml`. It do
 - **A Go TOON encoder is part of the work.** Go TOON libraries exist, but they are community-maintained and split across spec versions, and no Go AXI SDK exists. Under the project's rule of few, deliberate dependencies (backend.md, "Libraries"), an encode-only subset of a few hundred lines is smaller than a dependency that tracks a moving spec.
 - **Spec version pinned: TOON 3.3** (the `@toon-format/spec` 3.3.0 release, a working draft at the time of writing). The encoder's package comment names this version, and a spec change is a change to the encoder, not to the commands. The golden cases for the subset are taken from the spec's conformance fixtures where they exist, and are written by hand otherwise.
 - **The encoder takes an explicit, ordered input model**, not reflection over arbitrary structs. An object is an ordered list of key-value pairs, and a table is a field list plus rows. Go maps have no order, and the output depends on field order. The encoder has no domain knowledge and no dependency beyond the standard library.
-- **Subset:** objects, primitive values, arrays of scalars, and tabular arrays of objects with a shared field list.
+- **Subset:** objects, primitive values, arrays of scalars, and tabular arrays of objects with a shared field list. A list of sentences (`help[]`, `notes[]`) is written in the spec's expanded list form, one `- item` line each, because an inline array of sentences with commas and colons is long and fully quoted.
 
 ### AXI rules applied
 
@@ -99,7 +99,9 @@ Each command lists the endpoint it uses and the existing parameters it maps to.
 - **Unknown is not zero.** A call with `cost_micro_usd` null prints `cost_usd: unpriced`, not `0`. A session cost that sums only the priced calls says so, with its `unpriced_calls` count. That count comes from the `unpriced_calls` field of the session summary, added by ADR 0056. The CLI does no join. A call or a total cost through a `client_passthrough` provider is marked API-equivalent, as in ADR 0052, using `auth_mode` from `GET /admin/config`. Session rows carry no API-equivalent label, because a session summary does not say which providers served it (ADR 0052).
 - **The home view shows the headline `unpriced_calls`** from the ungrouped bucket, and a `help[]` line that points to `spyglass calls list` with the filters that find them. It has no per-model table of models with no price. That table needs the API additions of gap 2, and comes with the later `top model` command.
 
-Illustrative output of the home view (field names and units are the contract; values are made up):
+The illustrations below are schematic. Field names and units are the contract; values are made up. The real output nests `window` and `today` as objects, quotes a value that holds a colon (`"fm:7f3a"`), prints numbers in canonical form (`9.812`), and writes `help[]` as a list with one `- item` line each.
+
+Illustrative output of the home view:
 
 ```
 window: {from: "2026-11-13T00:00:00Z", to: "2026-11-13T14:20:00Z", default: false}
@@ -132,7 +134,7 @@ help[2]:
 
 There is no output abstraction beyond `internal/toon`. A command builds the ordered TOON value and calls `toon.Encode`. A later `--json` is `encoding/json` over the same value. The output helpers are plain functions in `internal/cli`: window and totals header, truncation, empty states, `help[]` lines, structured errors, and the cost conversion.
 
-Each command declares a column table: the CLI name, the API field or fields it reads, and a value function. The table drives the default fields, `--fields`, the rename (`cost_micro_usd` to `cost_usd`, the API value divided by 1,000,000, fixed at four decimals), the `unpriced` text, and `describe`. Other CLI names keep the API unit: `latency_ms`, `duration_ms` and `ttft_ms` are milliseconds, and token fields are counts. `--fields` accepts any declared column, and the declared columns can include every field the API returns for that row. Because the tables name their API fields, the spec check of the tests also covers `describe`, and `describe` takes its field descriptions from the tables, not from separate static text that could drift from the spec.
+Each command declares a column table: the CLI name, the API field or fields it reads, and a value function. The table drives the default fields, `--fields`, the rename (`cost_micro_usd` to `cost_usd`, the API value divided by 1,000,000, rounded to four decimals and printed as a canonical TOON number, so 9.8120 prints as 9.812), the `unpriced` text, and `describe`. Other CLI names keep the API unit: `latency_ms`, `duration_ms` and `ttft_ms` are milliseconds, and token fields are counts. `--fields` accepts any declared column, and the declared columns can include every field the API returns for that row. Because the tables name their API fields, the spec check of the tests also covers `describe`, and `describe` takes its field descriptions from the tables, not from separate static text that could drift from the spec.
 
 ### The admin client
 
@@ -143,7 +145,7 @@ The admin client is a concrete struct that holds a base URL and an `*http.Client
 Two new packages:
 
 - **`internal/toon`**: the pure, stdlib-only encoder, with golden tests. It has its own strict `depguard` allow-list, like `core`.
-- **`internal/cli`**: the client, the commands and the output helpers, one file per concern (for example `client.go`, `window.go`, `output.go`, `home.go`, `sessions.go`, `calls.go`, `config.go`, `describe.go`), exposed as one entry point, `cli.Run(args, stdout, stderr, env)`. Its strict `depguard` allow-list permits `$gostd`, `github.com/mtanzi/spyglass/api` (the embedded spec, used by tests) and `internal/toon`, and nothing else. It cannot import `store/postgres`, a database driver, `internal/api`, `internal/config` or `core`. This is the same pattern as `keyring`, `recorder` and `ui`.
+- **`internal/cli`**: the client, the commands and the output helpers, one file per concern (for example `client.go`, `window.go`, `output.go`, `home.go`, `sessions.go`, `calls.go`, `config.go`, `describe.go`), exposed as one entry point, `cli.Run(args, stdout, stderr, env)`. Its strict `depguard` allow-list permits `$gostd` and `internal/toon` in non-test files, and nothing else. Its test files also import `github.com/mtanzi/spyglass/api` (the embedded spec), `github.com/santhosh-tekuri/jsonschema/v6` and `go.yaml.in/yaml/v3` for the conformance check, under a second rule. It cannot import `store/postgres`, a database driver, `internal/api`, `internal/config` or `core`. This is the same pattern as `keyring`, `recorder` and `ui`.
 
 `cmd/spyglass` only dispatches: `main.go` gains one dispatch line per client command, or a single fallback case, that calls `cli.Run`. No client logic lives there, because `cmd/spyglass` is the wiring and may import everything, so no import rule could be enforced in it.
 

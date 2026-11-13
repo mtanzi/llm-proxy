@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
@@ -141,10 +143,45 @@ func TestVersion(t *testing.T) {
 
 func TestDispatchUnknownAndEmpty(t *testing.T) {
 	var out, errb bytes.Buffer
-	if code := run(nil, &out, &errb); code != 2 {
-		t.Errorf("no args: code=%d", code)
-	}
 	if code := run([]string{"nope"}, &out, &errb); code != 2 {
 		t.Errorf("unknown: code=%d", code)
+	}
+	if !strings.Contains(errb.String(), "usage: spyglass") {
+		t.Errorf("unknown command: stderr = %q, want the usage text", errb.String())
+	}
+}
+
+// With no arguments spyglass runs the home view, a client command (ADR 0055).
+// It reads the admin API, so a server that is not there is a structured error
+// on stdout with exit 1, not usage on stderr with exit 2.
+func TestDispatchNoArgsRunsTheHomeView(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	url := srv.URL
+	srv.Close()
+	t.Setenv("SPYGLASS_ADMIN_URL", url)
+	var out, errb bytes.Buffer
+	if code := run(nil, &out, &errb); code != 1 {
+		t.Errorf("no args: code=%d, want 1 (admin API unreachable)", code)
+	}
+	if !strings.HasPrefix(out.String(), "error: unreachable\n") || !strings.Contains(out.String(), url) {
+		t.Errorf("no args: stdout = %q, want a structured unreachable error naming %s", out.String(), url)
+	}
+	if errb.Len() != 0 {
+		t.Errorf("no args: stderr = %q, want nothing", errb.String())
+	}
+}
+
+// The client commands dispatch to cli.Run; serve and keygen keep stderr.
+func TestDispatchClientCommands(t *testing.T) {
+	t.Setenv("SPYGLASS_ADMIN_URL", "http://127.0.0.1:1") // never reached: usage errors stop first
+	for _, args := range [][]string{{"calls"}, {"sessions", "nope"}, {"config", "--nope"}} {
+		var out, errb bytes.Buffer
+		if code := run(args, &out, &errb); code != 2 || !strings.HasPrefix(out.String(), "error: usage\n") || errb.Len() != 0 {
+			t.Errorf("%v: code=%d stdout=%q stderr=%q", args, code, out.String(), errb.String())
+		}
+	}
+	var out, errb bytes.Buffer
+	if code := run([]string{"--help"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "examples:") {
+		t.Errorf("--help: code=%d\n%s", code, out.String())
 	}
 }
