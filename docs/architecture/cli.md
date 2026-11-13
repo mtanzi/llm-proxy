@@ -176,7 +176,7 @@ New code, all internal to the `spyglass` module, in two packages:
 
 **Decode types.** The CLI owns small decode types for the fields it reads and is checked against `api/openapi.yaml`, like the web UI. It does not import `internal/api` or `internal/config`, whose wire types are unexported and tied to the server. Tests validate the fake-server fixtures against the embedded `api.OpenAPIYAML` and check that every field the CLI reads exists in the spec.
 
-**Import rule, checked by `depguard`.** `internal/cli` has a strict allow-list: `$gostd`, `github.com/mtanzi/spyglass/api` (the embedded spec, for tests) and `internal/toon`. It cannot import `store/postgres`, a database driver, `internal/api`, `internal/config`, `core` or a package that opens a listener. `internal/toon` allows `$gostd` only. This keeps the CLI a pure API client and keeps the "only `cmd/spyglass` wiring imports `store/postgres`" rule of [backend.md](backend.md#package-layout) meaningful. Adding the two rules to `.golangci.yml`, and the two packages to the package tree of backend.md and the layout table of `CONTRIBUTING.md`, is part of the phase 1 work.
+**Import rule, checked by `depguard`.** `internal/cli` has a strict allow-list: `$gostd` and `internal/toon`, with a second rule for its test files (see the ADR's "Packages and the import rule" and `.golangci.yml`). It cannot import `store/postgres`, a database driver, `internal/api`, `internal/config`, `core` or a package that opens a listener. `internal/toon` allows `$gostd` only. This keeps the CLI a pure API client and keeps the "only `cmd/spyglass` wiring imports `store/postgres`" rule of [backend.md](backend.md#package-layout) meaningful.
 
 ## Connection and remote use
 
