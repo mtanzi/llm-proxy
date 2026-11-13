@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: llm-proxy admin API
+  title: Spyglass admin API
   version: 0.1.0
   description: |
     Read-only JSON API of the admin plane, served on the loopback listener under

@@ -6,7 +6,7 @@
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
 curl_image=${CURL_IMAGE:-curlimages/curl:8.11.1}
-port=${LLM_PROXY_PORT:-18080}
+port=${SPYGLASS_PORT:-18080}
 tmp=$(mktemp -d)
 projects=""
 
@@ -14,8 +14,8 @@ projects=""
 ct_compose() {
 	project=$1
 	shift
-	LLM_PROXY_IMAGE=$image LLM_PROXY_CONFIG_FILE=$tmp/config.yaml LLM_PROXY_SECRETS_DIR=$tmp/secrets \
-		LLM_PROXY_PORT=$port docker compose -p "$project" \
+	SPYGLASS_IMAGE=$image SPYGLASS_CONFIG_FILE=$tmp/config.yaml SPYGLASS_SECRETS_DIR=$tmp/secrets \
+		SPYGLASS_PORT=$port docker compose -p "$project" \
 		-f "$repo/docker-compose.yml" -f "$repo/testdata/compose/docker-compose.fake-upstream.yml" "$@"
 }
 
@@ -73,12 +73,12 @@ ct_start() {
 	project=$1
 	projects="$projects $project"
 	ct_compose "$project" up -d --wait --wait-timeout 120 postgres fake-upstream
-	ct_compose "$project" up -d llm-proxy
+	ct_compose "$project" up -d spyglass
 	i=0
 	until [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/readyz")" = 200 ]; do
 		i=$((i + 1))
 		[ "$i" -le 60 ] || {
-			echo "llm-proxy did not become ready" >&2
+			echo "spyglass did not become ready" >&2
 			return 1
 		}
 		sleep 1
@@ -91,7 +91,7 @@ ct_start() {
 ct_admin() {
 	project=$1
 	shift
-	cid=$(ct_compose "$project" ps -q llm-proxy)
+	cid=$(ct_compose "$project" ps -q spyglass)
 	docker run --rm --network "container:$cid" "$curl_image" -sS "$@"
 }
 

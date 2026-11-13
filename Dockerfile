@@ -24,13 +24,13 @@ COPY . .
 COPY --from=web /src/web/dist ./internal/ui/dist
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
-    -o /out/llm-proxy ./cmd/llm-proxy
+    -o /out/spyglass ./cmd/spyglass
 
 # Stage 3: runtime. No shell, no Node, the binary only. Runs as the
 # distroless nonroot user (uid 65532). The container writes nothing to disk.
 FROM gcr.io/distroless/static-debian12:nonroot
-COPY --from=build /out/llm-proxy /usr/local/bin/llm-proxy
+COPY --from=build /out/spyglass /usr/local/bin/spyglass
 USER 65532:65532
 EXPOSE 8080
-ENTRYPOINT ["llm-proxy"]
+ENTRYPOINT ["spyglass"]
 CMD ["serve"]

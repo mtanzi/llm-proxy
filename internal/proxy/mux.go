@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/mtanzi/llm-proxy/internal/httpmw"
+	"github.com/mtanzi/spyglass/internal/httpmw"
 )
 
 // NewMux returns the data-plane mux: the routes of ADR 0006. /healthz says the

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 var writeCases = []testCase{

@@ -80,7 +80,7 @@ Manifest sketch:
 ```json
 {
   "schema": "firstmate.extension-manifest.v1",
-  "id": "local.llm-proxy-alerts",
+  "id": "local.spyglass-alerts",
   "version": "0.1.0",
   "host_protocols": [1],
   "entrypoint": "bin/firstmate-extension",
@@ -88,7 +88,7 @@ Manifest sketch:
     {
       "name": "process-event-adapter",
       "versions": [1],
-      "adapter_names": ["llm-proxy-alerts"]
+      "adapter_names": ["spyglass-alerts"]
     }
   ],
   "required_consents": ["network"]

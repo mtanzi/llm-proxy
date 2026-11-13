@@ -3,7 +3,7 @@ package httpmw
 import (
 	"net/http"
 
-	"github.com/mtanzi/llm-proxy/internal/family/anthropic"
+	"github.com/mtanzi/spyglass/internal/family/anthropic"
 )
 
 // WriteError writes a proxy-generated error as is.

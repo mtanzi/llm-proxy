@@ -20,10 +20,10 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/core/coretest"
-	"github.com/mtanzi/llm-proxy/internal/httpmw"
-	"github.com/mtanzi/llm-proxy/internal/recorder"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/core/coretest"
+	"github.com/mtanzi/spyglass/internal/httpmw"
+	"github.com/mtanzi/spyglass/internal/recorder"
 )
 
 // streamWait bounds every wait of the stream tests. It only guards against a

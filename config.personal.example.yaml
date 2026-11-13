@@ -1,14 +1,14 @@
 # Personal local setup (docs/personal-local-setup.md): one person routes their own
-# Claude login through a proxy on their own machine. `llm-proxy serve` runs on the
+# Claude login through a proxy on their own machine. `spyglass serve` runs on the
 # host and Postgres comes from docker-compose.personal.yml.
-# Path: --config or LLM_PROXY_CONFIG.
+# Path: --config or SPYGLASS_CONFIG.
 
 listen:
   data: "127.0.0.1:8080"        # loopback only
   admin: "127.0.0.1:9090"       # no sign-in: loopback only
 
 database:
-  url: { env: LLM_PROXY_DATABASE_URL }
+  url: { env: SPYGLASS_DATABASE_URL }
 
 providers:
   - name: anthropic
@@ -19,7 +19,7 @@ providers:
 
 keys:
   # PLACEHOLDER hash matches no key. Replace it with the entry that
-  # `llm-proxy keygen --name me-laptop` prints.
+  # `spyglass keygen --name me-laptop` prints.
   - name: me-laptop
     sha256: 0000000000000000000000000000000000000000000000000000000000000001   # placeholder
 

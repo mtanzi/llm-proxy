@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/core/coretest"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/core/coretest"
 )
 
 // TestNoSecretInAnyResponse loads a real config whose credential, database URL

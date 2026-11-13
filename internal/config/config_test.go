@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -282,18 +282,18 @@ func TestRejectsAllProblemsAtOnce(t *testing.T) {
 func TestEnvOverrides(t *testing.T) {
 	env := map[string]string{
 		"DB": "postgres://x", "KEY": "k", "OTHER_KEY": "other",
-		"LLM_PROXY_LISTEN_DATA":              ":9999",
-		"LLM_PROXY_LISTEN_ADMIN":             "localhost:7000",
-		"LLM_PROXY_LISTEN_TLS_CERT_FILE":     "/c",
-		"LLM_PROXY_LISTEN_TLS_KEY_FILE":      "/k",
-		"LLM_PROXY_DATABASE_MAX_CONNS":       "3",
-		"LLM_PROXY_DATABASE_URL_ENV":         "OTHER_KEY",
-		"LLM_PROXY_RETENTION_CALLS":          "30d",
-		"LLM_PROXY_SERVER_DRAIN_TIMEOUT":     "45s",
-		"LLM_PROXY_SERVER_MAX_REQUEST_BYTES": "1MiB",
-		"LLM_PROXY_QUEUE_CAPACITY":           "77",
-		"LLM_PROXY_LOG_LEVEL":                "warn",
-		"LLM_PROXY_LOG_FORMAT":               "text",
+		"SPYGLASS_LISTEN_DATA":              ":9999",
+		"SPYGLASS_LISTEN_ADMIN":             "localhost:7000",
+		"SPYGLASS_LISTEN_TLS_CERT_FILE":     "/c",
+		"SPYGLASS_LISTEN_TLS_KEY_FILE":      "/k",
+		"SPYGLASS_DATABASE_MAX_CONNS":       "3",
+		"SPYGLASS_DATABASE_URL_ENV":         "OTHER_KEY",
+		"SPYGLASS_RETENTION_CALLS":          "30d",
+		"SPYGLASS_SERVER_DRAIN_TIMEOUT":     "45s",
+		"SPYGLASS_SERVER_MAX_REQUEST_BYTES": "1MiB",
+		"SPYGLASS_QUEUE_CAPACITY":           "77",
+		"SPYGLASS_LOG_LEVEL":                "warn",
+		"SPYGLASS_LOG_FORMAT":               "text",
 	}
 	cfg, err := Parse([]byte(base), fakeOpts(env, nil))
 	if err != nil {
@@ -308,7 +308,7 @@ func TestEnvOverrides(t *testing.T) {
 }
 
 func TestEnvOverrideSwitchesSecretSource(t *testing.T) {
-	env := map[string]string{"KEY": "k", "LLM_PROXY_DATABASE_URL_FILE": "/run/secrets/db"}
+	env := map[string]string{"KEY": "k", "SPYGLASS_DATABASE_URL_FILE": "/run/secrets/db"}
 	cfg, err := Parse([]byte(base), fakeOpts(env, map[string]string{"/run/secrets/db": "postgres://f\n"}))
 	if err != nil {
 		t.Fatal(err)
@@ -317,7 +317,7 @@ func TestEnvOverrideSwitchesSecretSource(t *testing.T) {
 		t.Errorf("database.url = %s, %q", got, got.Secret().Reveal())
 	}
 
-	env["LLM_PROXY_DATABASE_URL_ENV"], env["DB"] = "DB", "postgres://x"
+	env["SPYGLASS_DATABASE_URL_ENV"], env["DB"] = "DB", "postgres://x"
 	if _, err := Parse([]byte(base), fakeOpts(env, map[string]string{"/run/secrets/db": "postgres://f\n"})); err == nil {
 		t.Error("both env and file overrides accepted")
 	}
@@ -325,13 +325,13 @@ func TestEnvOverrideSwitchesSecretSource(t *testing.T) {
 
 func TestEnvOverrideIsValidated(t *testing.T) {
 	for name, env := range map[string]map[string]string{
-		"non-loopback admin": {"LLM_PROXY_LISTEN_ADMIN": "0.0.0.0:9090"},
-		"bad duration":       {"LLM_PROXY_SERVER_DRAIN_TIMEOUT": "soon"},
-		"bad number":         {"LLM_PROXY_QUEUE_CAPACITY": "lots"},
+		"non-loopback admin": {"SPYGLASS_LISTEN_ADMIN": "0.0.0.0:9090"},
+		"bad duration":       {"SPYGLASS_SERVER_DRAIN_TIMEOUT": "soon"},
+		"bad number":         {"SPYGLASS_QUEUE_CAPACITY": "lots"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			env["DB"], env["KEY"] = "x", "k"
-			if _, err := Parse([]byte(base), fakeOpts(env, nil)); err == nil || !strings.Contains(err.Error(), "LLM_PROXY") && name != "non-loopback admin" {
+			if _, err := Parse([]byte(base), fakeOpts(env, nil)); err == nil || !strings.Contains(err.Error(), "SPYGLASS") && name != "non-loopback admin" {
 				t.Errorf("err = %v", err)
 			}
 		})
@@ -340,13 +340,13 @@ func TestEnvOverrideIsValidated(t *testing.T) {
 
 func TestEnvOverrideNames(t *testing.T) {
 	var names []string
-	walkLeaves(reflect.ValueOf(&Config{}).Elem(), []string{envPrefix}, func(n string, _ reflect.Value) { names = append(names, n) })
+	walkLeaves(reflect.ValueOf(&Config{}).Elem(), []string{EnvPrefix}, func(n string, _ reflect.Value) { names = append(names, n) })
 	got := strings.Join(names, " ")
 	for _, want := range []string{
-		"LLM_PROXY_LISTEN_DATA", "LLM_PROXY_LISTEN_ADMIN", "LLM_PROXY_LISTEN_TLS_CERT_FILE", "LLM_PROXY_LISTEN_TLS_KEY_FILE",
-		"LLM_PROXY_DATABASE_MAX_CONNS",
-		"LLM_PROXY_RETENTION_CALLS", "LLM_PROXY_SERVER_DRAIN_TIMEOUT", "LLM_PROXY_SERVER_MAX_REQUEST_BYTES",
-		"LLM_PROXY_QUEUE_CAPACITY", "LLM_PROXY_LOG_LEVEL", "LLM_PROXY_LOG_FORMAT",
+		"SPYGLASS_LISTEN_DATA", "SPYGLASS_LISTEN_ADMIN", "SPYGLASS_LISTEN_TLS_CERT_FILE", "SPYGLASS_LISTEN_TLS_KEY_FILE",
+		"SPYGLASS_DATABASE_MAX_CONNS",
+		"SPYGLASS_RETENTION_CALLS", "SPYGLASS_SERVER_DRAIN_TIMEOUT", "SPYGLASS_SERVER_MAX_REQUEST_BYTES",
+		"SPYGLASS_QUEUE_CAPACITY", "SPYGLASS_LOG_LEVEL", "SPYGLASS_LOG_FORMAT",
 	} {
 		if !strings.Contains(got+" ", want+" ") {
 			t.Errorf("no override variable %s in %s", want, got)

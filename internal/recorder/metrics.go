@@ -4,11 +4,11 @@ import "github.com/prometheus/client_golang/prometheus"
 
 // Metric names of the collectors this package updates (ADR 0026).
 const (
-	MetricQueueDepth        = "llm_proxy_call_queue_depth"
-	MetricCallsDropped      = "llm_proxy_calls_dropped_total"
-	MetricWriterErrors      = "llm_proxy_writer_errors_total"
-	MetricLiveEventsDropped = "llm_proxy_live_events_dropped_total"
-	MetricSystematicFailure = "llm_proxy_writer_systematic_failure"
+	MetricQueueDepth        = "spyglass_call_queue_depth"
+	MetricCallsDropped      = "spyglass_calls_dropped_total"
+	MetricWriterErrors      = "spyglass_writer_errors_total"
+	MetricLiveEventsDropped = "spyglass_live_events_dropped_total"
+	MetricSystematicFailure = "spyglass_writer_systematic_failure"
 )
 
 var (

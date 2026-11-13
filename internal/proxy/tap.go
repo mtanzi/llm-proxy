@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/family/anthropic"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/family/anthropic"
 )
 
 // Extractor turns the facts a tap collected into the fields of the call

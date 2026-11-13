@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // DefaultGrain is the usage bucket width of a query that names none.

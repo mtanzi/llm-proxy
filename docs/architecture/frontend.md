@@ -18,7 +18,7 @@ flowchart LR
         views[Views V1 to V5, admin pages]
         es[EventSource]
     end
-    subgraph go[llm-proxy admin listener]
+    subgraph go[spyglass admin listener]
         spa["/ui/* static assets<br/>(go:embed)"]
         api["/admin/* JSON API"]
         stream["/admin/stream SSE"]
@@ -108,7 +108,7 @@ Tabs: Overview, Tools, Usage and cost. All of them show stored numbers, names an
 
 ## Look and themes
 
-The UI is branded **Spyglass** ([ADR 0053](../adrs/0053-spyglass-brand-palettes-and-theme-switching.md)); the binary and commands stay `llm-proxy`. The proposals the brand was chosen from are in [branding-proposals.html](../branding-proposals.html).
+The UI is branded **Spyglass** ([ADR 0053](../adrs/0053-spyglass-brand-palettes-and-theme-switching.md)); the binary and the commands are named `spyglass` too ([ADR 0054](../adrs/0054-rename-to-spyglass.md)). The proposals the brand was chosen from are in [branding-proposals.html](../branding-proposals.html).
 
 - **Brand.** The sidebar shows the Lens and glint icon beside "Spyglass": a brass lens ring and reflection arc with a teal pupil. The page title is Spyglass. `favicon.svg` follows the system colour scheme, and `apple-touch-icon.png` is the dark version.
 - **Tokens.** Every colour in `web/src/styles.css` is a custom property: background, surface, hover, active, text, muted, borders, bars, the brass accent, teal (`--ok`) for live and ok states, and error red. The light theme only redefines tokens, so components need no per-theme rules.
@@ -209,7 +209,7 @@ Serving rules in `internal/ui`:
 - Any other `/ui/*` path that is not a file returns `index.html` (client-side routing).
 - A build tag `noui` replaces the embed with a stub page, for Go-only development and tests without Node.
 
-Development: run `llm-proxy serve` locally and `npm run dev` in `web/`. Vite serves the UI with hot reload and proxies `/admin/*` to `localhost:9090`.
+Development: run `spyglass serve` locally and `npm run dev` in `web/`. Vite serves the UI with hot reload and proxies `/admin/*` to `localhost:9090`.
 
 Dependency upkeep: npm dependencies are pinned with a committed lockfile and updated by a Dependabot-style routine. This is the main maintenance cost of choosing React over Go plus htmx (UI report 8.2).
 

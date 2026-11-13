@@ -15,12 +15,12 @@ linters:
         store:
           files:
             - $all
-            - "!**/cmd/llm-proxy/**"
+            - "!**/cmd/spyglass/**"
             - "!**/internal/store/postgres/**"
             - "!**/internal/store/storetest/**"
           deny:
-            - pkg: github.com/mtanzi/llm-proxy/internal/store/postgres
-              desc: only cmd/llm-proxy may import store/postgres
+            - pkg: github.com/mtanzi/spyglass/internal/store/postgres
+              desc: only cmd/spyglass may import store/postgres
             - pkg: database/sql
               desc: no database access outside store/postgres
             - pkg: github.com/jackc
@@ -35,7 +35,7 @@ linters:
           deny:
             - pkg: github.com/anthropics/anthropic-sdk-go
               desc: the SDK is a test client only, never in the data path (ADR 0038)
-            - pkg: github.com/mtanzi/llm-proxy/internal/fakeupstream
+            - pkg: github.com/mtanzi/spyglass/internal/fakeupstream
               desc: the fake upstream is test support (ADR 0038)
         core:
           list-mode: strict
@@ -50,15 +50,15 @@ linters:
             - "**/internal/core/coretest/**"
           allow:
             - $gostd
-            - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/spyglass/internal/core
         family:
           list-mode: strict
           files:
             - "**/internal/family/**"
           allow:
             - $gostd
-            - github.com/mtanzi/llm-proxy/internal/core
-            - github.com/mtanzi/llm-proxy/internal/core/coretest
+            - github.com/mtanzi/spyglass/internal/core
+            - github.com/mtanzi/spyglass/internal/core/coretest
             - github.com/tidwall/gjson
         core-only:
           list-mode: strict
@@ -66,33 +66,33 @@ linters:
             - "**/internal/keyring/**"
           allow:
             - $gostd
-            - github.com/mtanzi/llm-proxy/internal/core
-            - github.com/mtanzi/llm-proxy/internal/core/coretest
+            - github.com/mtanzi/spyglass/internal/core
+            - github.com/mtanzi/spyglass/internal/core/coretest
         recorder:
           list-mode: strict
           files:
             - "**/internal/recorder/**"
           allow:
             - $gostd
-            - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/spyglass/internal/core
             - github.com/prometheus/client_golang/prometheus
-            - github.com/mtanzi/llm-proxy/internal/core/coretest
+            - github.com/mtanzi/spyglass/internal/core/coretest
         storetest:
           list-mode: strict
           files:
             - "**/internal/store/storetest/**"
           allow:
             - $gostd
-            - github.com/mtanzi/llm-proxy/internal/core
-            - github.com/mtanzi/llm-proxy/internal/store/postgres
+            - github.com/mtanzi/spyglass/internal/core
+            - github.com/mtanzi/spyglass/internal/store/postgres
         config:
           list-mode: strict
           files:
             - "**/internal/config/**"
           allow:
             - $gostd
-            - github.com/mtanzi/llm-proxy/internal/core
-            - github.com/mtanzi/llm-proxy/internal/core/coretest
+            - github.com/mtanzi/spyglass/internal/core
+            - github.com/mtanzi/spyglass/internal/core/coretest
             - go.yaml.in/yaml/v3
             - github.com/prometheus/client_golang/prometheus
         ui:
@@ -101,10 +101,10 @@ linters:
             - "**/internal/ui/**"
           allow:
             - $gostd
-            - github.com/mtanzi/llm-proxy/internal/core
-            - github.com/mtanzi/llm-proxy/internal/core/coretest
-            - github.com/mtanzi/llm-proxy/internal/recorder
-            - github.com/mtanzi/llm-proxy/internal/keyring
+            - github.com/mtanzi/spyglass/internal/core
+            - github.com/mtanzi/spyglass/internal/core/coretest
+            - github.com/mtanzi/spyglass/internal/recorder
+            - github.com/mtanzi/spyglass/internal/keyring
         postgres:
           list-mode: strict
           files:
@@ -113,7 +113,7 @@ linters:
             - "!**/internal/store/postgres/pgtest/**"
           allow:
             - $gostd
-            - github.com/mtanzi/llm-proxy/internal/core
+            - github.com/mtanzi/spyglass/internal/core
             - github.com/jackc/pgx
             - github.com/pressly/goose
             - github.com/prometheus/client_golang/prometheus
@@ -125,9 +125,9 @@ linters:
             - "**/internal/store/postgres/pgtest/**"
           allow:
             - $gostd
-            - github.com/mtanzi/llm-proxy/internal/core
-            - github.com/mtanzi/llm-proxy/internal/store/postgres
-            - github.com/mtanzi/llm-proxy/internal/store/storetest
+            - github.com/mtanzi/spyglass/internal/core
+            - github.com/mtanzi/spyglass/internal/store/postgres
+            - github.com/mtanzi/spyglass/internal/store/storetest
             - github.com/jackc/pgx
             - github.com/pressly/goose
             - github.com/testcontainers/testcontainers-go
@@ -135,5 +135,5 @@ linters:
           files:
             - "**/internal/proxy/**"
           deny:
-            - pkg: github.com/mtanzi/llm-proxy/internal/store
+            - pkg: github.com/mtanzi/spyglass/internal/store
               desc: proxy imports no store package

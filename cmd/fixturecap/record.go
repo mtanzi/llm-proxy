@@ -22,7 +22,7 @@ const maxCapture = 64 << 20
 
 // credentialHeaders never reach disk, not even in a raw capture.
 var credentialHeaders = map[string]bool{
-	"authorization": true, "x-api-key": true, "x-llm-proxy-key": true,
+	"authorization": true, "x-api-key": true, "x-spyglass-key": true, "x-llm-proxy-key": true,
 	"proxy-authorization": true, "cookie": true, "set-cookie": true,
 }
 

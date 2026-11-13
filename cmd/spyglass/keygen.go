@@ -35,21 +35,21 @@ func runKeygen(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if fs.NArg() > 0 {
-		_, _ = fmt.Fprintf(stderr, "llm-proxy keygen: unexpected argument %q\n", fs.Arg(0))
+		_, _ = fmt.Fprintf(stderr, "spyglass keygen: unexpected argument %q\n", fs.Arg(0))
 		return 2
 	}
 	if err := validateKeyName(*name); err != nil {
-		_, _ = fmt.Fprintf(stderr, "llm-proxy keygen: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "spyglass keygen: %v\n", err)
 		return 2
 	}
 	key, err := newKey(rand.Reader)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "llm-proxy keygen: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "spyglass keygen: %v\n", err)
 		return 1
 	}
 	out, err := formatKeygen(*name, key)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "llm-proxy keygen: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "spyglass keygen: %v\n", err)
 		return 1
 	}
 	_, _ = io.WriteString(stdout, out)

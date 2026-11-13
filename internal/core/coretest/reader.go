@@ -3,7 +3,7 @@ package coretest
 import (
 	"context"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // Reader is a core.CallReader that returns canned values. Set the fields a test

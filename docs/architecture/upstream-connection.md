@@ -48,19 +48,19 @@ The proxy has two ways to authenticate upstream. Each provider has one fixed `au
 ```mermaid
 flowchart LR
     subgraph pk[proxy_key mode: default]
-        c1[Client] -->|Authorization: Bearer lp_virtual_key| p1[llm-proxy]
+        c1[Client] -->|Authorization: Bearer lp_virtual_key| p1[spyglass]
         p1 -->|x-api-key: provider key from secret| u1[Provider API]
     end
     subgraph cp[client_passthrough mode: opt-in]
-        c2[Client] -->|Authorization: client credential, unchanged<br/>x-llm-proxy-key: lp_virtual_key| p2[llm-proxy]
-        p2 -->|Authorization: unchanged<br/>x-llm-proxy-key removed| u2[Provider API]
+        c2[Client] -->|Authorization: client credential, unchanged<br/>x-spyglass-key: lp_virtual_key| p2[spyglass]
+        p2 -->|Authorization: unchanged<br/>x-spyglass-key removed| u2[Provider API]
     end
 ```
 
 | | `proxy_key` (default) | `client_passthrough` (opt-in) |
 |---|---|---|
 | Client credential | A virtual key, in `Authorization: Bearer` or `x-api-key` | The client's own provider credential, untouched |
-| How the proxy identifies the client | The virtual key | A virtual key in the `x-llm-proxy-key` header, required |
+| How the proxy identifies the client | The virtual key | A virtual key in the `x-spyglass-key` header, required |
 | Upstream credential | The provider key held by the proxy | The client's credential, forwarded unchanged |
 | Who is billed | The owner of the proxy's provider key | The owner of the client's credential |
 | Cost | Computed from pricing; the owner of the provider key pays | Computed as an API-equivalent figure for analysis; the plan bills the person |
@@ -68,7 +68,7 @@ flowchart LR
 
 In both modes the proxy requires a virtual key. Without one, the proxy would be an open relay for anyone's credentials, and calls could not be attributed. A presented `lp_` key is never forwarded upstream.
 
-A request that carries a credential in the wrong place for the provider's mode is rejected with `401`, so a virtual key cannot leak upstream by accident. For a `client_passthrough` provider that means an `lp_` value in `Authorization` or `x-api-key`. For a `proxy_key` provider it means an `x-llm-proxy-key` header.
+A request that carries a credential in the wrong place for the provider's mode is rejected with `401`, so a virtual key cannot leak upstream by accident. For a `client_passthrough` provider that means an `lp_` value in `Authorization` or `x-api-key`. For a `proxy_key` provider it means an `x-spyglass-key` header.
 
 ## Header handling
 
@@ -77,7 +77,8 @@ For the Anthropic family. "Forward" means unchanged, byte for byte.
 | Header | Request handling |
 |---|---|
 | `Authorization`, `x-api-key` | `proxy_key`: consumed as the virtual key, removed, and replaced by `x-api-key: <provider key>`. `client_passthrough`: forwarded, never logged, never stored; a value that starts with `lp_` is rejected with `401` |
-| `x-llm-proxy-key` | `client_passthrough`: consumed as the virtual key, never forwarded. `proxy_key`: rejected with `401` |
+| `x-spyglass-key` | `client_passthrough`: consumed as the virtual key, never forwarded. `proxy_key`: rejected with `401` |
+| `x-llm-proxy-key` | The deprecated name of `x-spyglass-key` from release 0.1.0, handled the same way until 0.3.0. When both are sent, `x-spyglass-key` is used and both are removed. The first request that uses it logs one warning per process, without the key ([ADR 0054](../adrs/0054-rename-to-spyglass.md)) |
 | `anthropic-version`, `anthropic-beta`, every other `anthropic-*` | Forwarded. Treated as open lists, never allowlisted, as Anthropic's guide requires |
 | `x-claude-code-*` | Read for correlation ([backend.md](backend.md#correlation)) and forwarded |
 | `traceparent` | Recorded and forwarded |
@@ -104,7 +105,7 @@ Client configuration, in the shell or in the `env` block of `~/.claude/settings.
 ```json
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "https://llm-proxy.internal:8080",
+    "ANTHROPIC_BASE_URL": "https://spyglass.internal:8080",
     "ANTHROPIC_AUTH_TOKEN": "lp_…",
     "CLAUDE_CODE_GATEWAY_HINT_HEADERS": "1"
   }
@@ -116,7 +117,7 @@ Client configuration, in the shell or in the `env` block of `~/.claude/settings.
 - The documentation warns against putting the credential in a project's committed `.claude/settings.json`.
 - Billing: "While a gateway credential variable or `apiKeyHelper` is active, requests carry that credential in place of a developer's claude.ai subscription login, and the subscription's usage limits don't apply to them." The traffic is billed per token to the owner of the key the proxy forwards, for example an Anthropic Console account.
 - A saved claude.ai login stays on the machine but is not sent while the gateway credential is set. `/status` in Claude Code shows which credential is active.
-- Virtual keys come from the proxy's config file, not from the UI: the operator generates one (`llm-proxy keygen --name <name>`, see [deployment.md](deployment.md#secrets)), adds its name and hash to `keys:`, sends `SIGHUP`, and gives the plaintext to the client. The key's name is what the call log shows.
+- Virtual keys come from the proxy's config file, not from the UI: the operator generates one (`spyglass keygen --name <name>`, see [deployment.md](deployment.md#secrets)), adds its name and hash to `keys:`, sends `SIGHUP`, and gives the plaintext to the client. The key's name is what the call log shows.
 - For firstmate, each crewmate gets its own virtual key named `fm:<task-id>` (gap review N7). The v1 firstmate route is `proxy_key` with a Console API key held by the proxy. The operator issues the keys by hand: one config entry per key and a `SIGHUP`. Names must stay stable, because history is grouped by name. Injecting a key into each crewmate at launch is a later item ([backend.md, Later versions](backend.md#storage-and-scale)). `client_passthrough` stays for one person's own interactive Claude Code.
 
 Optional client settings that help behind a proxy:
@@ -125,7 +126,7 @@ Optional client settings that help behind a proxy:
 |---|---|
 | `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` | Claude Code adds the `/v1/models` list it receives to its `/model` picker. In v1 that is the upstream's list |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | Stops version checks, telemetry and similar traffic that goes outside the proxy. It also disables auto-updates |
-| `ANTHROPIC_CUSTOM_HEADERS` | Adds headers, one `Name: Value` pair per line; used for `x-llm-proxy-key` in passthrough mode |
+| `ANTHROPIC_CUSTOM_HEADERS` | Adds headers, one `Name: Value` pair per line; used for `x-spyglass-key` in passthrough mode |
 
 Known traffic that never passes through the proxy, per Anthropic's docs: the fast-mode availability check and the WebFetch domain safety check call `api.anthropic.com` directly, and telemetry goes to Anthropic without the gateway credential. The proxy cannot log these.
 
@@ -153,7 +154,7 @@ Personal local setup, in `~/.claude/settings.json` or the shell:
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
-    "ANTHROPIC_CUSTOM_HEADERS": "x-llm-proxy-key: lp_…",
+    "ANTHROPIC_CUSTOM_HEADERS": "x-spyglass-key: lp_…",
     "CLAUDE_CODE_GATEWAY_HINT_HEADERS": "1"
   }
 }
@@ -162,7 +163,7 @@ Personal local setup, in `~/.claude/settings.json` or the shell:
 - Do not set `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_API_KEY` or `apiKeyHelper`. Any of them takes precedence over the saved login.
 - The proxy listens on `127.0.0.1` only, and its provider uses `auth_mode: client_passthrough`; the matching config is a worked example in [deployment.md](deployment.md#personal-local-setup-subscription-passthrough).
 - Sign in with `/login` in Claude Code, as usual. The sign-in completes through Anthropic's flow. The proxy takes no part in it.
-- The virtual key is an entry in the proxy's `keys` section (name and SHA-256; see [deployment.md](deployment.md#secrets)). It travels in `x-llm-proxy-key` through `ANTHROPIC_CUSTOM_HEADERS`, which Claude Code adds to its requests. Anthropic's docs list custom routing headers among the values that can need approval, with extra rules when they come from a project settings file, so set them in `~/.claude/settings.json` or the shell.
+- The virtual key is an entry in the proxy's `keys` section (name and SHA-256; see [deployment.md](deployment.md#secrets)). It travels in `x-spyglass-key` through `ANTHROPIC_CUSTOM_HEADERS`, which Claude Code adds to its requests. Anthropic's docs list custom routing headers among the values that can need approval, with extra rules when they come from a project settings file, so set them in `~/.claude/settings.json` or the shell.
 
 ### Terms that apply
 

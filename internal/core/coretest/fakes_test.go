@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 func TestWriterIdempotentOnID(t *testing.T) {

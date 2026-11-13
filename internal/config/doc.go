@@ -18,11 +18,11 @@
 // The index belongs to the Snapshot, so the swap replaces config and index
 // together; a build error rejects the reload like a validation error.
 //
-// Environment overrides. Every scalar key can be overridden by LLM_PROXY_ plus
+// Environment overrides. Every scalar key can be overridden by SPYGLASS_ plus
 // the upper-cased key path joined by underscores, for example
-// LLM_PROXY_SERVER_DRAIN_TIMEOUT or LLM_PROXY_LISTEN_TLS_CERT_FILE. A secret
-// reference is overridden by its parts: LLM_PROXY_DATABASE_URL_ENV or
-// LLM_PROXY_DATABASE_URL_FILE; setting either replaces the whole reference from
+// SPYGLASS_SERVER_DRAIN_TIMEOUT or SPYGLASS_LISTEN_TLS_CERT_FILE. A secret
+// reference is overridden by its parts: SPYGLASS_DATABASE_URL_ENV or
+// SPYGLASS_DATABASE_URL_FILE; setting either replaces the whole reference from
 // the file. Lists (providers, keys, pricing) are not overridable from the
 // environment.
 //

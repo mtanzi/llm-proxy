@@ -20,12 +20,12 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/fakeupstream"
-	"github.com/mtanzi/llm-proxy/internal/keyring"
-	"github.com/mtanzi/llm-proxy/internal/store/postgres"
-	"github.com/mtanzi/llm-proxy/internal/store/postgres/pgtest"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/fakeupstream"
+	"github.com/mtanzi/spyglass/internal/keyring"
+	"github.com/mtanzi/spyglass/internal/store/postgres"
+	"github.com/mtanzi/spyglass/internal/store/postgres/pgtest"
 )
 
 // End-to-end support (ADR 0038). An e2eEnv is the real serve wiring (openStore,

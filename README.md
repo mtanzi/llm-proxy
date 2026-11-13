@@ -2,7 +2,7 @@
 
 Spyglass shows you what your AI coding agents do with the model. It is a self-hosted, observe-only proxy for LLM APIs. Point Claude Code at it, and every call passes through to the Anthropic API unchanged. Spyglass records the facts about each call and shows them in a web UI. Prompts and responses are never stored.
 
-> Spyglass is the product name. The binary, the commands, the config file, the Docker image and this repository are still named `llm-proxy`, so every command below says `llm-proxy`.
+> **Renamed from llm-proxy.** Release 0.1.0 shipped as `llm-proxy`. From the next release the binary, the Docker image (`ghcr.io/mtanzi/spyglass`), the key header (`x-spyglass-key`), the environment variables (`SPYGLASS_*`) and the metrics (`spyglass_*`) use the new name. The old header and the old `LLM_PROXY_*` variables still work for now, with a deprecation warning; the metrics are renamed with no alias. See [Upgrading from llm-proxy 0.1.0](docs/runbook.md#upgrading-from-llm-proxy-010) and [ADR 0054](docs/adrs/0054-rename-to-spyglass.md).
 
 ![Spyglass Overview page in the dark theme: headline numbers for calls, cost, tokens, error rate, cache hit and latency, activity by model, a live feed and recent sessions.](docs/images/overview-dark.png)
 
@@ -45,22 +45,22 @@ Spyglass shows you what your AI coding agents do with the model. It is a self-ho
 
 ## Install a release
 
-To run llm-proxy without a Go and Node toolchain, use a published release. Releases are listed on the [releases page](https://github.com/mtanzi/llm-proxy/releases). Set `VERSION` to the release you want, for example `0.1.0`.
+To run Spyglass without a Go and Node toolchain, use a published release. Releases are listed on the [releases page](https://github.com/mtanzi/spyglass/releases). Set `VERSION` to the release you want. Release 0.1.0 predates the rename: its binaries are named `llm-proxy-v0.1.0-<os>-<arch>` and its image is `ghcr.io/mtanzi/llm-proxy:0.1.0`, so for 0.1.0 replace `spyglass` with `llm-proxy` in the names below.
 
 **Binary.** Each release has one binary per platform (`linux` or `darwin`, on `amd64` or `arm64`) and a `SHA256SUMS` file. The binary has the UI embedded and still needs a Postgres database.
 
 ```sh
-VERSION=0.1.0
+VERSION=<version>   # for example 0.2.0
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # linux or darwin
 ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
-BASE=https://github.com/mtanzi/llm-proxy/releases/download/v$VERSION
-FILE=llm-proxy-v$VERSION-$OS-$ARCH
+BASE=https://github.com/mtanzi/spyglass/releases/download/v$VERSION
+FILE=spyglass-v$VERSION-$OS-$ARCH
 
 curl -fsSLO "$BASE/$FILE" -O "$BASE/SHA256SUMS"
 grep -F " $FILE" SHA256SUMS > SHA256SUMS.one   # keep only the line for your file
 sha256sum -c SHA256SUMS.one                    # on macOS: shasum -a 256 -c SHA256SUMS.one
-chmod +x "$FILE" && mv "$FILE" llm-proxy
-./llm-proxy version
+chmod +x "$FILE" && mv "$FILE" spyglass
+./spyglass version
 ```
 
 Do not run the binary if the check does not print `OK`.
@@ -68,12 +68,12 @@ Do not run the binary if the check does not print `OK`.
 **Container image.** The image is public and has no `latest` tag. Name the version, without the `v`:
 
 ```sh
-docker pull ghcr.io/mtanzi/llm-proxy:0.1.0
+docker pull ghcr.io/mtanzi/spyglass:<version>
 ```
 
-To run the image with Postgres from [docker-compose.yml](docker-compose.yml), set `LLM_PROXY_IMAGE=ghcr.io/mtanzi/llm-proxy:0.1.0` in the shell or an `.env` file. Without it, compose builds the image from this directory. See [Deploy with compose](#deploy-with-compose).
+To run the image with Postgres from [docker-compose.yml](docker-compose.yml), set `SPYGLASS_IMAGE=ghcr.io/mtanzi/spyglass:<version>` in the shell or an `.env` file. Without it, compose builds the image from this directory. See [Deploy with compose](#deploy-with-compose).
 
-Then follow the steps below from step 1, skipping the build in step 2 and using your downloaded `llm-proxy` in place of `bin/llm-proxy`.
+Then follow the steps below from step 1, skipping the build in step 2 and using your downloaded `spyglass` in place of `bin/spyglass`.
 
 ## Quick start: personal local setup
 
@@ -89,11 +89,11 @@ make ui-build build
 
 # 3. Config and a virtual key (put the printed entry under keys: in config.yaml)
 cp config.personal.example.yaml config.yaml
-bin/llm-proxy keygen --name me-laptop
+bin/spyglass keygen --name me-laptop
 
 # 4. Run it: calls on 127.0.0.1:8080, UI and admin API on 127.0.0.1:9090
-export LLM_PROXY_DATABASE_URL="postgres://llmproxy:$(cat secrets/pg_password)@127.0.0.1:5432/llmproxy?sslmode=disable"
-bin/llm-proxy serve --config config.yaml
+export SPYGLASS_DATABASE_URL="postgres://llmproxy:$(cat secrets/pg_password)@127.0.0.1:5432/llmproxy?sslmode=disable"
+bin/spyglass serve --config config.yaml
 ```
 
 ## Route Claude Code through it
@@ -104,7 +104,7 @@ Add this to your user settings, `~/.claude/settings.json`, with the key that `ke
 {
   "env": {
     "ANTHROPIC_BASE_URL": "http://127.0.0.1:8080",
-    "ANTHROPIC_CUSTOM_HEADERS": "x-llm-proxy-key: lp_…",
+    "ANTHROPIC_CUSTOM_HEADERS": "x-spyglass-key: lp_…",
     "CLAUDE_CODE_GATEWAY_HINT_HEADERS": "1"
   }
 }
@@ -124,12 +124,12 @@ Spyglass has two listeners with different trust rules. Read this before you run 
 
 - **The admin UI and the admin API (`/ui`, `/admin/*`, port 9090) have no sign-in, by design.** Anyone who can reach that port sees every recorded call. They listen on loopback only, and `serve` refuses any other address.
 - **Never expose port 9090 or the admin API to a network.** Do not publish it from a container, forward or tunnel it, or put a reverse proxy in front of it.
-- **The data plane (port 8080) needs a virtual key** (`x-llm-proxy-key` or `Authorization`). Treat these keys as credentials. Keep them out of committed files. Only hashes are stored in the config file.
+- **The data plane (port 8080) needs a virtual key** (`x-spyglass-key` or `Authorization`). Treat these keys as credentials. Keep them out of committed files. Only hashes are stored in the config file.
 - Spyglass stores metadata only. Prompts and responses are never stored.
 
 ## Deploy with compose
 
-For a shared or always-on setup, run `llm-proxy` and Postgres from [docker-compose.yml](docker-compose.yml) with an Anthropic API key. The [runbook](docs/runbook.md) covers running a pinned release image, the first start, keys, secret rotation, upgrades, backups, TLS, metrics and sizing. The design behind it is in [deployment.md](docs/architecture/deployment.md).
+For a shared or always-on setup, run `spyglass` and Postgres from [docker-compose.yml](docker-compose.yml) with an Anthropic API key. The [runbook](docs/runbook.md) covers running a pinned release image, the first start, keys, secret rotation, upgrades, backups, TLS, metrics and sizing. The design behind it is in [deployment.md](docs/architecture/deployment.md).
 
 ## Configuration
 
@@ -160,7 +160,7 @@ Each deferred item and the trigger for adding it back is in [Later versions](doc
 ## Development and contributing
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) has the package layout, the dependency rules and the checks (`make build`, `make test`, `make lint`, `make ui-check`, `make e2e`).
-- `make ui-dev` runs the UI with hot reload against a local `llm-proxy serve`.
+- `make ui-dev` runs the UI with hot reload against a local `spyglass serve`.
 - [docs/](docs/) holds the design: start with [llm-proxy-design.md](docs/llm-proxy-design.md), the [architecture documents](docs/architecture/) and the [ADRs](docs/adrs/README.md). The brand proposals are in [branding-proposals.html](docs/branding-proposals.html).
 
 ## License

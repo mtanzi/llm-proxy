@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/store/postgres"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/store/postgres"
 )
 
 var (

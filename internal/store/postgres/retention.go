@@ -44,12 +44,12 @@ func (r Retention) withDefaults() Retention {
 }
 
 // RetentionStats are the retention job values that ADR 0026 exports as
-// llm_proxy_retention_deleted_total and
-// llm_proxy_retention_last_run_timestamp_seconds.
+// spyglass_retention_deleted_total and
+// spyglass_retention_last_run_timestamp_seconds.
 type RetentionStats struct {
-	Deleted int64     // rows deleted since the store opened (llm_proxy_retention_deleted_total)
+	Deleted int64     // rows deleted since the store opened (spyglass_retention_deleted_total)
 	Batches int64     // DELETE batches that removed rows
-	LastRun time.Time // end of the last run that finished without error; zero before one (llm_proxy_retention_last_run_timestamp_seconds)
+	LastRun time.Time // end of the last run that finished without error; zero before one (spyglass_retention_last_run_timestamp_seconds)
 }
 
 // retentionState is the job state kept by a Store.

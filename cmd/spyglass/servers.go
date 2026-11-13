@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/httpmw"
-	"github.com/mtanzi/llm-proxy/internal/proxy"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/httpmw"
+	"github.com/mtanzi/spyglass/internal/proxy"
 )
 
 // Server timeouts. There is deliberately no WriteTimeout: it would cut long

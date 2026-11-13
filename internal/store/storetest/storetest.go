@@ -9,8 +9,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/store/postgres"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/store/postgres"
 )
 
 // group is a named set of cases. Each case gets its own store, from newStore.

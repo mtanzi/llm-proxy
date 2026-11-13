@@ -10,8 +10,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/recorder"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/recorder"
 )
 
 // KeepAliveInterval is how often the live tail writes an SSE comment when no

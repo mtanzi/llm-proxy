@@ -9,15 +9,15 @@ set -eu
 image=${1:?usage: smoke-image.sh IMAGE}
 curl_image=${CURL_IMAGE:-curlimages/curl:8.11.1}
 suffix=$$
-net=llm-proxy-smoke-$suffix
-pg=llm-proxy-smoke-pg-$suffix
-app=llm-proxy-smoke-app-$suffix
+net=spyglass-smoke-$suffix
+pg=spyglass-smoke-pg-$suffix
+app=spyglass-smoke-app-$suffix
 tmp=$(mktemp -d)
 
 cleanup() {
 	status=$?
 	if [ "$status" -ne 0 ]; then
-		echo "--- llm-proxy logs ---" >&2
+		echo "--- spyglass logs ---" >&2
 		docker logs "$app" >&2 2>&1 || true
 	fi
 	docker rm -f "$app" "$pg" >/dev/null 2>&1 || true
@@ -33,7 +33,7 @@ listen:
   data: ":8080"
   admin: "127.0.0.1:9090"
 database:
-  url: { env: LLM_PROXY_DATABASE_URL }
+  url: { env: SPYGLASS_DATABASE_URL }
 providers:
   - name: anthropic
     kind: anthropic
@@ -65,9 +65,9 @@ done
 
 # Read-only root filesystem: the container writes nothing to disk.
 docker run -d --name "$app" --network "$net" --read-only \
-	-e LLM_PROXY_DATABASE_URL="postgres://postgres:postgres@$pg:5432/postgres?sslmode=disable" \
-	-v "$tmp/config.yaml:/etc/llm-proxy/config.yaml:ro" \
-	"$image" serve --config /etc/llm-proxy/config.yaml >/dev/null
+	-e SPYGLASS_DATABASE_URL="postgres://postgres:postgres@$pg:5432/postgres?sslmode=disable" \
+	-v "$tmp/config.yaml:/etc/spyglass/config.yaml:ro" \
+	"$image" serve --config /etc/spyglass/config.yaml >/dev/null
 
 # probe URL: fetch from inside the proxy's network namespace.
 probe() {

@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/family/anthropic"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/family/anthropic"
 )
 
 // KeyLookup finds a virtual key by the lowercase hex SHA-256 of its plaintext.
@@ -24,10 +24,12 @@ const virtualKeyPrefix = "lp_"
 // read from depends on the provider's auth_mode: in proxy_key mode it is
 // Authorization: Bearer <key>, otherwise x-api-key; in client_passthrough mode
 // the client's own credential occupies those headers, so the key is read from
-// x-llm-proxy-key. A credential in the wrong place for the mode is rejected
-// before any lookup, so a virtual key cannot reach the upstream by accident:
-// an x-llm-proxy-key header on a proxy_key provider, or an lp_ value in
-// Authorization or x-api-key on a client_passthrough provider.
+// x-spyglass-key. The deprecated x-llm-proxy-key of release 0.1.0 is accepted
+// in its place, with the same checks; when both are sent, x-spyglass-key wins
+// (ADR 0054). A credential in the wrong place for the mode is rejected before
+// any lookup, so a virtual key cannot reach the upstream by accident: either
+// key header on a proxy_key provider, or an lp_ value in Authorization or
+// x-api-key on a client_passthrough provider.
 //
 // It returns the key name, which the correlation step stores as key_name. On
 // failure it returns a protocol-correct 401 and ok false: a missing, unknown or
@@ -42,9 +44,9 @@ func Authenticate(h http.Header, keys KeyLookup, mode, requestID string) (name s
 		if misplacedKey(h) {
 			return "", anthropic.MissingOrInvalidKeyError(requestID), false
 		}
-		presented = strings.TrimSpace(h.Get(headerProxyKey))
+		presented = strings.TrimSpace(h.Get(keyHeader(h)))
 	default:
-		if len(h.Values(headerProxyKey)) > 0 {
+		if len(h.Values(headerProxyKey)) > 0 || len(h.Values(headerLegacyProxyKey)) > 0 {
 			return "", anthropic.MissingOrInvalidKeyError(requestID), false
 		}
 		presented = presentedKey(h)
@@ -61,6 +63,23 @@ func Authenticate(h http.Header, keys KeyLookup, mode, requestID string) (name s
 		return "", anthropic.DisabledKeyError(requestID), false
 	}
 	return key.Name, anthropic.ErrorResponse{}, true
+}
+
+// keyHeader names the header a client_passthrough request carries its virtual
+// key in: x-spyglass-key when it is present, even empty, otherwise the
+// deprecated x-llm-proxy-key.
+func keyHeader(h http.Header) string {
+	if len(h.Values(headerProxyKey)) > 0 {
+		return headerProxyKey
+	}
+	return headerLegacyProxyKey
+}
+
+// usesLegacyKeyHeader reports whether the virtual key came from the deprecated
+// x-llm-proxy-key header, that is the header is present and x-spyglass-key is
+// not.
+func usesLegacyKeyHeader(h http.Header) bool {
+	return len(h.Values(headerLegacyProxyKey)) > 0 && len(h.Values(headerProxyKey)) == 0
 }
 
 // misplacedKey reports whether Authorization or x-api-key carries a virtual

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"runtime/debug"
 
-	"github.com/mtanzi/llm-proxy/internal/family/anthropic"
+	"github.com/mtanzi/spyglass/internal/family/anthropic"
 )
 
 // Recover turns a panic in a later step into a logged 500 with the protocol

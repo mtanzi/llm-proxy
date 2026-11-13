@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -132,14 +132,15 @@ func TestAccessLogRedactionGolden(t *testing.T) {
 	req.RemoteAddr = "192.0.2.1:5555"
 	req.Header.Set("Authorization", "Bearer sk-secret")
 	req.Header.Set("x-api-key", "key-secret")
-	req.Header.Set("x-llm-proxy-key", "lp_secret")
+	req.Header.Set("x-spyglass-key", "lp_secret")
+	req.Header.Set("x-llm-proxy-key", "lp_legacy_secret")
 	req.Header.Set("Cookie", "session=cookie-secret")
 	req.Header.Set("x-request-id", "client-1")
 	req.Header.Set("User-Agent", "test-agent")
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
 	line := buf.String()
-	for _, secret := range []string{"sk-secret", "key-secret", "lp_secret", "cookie-secret", "SECRET-BODY", "in-query"} {
+	for _, secret := range []string{"sk-secret", "key-secret", "lp_secret", "lp_legacy_secret", "cookie-secret", "SECRET-BODY", "in-query"} {
 		if strings.Contains(line, secret) {
 			t.Errorf("log line contains %q:\n%s", secret, line)
 		}
