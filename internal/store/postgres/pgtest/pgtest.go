@@ -1,8 +1,8 @@
 // Package pgtest gives tests a real Postgres. It is test support: only
 // _test.go files import it.
 //
-// The server is the one named by SPYGLASS_TEST_DATABASE_URL (or the deprecated
-// LLM_PROXY_TEST_DATABASE_URL) when that is set, otherwise a Postgres 16 container started once per test binary with
+// The server is the one named by SPYGLASS_TEST_DATABASE_URL when that is set,
+// otherwise a Postgres 16 container started once per test binary with
 // testcontainers-go. Without either, tests that need it skip. Each test gets
 // its own empty database, dropped when the test ends.
 package pgtest
@@ -26,10 +26,6 @@ import (
 // EnvURL names the variable that points the tests at an existing server. The
 // URL's user must be allowed to create databases.
 const EnvURL = "SPYGLASS_TEST_DATABASE_URL"
-
-// LegacyEnvURL is the 0.1.0 name of EnvURL. It is read when EnvURL is unset,
-// with a warning (ADR 0054).
-const LegacyEnvURL = "LLM_PROXY_TEST_DATABASE_URL"
 
 // Image is the container image used when EnvURL is not set: the oldest
 // supported Postgres.
@@ -102,23 +98,8 @@ func NewDatabase(t testing.TB) string {
 	return u.String()
 }
 
-// urlFromEnv returns the server URL from EnvURL, or from LegacyEnvURL when
-// EnvURL is empty. legacy reports the fallback.
-func urlFromEnv(getenv func(string) string) (u string, legacy bool) {
-	if v := getenv(EnvURL); v != "" {
-		return v, false
-	}
-	if v := getenv(LegacyEnvURL); v != "" {
-		return v, true
-	}
-	return "", false
-}
-
 func start() {
-	if v, legacy := urlFromEnv(os.Getenv); v != "" {
-		if legacy {
-			_, _ = fmt.Fprintf(os.Stderr, "pgtest: %s is deprecated; set %s instead\n", LegacyEnvURL, EnvURL)
-		}
+	if v := os.Getenv(EnvURL); v != "" {
 		serverURL = v
 		return
 	}

@@ -17,18 +17,8 @@ import (
 // because it takes minutes and a few GB of disk.
 const sizingRowsEnv = "SPYGLASS_SIZING_ROWS"
 
-// legacySizingRowsEnv is the deprecated 0.1.0 name of sizingRowsEnv, read when
-// it is unset (ADR 0054).
-const legacySizingRowsEnv = "LLM_PROXY_SIZING_ROWS"
-
 func TestUsageSizing(t *testing.T) {
-	rows := os.Getenv(sizingRowsEnv)
-	if rows == "" {
-		if rows = os.Getenv(legacySizingRowsEnv); rows != "" {
-			t.Logf("%s is deprecated; set %s instead", legacySizingRowsEnv, sizingRowsEnv)
-		}
-	}
-	n, _ := strconv.Atoi(rows)
+	n, _ := strconv.Atoi(os.Getenv(sizingRowsEnv))
 	if n <= 0 {
 		t.Skipf("set %s (for example 1500000) to measure", sizingRowsEnv)
 	}

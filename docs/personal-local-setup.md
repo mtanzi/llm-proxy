@@ -39,6 +39,8 @@ You need Docker, Go and Node 22 (to build the UI), `curl` and `openssl`. Run the
    bin/spyglass serve --config config.yaml
    ```
 
+   If your `config.yaml` comes from release 0.1.0, it may say `url: { env: LLM_PROXY_DATABASE_URL }`. Change it to `url: { env: SPYGLASS_DATABASE_URL }` before you use this export: the old name in `config.yaml` is not mapped to the new one.
+
    Leave it running. In another terminal, `curl -s http://127.0.0.1:8080/readyz` prints `ok`.
 
 5. **Point Claude Code at it.** Add this to `~/.claude/settings.json`, with your key. Use the user file, not a project's committed `.claude/settings.json`: the key is a credential.
