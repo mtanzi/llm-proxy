@@ -46,7 +46,7 @@ jobs:
             type=semver,pattern={{version}}
       # Gate the push: build the amd64 image locally and run the CI checks.
       - name: Check the image before push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64
@@ -55,7 +55,7 @@ jobs:
           build-args: VERSION=${{ github.ref_name }}
           cache-from: type=gha
       - run: scripts/check-image.sh spyglass:release-check && scripts/smoke-image.sh spyglass:release-check
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
