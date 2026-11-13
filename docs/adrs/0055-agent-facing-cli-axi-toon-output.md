@@ -45,12 +45,11 @@ Forces:
 |---|---|
 | `SPYGLASS_ADMIN_URL` | Base URL of the admin listener. Default `http://127.0.0.1:9090`, the default `listen.admin` address (deployment.md). |
 | `SPYGLASS_ADMIN_KEY` | Optional admin key. When set, the CLI sends it as `Authorization: Bearer <key>`. |
-| `SPYGLASS_ADMIN_KEY_FILE` | Optional path to a file that holds the admin key, read once at start. Wins over `SPYGLASS_ADMIN_KEY`. |
 
-- **The admin API needs no key in v1.** The variables for the key exist so the CLI does not change when admin sign-in lands (backend.md, "Later versions", which names `Authorization: Bearer <admin token>` for scripts). Until then an unset key is normal and the CLI sends no `Authorization` header.
-- **The key is never printed.** The CLI shows only that a key is `set` or `unset`, in `describe` and in connection errors. It never echoes the key, the header, or a URL that carries one. The key is not accepted as a flag, because flags show in process lists and shell history. The file variable keeps the value out of the environment of other processes.
+- **The admin API needs no key in v1.** The key variable exists so the CLI does not change when admin sign-in lands (backend.md, "Later versions", which names `Authorization: Bearer <admin token>` for scripts). Until then an unset key is normal and the CLI sends no `Authorization` header.
+- **The key is never printed.** The CLI shows only that a key is `set` or `unset`, in `describe` and in connection errors. It never echoes the key, the header, or a URL that carries one. The key is not accepted as a flag, because flags show in process lists and shell history.
 - **The server stays loopback-only.** The CLI reaches a remote server only through something the operator provides, for example an SSH tunnel to the admin port. This ADR does not change the admin listener.
-- **Flag overrides for the URL only:** `--url`. A connection error prints the URL used and the variable that sets it.
+- **No flag overrides the connection.** A connection error prints the URL used and the variable that sets it.
 
 ### Time window
 
@@ -64,7 +63,7 @@ Each command lists the endpoint it uses and the existing parameters it maps to.
 
 | Command | What it shows | Endpoint and parameters |
 |---|---|---|
-| `spyglass` (home view) | Today's cost, calls and errors; the most expensive sessions; models with no price; `help[]` | `GET /admin/usage` (ungrouped, `grain=day`, window = today); `GET /admin/sessions` (window = today); `GET /admin/config` and `GET /admin/usage?group_by=model` for unpriced models. See gaps. |
+| `spyglass` (home view) | Today's cost, calls and errors; the most expensive sessions; models with no price; `help[]` | `GET /admin/usage` (ungrouped, `grain=day`, window = today); `GET /admin/usage?group_by=session` (window = today), ranked by cost in the client; `GET /admin/config` and `GET /admin/usage?group_by=model&provider=<name>`, one per provider, for unpriced models. See gaps. |
 | `spyglass describe` | The data model, every field with its unit, the default window, what is never stored | Static text built into the binary, plus a call to `GET /admin/config` for the providers and key names. |
 | `spyglass config` | Providers (`name`, `kind`, `auth_mode`, `base_url`), pricing per model and start day, key names with the `disabled` flag | `GET /admin/config`. |
 | `spyglass sessions list` | Sessions in the window, newest first | `GET /admin/sessions`: `from`, `to`, `key`, `client`, `provider`, `model`, `error_class`, `session`, `cost_micro_usd_gte`, `limit`, `cursor`. |
@@ -74,17 +73,17 @@ Each command lists the endpoint it uses and the existing parameters it maps to.
 
 - **Filter flags use the API parameter names**, with `_` written as `-` (`--error-class`, `--latency-ms-gte`). A repeatable parameter (`key`, `model`, `status`, `error_class` and so on) is a repeatable flag.
 - **`calls list` shows the API `count`** (exact up to 10000) and marks it `10000+` when `count_capped` is true. `sessions list` has no count in the API, so it reports only the rows returned and whether a next page exists.
-- **Unknown is not zero.** A call with `cost_micro_usd` null prints `cost_usd: unpriced`, not `0`. A session cost that sums only the priced calls says so. A cost through a `client_passthrough` provider is marked API-equivalent, as in ADR 0052, using `auth_mode` from `GET /admin/config`.
+- **Unknown is not zero.** A call with `cost_micro_usd` null prints `cost_usd: unpriced`, not `0`. A session cost that sums only the priced calls says so, with its `unpriced_calls` count. `SessionSummary` has no such count, so the CLI takes it from `GET /admin/usage?group_by=session` with the same window and filters (see gaps). A call or a total cost through a `client_passthrough` provider is marked API-equivalent, as in ADR 0052, using `auth_mode` from `GET /admin/config`. Session rows carry no API-equivalent label, because a session summary does not say which providers served it (ADR 0052).
 
 Illustrative output of the home view (field names and units are the contract; values are made up):
 
 ```
 window: {from: "2026-11-13T00:00:00Z", to: "2026-11-13T14:20:00Z", default: false}
 today: {calls: 412, errors: 9, error_rate: 0.022, cost_usd: 18.4213, unpriced_calls: 14, tokens_in: 3120000, tokens_out: 210000, cache_hit_ratio: 0.81, latency_p95_ms: 9400}
-top_sessions[3]{session_key,client,calls,cost_usd}:
-  fm:7f3a,claude-code,188,9.8120
-  fm:21c0,claude-code,95,4.2007
-  team/a:1,claude-code,40,1.9005
+top_sessions[3]{session_key,calls,cost_usd,unpriced_calls}:
+  fm:7f3a,188,9.8120,0
+  fm:21c0,95,4.2007,14
+  team/a:1,40,1.9005,0
 unpriced_models[1]{provider,model,calls}:
   anthropic,claude-new-model,14
 help[3]:
@@ -93,7 +92,7 @@ help[3]:
   spyglass config
 ```
 
-Illustrative output of `spyglass sessions list`:
+Illustrative output of `spyglass sessions list --limit 3`:
 
 ```
 window: {from: "2026-11-12T14:20:00Z", to: "2026-11-13T14:20:00Z", default: true}
@@ -103,7 +102,7 @@ sessions[3]{session_key,calls,errors,cost_usd}:
   fm:21c0,95,0,4.2007
   team/a:1,40,3,1.9005
 help[2]:
-  spyglass sessions list --limit 20 --cursor eyJ0cyI6...
+  spyglass sessions list --limit 3 --cursor eyJ0cyI6...
   spyglass sessions show fm:7f3a
 ```
 
@@ -133,11 +132,12 @@ Field naming in the CLI: `cost_usd` is the API `cost_micro_usd` divided by 1,000
 The commands use the existing API as it is. Where it falls short, the gap and the smallest addition it implies are:
 
 1. **Home view and `top`: a ranked list.** `/admin/usage?group_by=session` returns one bucket per session and time, so a client must fetch every bucket and sort. The smallest addition is an `order_by` and `limit` on `/admin/usage` when grouped, or a grouped single-bucket mode. Until then the CLI sorts client-side, and the output says when the window was too large to rank exactly.
-2. **Home view: models with no price.** The API has no "unpriced" filter. The CLI derives it from `/admin/usage?group_by=model` (the `unpriced_calls` counter per bucket) and the priced models in `/admin/config`. A `priced=false` filter, or an `unpriced_calls` total in a grouped single-bucket mode, would remove the join.
+2. **Home view: models with no price.** The API has no "unpriced" filter, and a bucket grouped by model carries the model name only, not the provider. `group_by` takes one dimension, and the same model name can appear under two providers. The CLI makes one `/admin/usage?group_by=model&provider=<name>` request per provider in `/admin/config` and keeps the models with a non-zero `unpriced_calls`. A `priced=false` filter, or a combined `group_by=provider,model`, would remove the extra requests.
 3. **Exact percentiles over a window.** Usage percentiles are per bucket and cannot be summed (ADR 0052). `home` and `compare` use a single bucket when the window fits one `grain`, and otherwise print the call-weighted mean marked `approx`. An ungrouped single-bucket mode of `/admin/usage` fixes it. This is the same gap ADR 0052 names.
 4. **`compare` and `top`: totals over a window.** Both need one total per window, not a series. The same single-bucket mode serves them.
 5. **Counts for sessions and tool calls.** `/admin/sessions` and `/admin/tool-calls` return no count. The CLI reports the page only and says so. A `count` there would let it satisfy "always report total counts" fully.
 6. **Per-agent cost.** Agents appear in `sessions show` (the agent tree with call counts) and as an `agent` filter, but `/admin/usage` has no `group_by=agent`, so "which agent cost most" needs an extra call per agent. A `group_by=agent` value is the smallest addition.
+7. **Unpriced calls per session.** `SessionSummary` has a `cost_micro_usd` that is null only when no call is priced, and no count of unpriced calls, so a partial cost looks complete. The CLI joins `/admin/usage?group_by=session` and its per-bucket `unpriced_calls` to the session rows. An `unpriced_calls` field on `SessionSummary` removes the join. The summary also does not name its providers, so a per-session API-equivalent label needs a `providers` field there too.
 
 These additions are not designed in this ADR. Each is a separate API change against `api/openapi.yaml`, with its own ADR or an amendment, and each phase works without them, with the client-side workaround named above.
 
@@ -145,7 +145,7 @@ These additions are not designed in this ADR. Each is a separate API change agai
 
 - **An agent can answer cost, token, time and error questions in a few shell calls**, with output that is small and says what to run next. The cost to a session that never uses it is zero.
 - **One release and one install.** The CLI and the API move together and the Go types are shared. The cost is that the `spyglass` binary grows: it now carries client code and a TOON encoder next to the server. The client code must not import the server internals that open a database or a listener.
-- **The CLI is only as good as the API.** The six gaps above limit exactness (percentiles, rankings, counts) until the API gains the named additions. The workarounds fetch more data than a single-bucket mode would, so the home view takes several requests, and a long window takes seconds (ADR 0021).
+- **The CLI is only as good as the API.** The seven gaps above limit exactness (percentiles, rankings, counts) until the API gains the named additions. The workarounds fetch more data than a single-bucket mode would, so the home view takes several requests, and a long window takes seconds (ADR 0021).
 - **TOON is new code to maintain.** The encoder is small and covered by golden tests. If the AXI or TOON spec changes, the encoder changes, not the commands.
 - **No key exists to protect today**, and this ADR does not add admin auth. If the admin listener is later exposed beyond loopback, the key variables take effect without a CLI change. Until then a remote use needs a tunnel.
 - **JSON output is not available from the CLI.** A script that needs JSON calls the admin API directly. Adding `--json` later is a change to one output layer.
@@ -157,8 +157,8 @@ These additions are not designed in this ADR. Each is a separate API change agai
 Phase 1:
 
 - Internal TOON encoder package, with golden tests for objects, scalar arrays, tabular arrays, quoting and escaping, and empty values.
-- Client package: base URL and key resolution from `SPYGLASS_ADMIN_URL`, `SPYGLASS_ADMIN_KEY` and `SPYGLASS_ADMIN_KEY_FILE`, typed requests that reuse the `api` types, the API error envelope, and a test that no key value reaches output or errors.
-- Subcommand dispatch in `cmd/spyglass`: no-argument home view, `describe`, `config`, `sessions list|show`, `calls list|show`, with `--from`, `--to`, `--since`, `--fields`, `--limit`, `--url`, the filter flags, `--help` with an example on every subcommand, and exit codes 0, 1 and 2.
+- Client package: base URL and key resolution from `SPYGLASS_ADMIN_URL` and `SPYGLASS_ADMIN_KEY`, typed requests that reuse the `api` types, the API error envelope, and a test that no key value reaches output or errors.
+- Subcommand dispatch in `cmd/spyglass`: no-argument home view, `describe`, `config`, `sessions list|show`, `calls list|show`, with `--from`, `--to`, `--since`, `--fields`, `--limit`, the filter flags, `--help` with an example on every subcommand, and exit codes 0, 1 and 2.
 - Output layer: window and totals header, truncation with size hints, empty-state messages, `help[]` lines, structured errors on stdout, unpriced and API-equivalent cost handling, and `cost_micro_usd` to `cost_usd` conversion.
 - Tests: each command against a fake admin server, the usage-error exit code, the empty states, the unreachable-server error, and a check that the field set in `describe` matches `api/openapi.yaml`.
 
