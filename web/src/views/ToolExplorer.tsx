@@ -1,10 +1,10 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { Link, useNavigate, useSearch } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
 import { infiniteListOptions, readQueryOptions } from '../api/queries'
 import { ContentNotStored } from '../components/ContentNotStored'
 import { DataTable } from '../components/DataTable'
+import type { DataTableColumn } from '../components/DataTable'
 import {
   BooleanFilter,
   FilterMenu,
@@ -47,13 +47,13 @@ function Value({ text }: { text: string }) {
 /** Unknown durations sort last in either direction. */
 const durationSort = { sortUndefined: 'last' as const }
 
-const summaryColumns: ColumnDef<ToolStat>[] = [
+const summaryColumns: DataTableColumn<ToolStat>[] = [
   {
     id: 'name',
     header: 'Tool',
     size: 200,
     accessorFn: (s) => s.name,
-    sortingFn: 'text',
+    sortFn: 'text',
     cell: ({ row }) => <Tag text={formatText(row.original.name)} className="mono" />,
   },
   {
@@ -61,7 +61,7 @@ const summaryColumns: ColumnDef<ToolStat>[] = [
     header: 'Agent type',
     size: 140,
     accessorFn: (s) => s.agent_type,
-    sortingFn: 'text',
+    sortFn: 'text',
     cell: ({ row }) => <Value text={formatText(row.original.agent_type)} />,
   },
   {
@@ -162,7 +162,7 @@ type Row = { id: string; call: ToolCall }
 
 const stop = (e: React.MouseEvent) => e.stopPropagation()
 
-const listColumns: ColumnDef<Row>[] = [
+const listColumns: DataTableColumn<Row>[] = [
   {
     id: 'time',
     header: 'Time',
