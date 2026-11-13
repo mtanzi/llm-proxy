@@ -18,7 +18,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
-	"github.com/mtanzi/llm-proxy/internal/fakeupstream"
+	"github.com/mtanzi/spyglass/internal/fakeupstream"
 )
 
 // The end-to-end tests of ADR 0038. Each starts the real wiring against the

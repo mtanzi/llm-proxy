@@ -4,8 +4,8 @@ import "github.com/prometheus/client_golang/prometheus"
 
 // Metric names of the retention job (ADR 0026).
 const (
-	MetricRetentionDeleted     = "llm_proxy_retention_deleted_total"
-	MetricRetentionLastRunTime = "llm_proxy_retention_last_run_timestamp_seconds"
+	MetricRetentionDeleted     = "spyglass_retention_deleted_total"
+	MetricRetentionLastRunTime = "spyglass_retention_last_run_timestamp_seconds"
 )
 
 var (

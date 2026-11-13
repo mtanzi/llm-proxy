@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // Writer is a core.CallWriter that appends to a slice. Like the real port it is

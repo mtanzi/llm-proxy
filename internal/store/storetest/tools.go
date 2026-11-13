@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // toolWin is the time range of the tool-call cases: the first hour after Base.

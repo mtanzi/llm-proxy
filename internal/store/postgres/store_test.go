@@ -12,10 +12,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/store/postgres"
-	"github.com/mtanzi/llm-proxy/internal/store/postgres/pgtest"
-	"github.com/mtanzi/llm-proxy/internal/store/storetest"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/store/postgres"
+	"github.com/mtanzi/spyglass/internal/store/postgres/pgtest"
+	"github.com/mtanzi/spyglass/internal/store/storetest"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }

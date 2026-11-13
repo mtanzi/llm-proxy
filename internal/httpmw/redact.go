@@ -14,7 +14,8 @@ var redactedHeaders = map[string]bool{
 	"Authorization":       true,
 	"Proxy-Authorization": true,
 	"X-Api-Key":           true,
-	"X-Llm-Proxy-Key":     true,
+	"X-Spyglass-Key":      true,
+	"X-Llm-Proxy-Key":     true, // deprecated alias of X-Spyglass-Key (ADR 0054)
 	"Cookie":              true,
 	"Set-Cookie":          true,
 }

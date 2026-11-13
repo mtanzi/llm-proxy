@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
-	"github.com/mtanzi/llm-proxy/internal/fakeupstream"
-	"github.com/mtanzi/llm-proxy/internal/family/anthropic"
+	"github.com/mtanzi/spyglass/internal/core"
+	"github.com/mtanzi/spyglass/internal/fakeupstream"
+	"github.com/mtanzi/spyglass/internal/family/anthropic"
 )
 
 const fixtures = "../../testdata/fixtures"

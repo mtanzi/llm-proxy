@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	openapi "github.com/mtanzi/llm-proxy/api"
-	"github.com/mtanzi/llm-proxy/internal/config"
-	"github.com/mtanzi/llm-proxy/internal/core"
+	openapi "github.com/mtanzi/spyglass/api"
+	"github.com/mtanzi/spyglass/internal/config"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // handlers holds what the data handlers read.

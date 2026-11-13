@@ -39,7 +39,7 @@ jobs:
       - id: scan
         uses: ./.github/actions/trivy-scan
         with:
-          image: llm-proxy:release-check
+          image: spyglass:release-check
           build: "true"
 
   image-released:

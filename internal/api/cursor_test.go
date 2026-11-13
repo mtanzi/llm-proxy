@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 func TestCursorRoundTrip(t *testing.T) {

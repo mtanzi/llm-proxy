@@ -4,7 +4,7 @@ Design and decisions live in [docs/](docs/): start with [docs/llm-proxy-design.m
 
 ## Layout
 
-One Go module, one static binary `llm-proxy` built from `cmd/llm-proxy`. Everything else is under `internal/`:
+One Go module, one static binary `spyglass` built from `cmd/spyglass`. Everything else is under `internal/`:
 
 | Package | Role | May import |
 |---|---|---|
@@ -20,7 +20,7 @@ One Go module, one static binary `llm-proxy` built from `cmd/llm-proxy`. Everyth
 | `store/storetest` | Shared store contract tests | `core`, `store/postgres` |
 | `fakeupstream` | Fake Anthropic upstream that replays fixtures (test support only) | standard library only |
 
-Only `cmd/llm-proxy` and the test-only contract suite `store/storetest` import `store/postgres`. A new package needs a reason.
+Only `cmd/spyglass` and the test-only contract suite `store/storetest` import `store/postgres`. A new package needs a reason.
 
 ## Checks
 
@@ -41,18 +41,18 @@ make e2e            # end-to-end tests: real wiring, fake upstream, test Postgre
 
 Without `internal/ui/dist`, `make build`, `make vet`, `make test` and `make lint` use the `noui` build tag, so a fresh clone needs no Node and the binary serves a stub page at `/ui/`.
 
-The store tests in `internal/store/...` need a real Postgres. They start a `postgres:16-alpine` container with testcontainers-go when Docker is running, or use the server in `LLM_PROXY_TEST_DATABASE_URL` (a URL whose user may create databases); without either they skip. Each test gets its own throwaway database.
+The store tests in `internal/store/...` need a real Postgres. They start a `postgres:16-alpine` container with testcontainers-go when Docker is running, or use the server in `SPYGLASS_TEST_DATABASE_URL` (a URL whose user may create databases); without either they skip. Each test gets its own throwaway database.
 
 The contract suite `storetest.Run` runs against the Postgres adapter from `internal/store/postgres/storetest_test.go`. To run it alone, or all store tests against a local Postgres:
 
 ```
 go test ./internal/store/postgres -run TestContract -v
-LLM_PROXY_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' go test ./internal/store/...
+SPYGLASS_TEST_DATABASE_URL='postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable' go test ./internal/store/...
 ```
 
 CI runs it in the `postgres` job against a Postgres service container. A new filter, port method or behaviour starts as a case in a group under `internal/store/storetest`; the suite also scans every stored text and `jsonb` value for the fake prompt, response and tool text of its record generator.
 
-The end-to-end tests (`cmd/llm-proxy/e2e_test.go`, ADR 0038) start the real wiring against the fake upstream in `internal/fakeupstream` and a test Postgres, use `anthropic-sdk-go` as the client and read results through the admin API. They find Postgres the same way the store tests do and skip without one. CI runs them in the `e2e` job, which fails if any of them skipped. `anthropic-sdk-go` and `fakeupstream` are for `_test.go` files only; depguard enforces it. Fixtures, their format and how to refresh them from real traffic are in [testdata/fixtures/README.md](testdata/fixtures/README.md).
+The end-to-end tests (`cmd/spyglass/e2e_test.go`, ADR 0038) start the real wiring against the fake upstream in `internal/fakeupstream` and a test Postgres, use `anthropic-sdk-go` as the client and read results through the admin API. They find Postgres the same way the store tests do and skip without one. CI runs them in the `e2e` job, which fails if any of them skipped. `anthropic-sdk-go` and `fakeupstream` are for `_test.go` files only; depguard enforces it. Fixtures, their format and how to refresh them from real traffic are in [testdata/fixtures/README.md](testdata/fixtures/README.md).
 
 The `depguard` rules in `.golangci.yml` encode the table above. CI runs build, vet and tests on the latest two Go releases, and lint, the import check and the OpenAPI lint once. The `web` job runs `make ui-check`, then builds and tests Go with the real UI embedded. The `image` job builds the container image, then runs `scripts/check-image.sh` (size budget and non-root user) and `scripts/smoke-image.sh` (`/healthz`, `/readyz` and `/ui/` against Postgres); both take an image name, so they also run against a local `docker build`. It then runs `scripts/compose-test.sh` (the repository's `docker-compose.yml` against a fake upstream: health, a proxied call, the call log, the UI and `SIGHUP`) and `scripts/restore-test.sh` (`pg_dump`, restore into a fresh Postgres, `serve`, open a recent call). `internal/config` tests load the example configs and check them against the compose file.
 
@@ -102,7 +102,7 @@ The `release` workflow runs `.github/workflows/security-gates.yml` before anythi
 
 The release gates only run at release time. Two routine scans catch a vulnerability disclosed afterwards. Neither blocks day-to-day work.
 
-- **Weekly scan** (`.github/workflows/security-weekly.yml`, Mondays 06:17 UTC, or `workflow_dispatch`): runs govulncheck on `main`, Trivy on an image built from `main`, and Trivy on the latest released image (`ghcr.io/mtanzi/llm-proxy:<version>`, the newest non-draft, non-pre-release release). On a finding the run fails and one open issue labelled `security-scan` is created, or updated if one is already open, so there is never one issue per week. Fix the findings, then close the issue; the next failing scan opens a new one. Findings also appear in the run summary.
+- **Weekly scan** (`.github/workflows/security-weekly.yml`, Mondays 06:17 UTC, or `workflow_dispatch`): runs govulncheck on `main`, Trivy on an image built from `main`, and Trivy on the latest released image (`ghcr.io/mtanzi/spyglass:<version>`, the newest non-draft, non-pre-release release). On a finding the run fails and one open issue labelled `security-scan` is created, or updated if one is already open, so there is never one issue per week. Fix the findings, then close the issue; the next failing scan opens a new one. Findings also appear in the run summary.
 - **Pull request scans** (`.github/workflows/security-scans.yml`): runs govulncheck and the Trivy image scan on every PR and shows the result. They are not required checks on `main`: a vulnerability in an unrelated dependency would otherwise block every PR, including Tier A and Dependabot auto-merges, until it is fixed. Do not add them to the branch rules. A red result on a PR that does not touch dependencies usually means a new disclosure; the weekly issue tracks it.
 
 ## Version

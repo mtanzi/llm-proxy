@@ -44,7 +44,7 @@ type Fixture struct {
 }
 
 // FixturesDir is the fixture root, relative to a package two levels below the
-// repository root (cmd/llm-proxy, internal/<pkg>).
+// repository root (cmd/spyglass, internal/<pkg>).
 const FixturesDir = "../../testdata/fixtures"
 
 // Load reads the fixture directory dir.

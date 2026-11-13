@@ -3,7 +3,7 @@ package config
 import "github.com/prometheus/client_golang/prometheus"
 
 // MetricConfigReloads is the name of the reload counter (ADR 0026).
-const MetricConfigReloads = "llm_proxy_config_reloads_total"
+const MetricConfigReloads = "spyglass_config_reloads_total"
 
 var descReloads = prometheus.NewDesc(MetricConfigReloads,
 	"Config reloads by result (success, failure). A failure keeps the previous snapshot.",

@@ -1,4 +1,4 @@
-module github.com/mtanzi/llm-proxy
+module github.com/mtanzi/spyglass
 
 go 1.26.0
 

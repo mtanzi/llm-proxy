@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // memFS is a file system whose files change between reloads, safe for
@@ -53,7 +53,7 @@ func (m *memFS) opts() Options {
 	}
 }
 
-const cfgPath = "/etc/llm-proxy.yaml"
+const cfgPath = "/etc/spyglass.yaml"
 
 func newHolder(t *testing.T, content string) (*Holder, *memFS, *bytes.Buffer) {
 	t.Helper()

@@ -1,5 +1,5 @@
 # Personal local setup (docs/personal-local-setup.md): run only Postgres from
-# compose, and run `llm-proxy serve` on the host so the admin UI is reachable.
+# compose, and run `spyglass serve` on the host so the admin UI is reachable.
 # Use it with the main file:
 #   docker compose -f docker-compose.yml -f docker-compose.personal.yml up -d postgres
 services:

@@ -1,8 +1,8 @@
 // Package pgtest gives tests a real Postgres. It is test support: only
 // _test.go files import it.
 //
-// The server is the one named by LLM_PROXY_TEST_DATABASE_URL when that is
-// set, otherwise a Postgres 16 container started once per test binary with
+// The server is the one named by SPYGLASS_TEST_DATABASE_URL when that is set,
+// otherwise a Postgres 16 container started once per test binary with
 // testcontainers-go. Without either, tests that need it skip. Each test gets
 // its own empty database, dropped when the test ends.
 package pgtest
@@ -25,7 +25,7 @@ import (
 
 // EnvURL names the variable that points the tests at an existing server. The
 // URL's user must be allowed to create databases.
-const EnvURL = "LLM_PROXY_TEST_DATABASE_URL"
+const EnvURL = "SPYGLASS_TEST_DATABASE_URL"
 
 // Image is the container image used when EnvURL is not set: the oldest
 // supported Postgres.
@@ -71,7 +71,7 @@ func NewDatabase(t testing.TB) string {
 
 	var b [8]byte
 	_, _ = rand.Read(b[:])
-	name := "llm_proxy_test_" + hex.EncodeToString(b[:])
+	name := "spyglass_test_" + hex.EncodeToString(b[:])
 	ident := pgx.Identifier{name}.Sanitize()
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+ident); err != nil {
 		t.Fatalf("pgtest: create database: %v", err)

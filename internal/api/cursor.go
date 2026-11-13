@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 // errBadCursor is returned by decodeCursor for any text this API did not issue.

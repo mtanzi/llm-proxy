@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mtanzi/llm-proxy/internal/core"
+	"github.com/mtanzi/spyglass/internal/core"
 )
 
 var testNow = time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)

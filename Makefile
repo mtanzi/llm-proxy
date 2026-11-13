@@ -12,7 +12,7 @@ PKGS := ./api/... ./cmd/... ./internal/...
 .PHONY: build test e2e lint check-imports check-openapi vet goldens ui-build ui-dev ui-check ui-gen
 
 build:
-	CGO_ENABLED=0 go build $(GOTAGS) -trimpath -ldflags "$(LDFLAGS)" -o bin/llm-proxy ./cmd/llm-proxy
+	CGO_ENABLED=0 go build $(GOTAGS) -trimpath -ldflags "$(LDFLAGS)" -o bin/spyglass ./cmd/spyglass
 
 vet:
 	go vet $(GOTAGS) $(PKGS)
@@ -21,10 +21,10 @@ test:
 	go test $(GOTAGS) $(PKGS)
 
 # The end-to-end tests (ADR 0038): the real wiring against a fake Anthropic
-# upstream and a test Postgres. They need Docker or LLM_PROXY_TEST_DATABASE_URL
+# upstream and a test Postgres. They need Docker or SPYGLASS_TEST_DATABASE_URL
 # and skip without either. `make test` runs them too when Postgres is there.
 e2e:
-	go test $(GOTAGS) -count=1 -run TestE2E ./cmd/llm-proxy
+	go test $(GOTAGS) -count=1 -run TestE2E ./cmd/spyglass
 
 lint:
 	golangci-lint run $(if $(GOTAGS),--build-tags noui) $(PKGS)
@@ -40,7 +40,7 @@ ui-build:
 	cp -R web/dist internal/ui/dist
 
 # Run the Vite dev server with hot reload. It proxies /admin to a local
-# `llm-proxy serve` on localhost:9090.
+# `spyglass serve` on localhost:9090.
 ui-dev:
 	cd web && npm ci && npm run dev
 

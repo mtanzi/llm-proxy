@@ -1,6 +1,6 @@
 package config
 
-import "github.com/mtanzi/llm-proxy/internal/core"
+import "github.com/mtanzi/spyglass/internal/core"
 
 // View is the read-only, redacted picture of the config that GET /admin/config
 // serves (ADR 0023). It holds providers, pricing and key names. It never holds
