@@ -2,11 +2,11 @@
 
 Status: **designed, not built.** This document describes the architecture that [ADR 0055](../adrs/0055-agent-facing-cli-axi-toon-output.md) (Status: Proposed) decides. No CLI code exists yet. Everything under "With the CLI" is a target. Everything under "Today" describes landed behaviour, as written in [backend.md](backend.md) and [deployment.md](deployment.md).
 
-The ADR is the source for command behaviour, flags, output rules and the list of API gaps. This document gives the overall picture: what the system looks like now, what it looks like with the CLI, and what does and does not change. Where the two disagree, the ADR wins until it is Completed (see [Source precedence](README.md#source-precedence)).
+The ADR is the source for command behaviour, flags, output rules and the list of API gaps. It covers the shared decisions and phase 1. Later phases are listed in its "Later" section, and the session `unpriced_calls` field is [ADR 0056](../adrs/0056-session-unpriced-calls.md). This document gives the overall picture: what the system looks like now, what it looks like with the CLI, and what does and does not change. Where the two disagree, the ADR wins until it is Completed (see [Source precedence](README.md#source-precedence)).
 
 ## Summary
 
-- The server does not change. The same `spyglass` binary gains client subcommands.
+- The server does not change for the CLI itself. The same `spyglass` binary gains client subcommands. The one API addition phase 1 reads is `unpriced_calls` on the session summary (ADR 0056).
 - The CLI is a read-only `GET` client of the existing `/admin` API, in the same position as the web UI.
 - Output is TOON on stdout, made for agents and equally usable by people, scripts and CI.
 - The CLI never touches the data plane, the database or the model-call key.
@@ -80,38 +80,34 @@ The binary becomes both server and client, the way `docker` and `kubectl` are. T
 | Part | Change |
 |---|---|
 | `spyglass serve`, the data plane, the admin plane, the recorder, Postgres | None |
-| `/admin` API and `api/openapi.yaml` | None in phases 1 to 3. Seven gaps could later lead to API changes, each a separate decision ([API gaps](#api-gaps-as-possible-later-server-changes)) |
+| `/admin` API and `api/openapi.yaml` | One additive field for phase 1: `unpriced_calls` on the session summary ([ADR 0056](../adrs/0056-session-unpriced-calls.md)). Other gaps could later lead to API changes, each a separate decision ([API gaps](#api-gaps-as-possible-later-server-changes)) |
 | `x-spyglass-key` and the `keys` config section | None |
-| `spyglass` binary | Gains client subcommands next to `serve`, `keygen` and `version`. The binary grows by the client code and a TOON encoder |
-| New internal code | An admin client package, a TOON encoder, an output layer, a subcommand dispatcher |
+| `spyglass` binary | Gains client subcommands next to `serve`, `keygen` and `version`. With no arguments it now prints the home view, not usage, and `main.go` only dispatches. The binary grows by the client code and a TOON encoder |
+| New internal code | Two packages: `internal/cli` (client, commands, output) and `internal/toon` (the encoder) |
 | Operator setup | None for local use. Remote use needs an SSH tunnel, the same as for the UI |
-| Agent setup (phase 2) | `spyglass setup hooks` writes a Claude Code session-start hook and an agent skill. This is the only command that writes, and it never writes to Spyglass data |
+| Agent setup (later) | `spyglass setup hooks` would write a Claude Code session-start hook and an agent skill. It is not part of phase 1 and has its own ADR when it starts |
 
-### Commands, by phase
+### Commands
 
-The ADR gives the endpoint and parameter mapping of every command. In short:
+ADR 0055 gives the endpoint and parameter mapping of every phase 1 command. In short:
 
-| Phase | Commands | API used |
-|---|---|---|
-| 1: orient and look up | `spyglass` (no argument: home view), `describe`, `config`, `sessions list`, `sessions show <key>`, `calls list`, `calls show <id>` | `/admin/usage`, `/admin/config`, `/admin/sessions`, `/admin/sessions/{key}`, `/admin/calls`, `/admin/calls/{id}` |
-| 2: install for an agent | `setup hooks` (with `--dry-run`, names the file first), plus a generated agent skill | None. It writes to the Claude Code settings file |
-| 3: analysis | `tools summary`, `tools list`, `usage`, `top`, `compare`, `tail --for <duration>` | `/admin/tool-calls/summary`, `/admin/tool-calls`, `/admin/usage`, `/admin/stream` (time-boxed) |
+| Command | API used |
+|---|---|
+| `spyglass` (no argument: home view) | `/admin/usage` twice (ungrouped, and `group_by=session`), both with `grain=day` over the current UTC day |
+| `describe` | The column tables of the commands, and `/admin/config` |
+| `config` | `/admin/config` |
+| `sessions list`, `sessions show <key>` | `/admin/sessions`, `/admin/sessions/{key}` |
+| `calls list`, `calls show <id>` | `/admin/calls`, `/admin/calls/{id}` |
 
 Every command is read-only, never prompts, and writes TOON to stdout. The ADR's "AXI rules applied" section lists the output rules.
 
-## Two keys, two planes
+Later commands are listed in the ADR's "Later" section, each with the trigger for its own ADR: `setup hooks` and an agent skill, the analysis commands (`tools summary|list`, `usage`, `top`, `compare`, `tail --for <duration>`), a per-model unpriced table, an admin key, `--json` and an MCP server.
 
-The two keys protect different planes and must not be confused.
+## One key, one plane
 
-| | `x-spyglass-key` | `SPYGLASS_ADMIN_KEY` |
-|---|---|---|
-| Guards | The data plane (`:8080`, model calls) | The admin plane (`:9090`) |
-| State | Exists today, unchanged | Placeholder. Unset in v1 |
-| Used by | Claude Code and other model clients | The CLI, once admin sign-in exists |
-| Sent as | `x-spyglass-key` header | `Authorization: Bearer <key>`, only when set |
-| CLI relation | The CLI never uses the data plane, so it never needs this key | Read from the environment, never accepted as a flag, never printed (the CLI shows `set` or `unset`) |
+The CLI uses no key in v1. The admin plane has no sign-in (decision C7), so the CLI sends no `Authorization` header and has no key variable. The data plane key, `x-spyglass-key`, guards model calls on `:8080`. The CLI never uses the data plane, so it never needs it.
 
-Admin sign-in does not exist in v1 (decision C7). The variable exists so the CLI does not change when sign-in lands ([backend.md, Later versions](backend.md#gateway-features-decision-c1)).
+When admin sign-in lands, the ADR for it adds one environment variable read to the client and decides the header format ([backend.md, Later versions](backend.md#gateway-features-decision-c1)). ADR 0055 reserves no name for it.
 
 ## Hexagonal view
 
@@ -155,38 +151,38 @@ A CLI could instead call the core query ports in-process, opening Postgres itsel
 - The CLI would need the database password.
 - It could not work through a tunnel, so a Raspberry Pi install would have no remote use.
 
-### A small hexagon inside the CLI
+### Inside the CLI: plain functions, no ports
 
 ```mermaid
 flowchart LR
-    flags[Flags and arguments] --> logic[Command logic]
-    logic --> client["Admin client<br/>(driven adapter to the remote API)"]
-    logic --> toon["TOON output<br/>(presentation adapter)"]
+    flags[Flags and arguments] --> logic[Command]
+    logic --> client["Admin client<br/>(concrete struct over http.Client)"]
+    logic --> toon["toon.Encode<br/>(pure encoder)"]
     client -->|GET /admin| api[(Admin API)]
     toon --> out[stdout and exit code]
 ```
 
-Flags drive the command logic. The logic reads through the admin client and presents through the TOON output. A later optional MCP server (`spyglass mcp`, stdio) would be one more transport in this CLI hexagon, reusing the same client. It is not part of the server's hexagon and is out of scope for ADR 0055.
+Flags drive a command. The command reads through the admin client and writes through the encoder. The client is a concrete struct holding a base URL and an `*http.Client`. There is no client interface, no mock and no renderer interface. Tests use an `httptest.Server`, as the upstream client does ([backend.md](backend.md#layers-and-the-dependency-rule)). The read side has no service layer: a command maps flags to parameters, calls the client and shapes the result. A later MCP server would reuse the same client, and moving the client to its own package would then be a mechanical change. It is out of scope for ADR 0055.
 
 ## Internal pieces and the import rule
 
-New code, all internal to the `spyglass` module:
+New code, all internal to the `spyglass` module, in two packages:
 
 | Piece | Role |
 |---|---|
-| Admin client package | Resolves `SPYGLASS_ADMIN_URL` and `SPYGLASS_ADMIN_KEY`. Makes typed `GET` requests that reuse the `api` types and the API error envelope. Never prints a key |
-| TOON encoder | Standard library only. Encodes objects, primitive values, arrays of scalars and tabular arrays of objects with a shared field list. Covered by golden tests |
-| Output layer | Window and totals header, truncation with "showing N of M", `help[]` next-step lines, explicit empty states, structured errors on stdout, `cost_micro_usd` to `cost_usd`, unpriced and API-equivalent cost marking. Exit codes: 0 success, 1 error, 2 usage error |
-| Subcommand dispatcher | In `cmd/spyglass`: the no-argument home view and the subcommands. Standard library `flag`, no CLI framework (ADR 0009) |
+| `internal/toon` | Pure, standard library only. An encode-only subset of TOON 3.3: objects, primitive values, arrays of scalars and tabular arrays of objects with a shared field list. Takes an explicit ordered input model (key-value pairs, field list plus rows), not reflection. Golden tests |
+| `internal/cli` | One package, one file per concern. The admin client (`SPYGLASS_ADMIN_URL`, API error envelope), window parsing (`--from`, `--to`, `--since` with `m`, `h`, `d`), output helpers (window and totals header, "showing N of M", `help[]`, empty states, structured errors on stdout, `cost_micro_usd` to `cost_usd`, unpriced and API-equivalent marking) and the commands. Each command has a column table that drives default fields, `--fields`, the rename and `describe`. Exit codes: 0 success, 1 error, 2 usage error. Entry point `cli.Run` |
+| `cmd/spyglass` | Dispatch only. One line per client command calls `cli.Run`. Standard library `flag`, no CLI framework (ADR 0009) |
 
-**Import rule: client code must not import the server's database or listener packages.** The client may use `api` types and the error envelope, and must not import `store/postgres`, a database driver, or a package that opens a listener. This keeps the CLI a pure API client and keeps the "only `cmd/spyglass` wiring imports `store/postgres`" rule of [backend.md](backend.md#package-layout) meaningful. The ADR states the rule, but backend.md's CI import check does not yet cover the client packages. Extending it is part of the phase 1 work.
+**Decode types.** The CLI owns small decode types for the fields it reads and is checked against `api/openapi.yaml`, like the web UI. It does not import `internal/api` or `internal/config`, whose wire types are unexported and tied to the server. Tests validate the fake-server fixtures against the embedded `api.OpenAPIYAML` and check that every field the CLI reads exists in the spec.
+
+**Import rule, checked by `depguard`.** `internal/cli` has a strict allow-list: `$gostd`, `github.com/mtanzi/spyglass/api` (the embedded spec, for tests) and `internal/toon`. It cannot import `store/postgres`, a database driver, `internal/api`, `internal/config`, `core` or a package that opens a listener. `internal/toon` allows `$gostd` only. This keeps the CLI a pure API client and keeps the "only `cmd/spyglass` wiring imports `store/postgres`" rule of [backend.md](backend.md#package-layout) meaningful. Adding the two rules to `.golangci.yml`, and the two packages to the package tree of backend.md and the layout table of `CONTRIBUTING.md`, is part of the phase 1 work.
 
 ## Connection and remote use
 
 | Variable | Meaning |
 |---|---|
 | `SPYGLASS_ADMIN_URL` | Base URL of the admin listener. Default `http://127.0.0.1:9090`, the default `listen.admin` |
-| `SPYGLASS_ADMIN_KEY` | Reserved for a future admin sign-in. Unset in v1 |
 
 - No flag overrides the connection. A connection error prints the URL used and the variable that sets it.
 - The admin listener stays loopback only, and the ADR does not change it.
@@ -199,31 +195,36 @@ spyglass            # now talks to the remote server through the tunnel
 
 In the containerised setup the admin listener is not published, so the CLI runs on the host, or in a container that shares the host network (see [deployment.md](deployment.md)).
 
-## Phases
+## Phase 1 and later
 
-1. **Phase 1, orient and look up:** the TOON encoder, the admin client, the output layer, the dispatcher, and the commands `spyglass`, `describe`, `config`, `sessions list|show`, `calls list|show`. Tested against a fake admin server.
-2. **Phase 2, install for an agent:** `spyglass setup hooks` and a generated agent skill. The only command that writes. It names the file first, supports `--dry-run`, and is idempotent.
-3. **Phase 3, analysis:** `tools summary|list`, `usage`, `top`, `compare` and `tail --for`. `tail` always has a time bound.
+**Phase 1, orient and look up** is the only phase ADR 0055 covers: `internal/toon`, `internal/cli`, the dispatch in `cmd/spyglass`, and the commands `spyglass`, `describe`, `config`, `sessions list|show`, `calls list|show`. Tests run against a fake admin server, plus one case in the e2e suite against the real wiring.
+
+**The home view** uses a fixed window, the current UTC day, with `grain=day` on both usage requests. Each group is then one bucket, so totals, p95 and the session ranking are exact with no extra code path. It shows the headline `unpriced_calls` and no table of models with no price.
+
+**Later** items have a trigger and their own ADR: `setup hooks` and an agent skill, the analysis commands, the per-model unpriced table, an admin key, `--json` and an MCP server. They are listed in ADR 0055, "Later".
+
+**No-argument behaviour changes.** Today `spyglass` with no arguments prints usage to stderr and exits 2. With the CLI it prints the home view. The container image runs `serve` explicitly, so it is not affected.
 
 ## API gaps as possible later server changes
 
-Phases 1 to 3 work on the existing API, with client-side workarounds. The seven gaps in ADR 0055 are the only possible later server changes. Each would be a separate API change against `api/openapi.yaml`, with its own ADR or amendment, decided only if worth it.
+Phase 1 works on the existing API plus the `unpriced_calls` field of [ADR 0056](../adrs/0056-session-unpriced-calls.md). The gaps in ADR 0055 are the possible later server changes. Each would be a separate API change against `api/openapi.yaml`, with its own ADR, decided only if worth it.
 
-| # | Gap | Smallest addition, as the ADR names it |
-|---|---|---|
-| 1 | Ranked usage (home view, `top`) | `order_by` and `limit` on grouped `/admin/usage`, or a grouped single-bucket mode |
-| 2 | Models with no price | A `priced=false` filter, or `group_by=provider,model` |
-| 3 | Exact percentiles over a window | An ungrouped single-bucket mode of `/admin/usage` |
-| 4 | Totals over a window (`compare`, `top`) | The same single-bucket mode |
-| 5 | Counts for sessions and tool calls | A `count` on `/admin/sessions` and `/admin/tool-calls` |
-| 6 | Per-agent cost | `group_by=agent` on `/admin/usage` |
-| 7 | Unpriced calls per session | `unpriced_calls` and `providers` fields on the session summary |
+| # | Gap | Smallest addition, as the ADR names it | Phase 1 |
+|---|---|---|---|
+| 1 | Ranked usage (`top`) | `order_by` and `limit` on grouped `/admin/usage`, or a grouped single-bucket mode | Avoided: one-day window, one bucket per session |
+| 2 | Models with no price | A `priced=false` filter, or `group_by=provider,model` | Not needed: headline count only |
+| 3 | Exact percentiles over a window | An ungrouped single-bucket mode of `/admin/usage` | Avoided: one-day window, one bucket |
+| 4 | Totals over a window (`compare`, `top`) | The same single-bucket mode | Later phases only |
+| 5 | Counts for sessions and tool calls | A `count` on `/admin/sessions` and `/admin/tool-calls` | Reported as "showing N, next_page" |
+| 6 | Per-agent cost | `group_by=agent` on `/admin/usage` | Later phases only |
+| 7 | Unpriced calls per session | `unpriced_calls` on the session summary | Closed by ADR 0056. A `providers` field can wait |
 
-Until then the CLI says what it cannot know: no invented counts, `approx` marks on weighted percentiles, and a note when a window is too large to rank exactly.
+Until a gap is closed, the CLI says what it cannot know and does not invent counts.
 
 ## Related
 
 - [ADR 0055](../adrs/0055-agent-facing-cli-axi-toon-output.md): the decision, the command tables and the output rules.
+- [ADR 0056](../adrs/0056-session-unpriced-calls.md): the `unpriced_calls` field on the session summary.
 - [backend.md](backend.md): the server, its layers and the admin API.
 - [frontend.md](frontend.md): the other `/admin` client.
 - [deployment.md](deployment.md): listeners, the admin loopback rule and tunnelling.
