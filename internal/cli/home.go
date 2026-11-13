@@ -18,9 +18,9 @@ const topSessions = 5
 // grain=day, so each group is exactly one bucket: the totals, the percentile
 // and the session ranking are exact, with no merge of buckets.
 func (a *app) home(ctx context.Context) (toon.Object, error) {
-	now := a.now().UTC().Truncate(time.Second)
+	now := a.now().UTC()
 	from := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	to := now
+	to := ceilSecond(now)
 	if !to.After(from) { // at 00:00:00 exactly, keep the window non-empty
 		to = from.Add(time.Second)
 	}

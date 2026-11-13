@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bytes"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 const detailJSON = `{"id":"` + id1 + `","ts":"2026-11-13T14:10:00Z","key":"alice","client":"claude-code","client_raw":"claude-cli/2.1","client_request_id":"r1",
@@ -566,6 +568,36 @@ func TestWindowFlagsFromAndTo(t *testing.T) {
 	w = windowFlags{}
 	if got, _ := w.resolve(testNow); !got.Default {
 		t.Error("no flags: the window is the default")
+	}
+}
+
+// The window to is exclusive and printed in whole seconds. When the clock is
+// part way into a second, a call recorded earlier in that second must still be
+// inside a window that ends at now, so to is the next whole second, not the
+// current one.
+func TestWindowEndingNowCoversTheCurrentSecond(t *testing.T) {
+	now := testNow.Add(240 * time.Millisecond) // a call at 14:20:30.200 is before now
+	w := windowFlags{}
+	got, err := w.resolve(now)
+	if err != nil || fmtTime(got.To) != "2026-11-13T14:20:31Z" || fmtTime(got.From) != "2026-11-12T14:20:31Z" {
+		t.Errorf("default window at %s: %+v, %v; want to 14:20:31", now.Format(time.RFC3339Nano), got, err)
+	}
+
+	f := newFakeAdmin(t, map[string]route{"/admin/usage": homeRoute(homeTotal, homeSessions)})
+	var out bytes.Buffer
+	env := func(k string) string {
+		if k == adminURLVar {
+			return f.srv.URL
+		}
+		return ""
+	}
+	if code := run(nil, &out, env, func() time.Time { return now }); code != 0 || len(f.requests()) != 2 {
+		t.Fatalf("home view: code=%d, %d requests\n%s", code, len(f.requests()), out.String())
+	}
+	for _, r := range f.requests() {
+		if r.Query.Get("from") != "2026-11-13T00:00:00Z" || r.Query.Get("to") != "2026-11-13T14:20:31Z" {
+			t.Errorf("home view at %s sent %v; want from 00:00:00 and to 14:20:31", now.Format(time.RFC3339Nano), r.Query)
+		}
 	}
 }
 

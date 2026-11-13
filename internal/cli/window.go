@@ -19,6 +19,17 @@ type window struct {
 
 func fmtTime(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
+// ceilSecond rounds t up to a whole second in UTC. A window that ends at now
+// uses it: to is exclusive and printed in whole seconds, so rounding down would
+// drop a call recorded earlier in the current second.
+func ceilSecond(t time.Time) time.Time {
+	t = t.UTC()
+	if c := t.Truncate(time.Second); c.Before(t) {
+		return c.Add(time.Second)
+	}
+	return t
+}
+
 func (w window) object() toon.Object {
 	return toon.Object{{Key: "from", Value: fmtTime(w.From)}, {Key: "to", Value: fmtTime(w.To)}, {Key: "default", Value: w.Default}}
 }
@@ -56,7 +67,7 @@ func parseSince(s string) (time.Duration, error) {
 // resolve turns the flags into a window. A flag given sets that side; --since
 // sets from; the other side takes the API default.
 func (w *windowFlags) resolve(now time.Time) (window, error) {
-	now = now.UTC().Truncate(time.Second)
+	now = ceilSecond(now)
 	out := window{To: now, Default: w.from == "" && w.to == "" && w.since == ""}
 	if w.since != "" && w.from != "" {
 		return out, fmt.Errorf("--since and --from both set the start of the window: use one")
