@@ -2,7 +2,7 @@
 
 Notable changes to Spyglass. Release 0.1.0 and earlier are described in their [GitHub release notes](https://github.com/mtanzi/spyglass/releases).
 
-## Unreleased
+## 0.2.0 - 2026-11-13
 
 ### Renamed from llm-proxy to Spyglass
 
@@ -15,3 +15,11 @@ Every technical name changes from `llm-proxy` to `spyglass` ([ADR 0054](docs/adr
 - **Binary: `spyglass`.** Release binaries are named `spyglass-<tag>-<os>-<arch>`, and the commands are `spyglass serve`, `spyglass keygen` and `spyglass version`. The Go module is `github.com/mtanzi/spyglass`.
 - **Compose:** the service is now `spyglass`. The project name stays `llm-proxy` and the database stays `llmproxy`, so the existing Postgres volume is kept. Run `docker compose up -d --remove-orphans` once to remove the 0.1.0 container.
 - The deprecated `x-llm-proxy-key` header and `LLM_PROXY_*` variables are removed in 0.3.0.
+
+### Security
+
+- Pull requests and a weekly schedule now run `govulncheck` and a Trivy scan of the source and the latest released image. The release workflow runs the same gates before it builds the image.
+
+### Documentation
+
+- The README shows the Overview dashboard.
