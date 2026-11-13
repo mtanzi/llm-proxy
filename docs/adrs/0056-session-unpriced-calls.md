@@ -1,6 +1,6 @@
 # ADR 0056: Unpriced calls per session
 
-Status: Proposed
+Status: Completed
 
 Date: 2026-11-13
 

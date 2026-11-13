@@ -42,6 +42,43 @@ var sessionCases = []testCase{
 			t.Errorf("s2 = %+v, want no known cost, client sdk and no agents", s2)
 		}
 	}},
+	{"sessions_count_unpriced_calls_and_sum_only_priced_ones", func(t *testing.T, e *env) {
+		g := e.gen
+		at := func(d time.Duration, k string, opts ...CallOpt) core.CallRecord {
+			return g.Call(append([]CallOpt{g.At(Base.Add(d)), WithSession(k)}, opts...)...)
+		}
+		calls := []core.CallRecord{
+			at(0, "mixed", WithCost(1000)), at(time.Second, "mixed", WithoutCost()),
+			at(2*time.Second, "mixed", WithCost(2500)), at(3*time.Second, "mixed", WithoutCost()),
+			at(0, "priced", WithCost(700)), at(time.Second, "priced", WithCost(300)),
+			at(0, "none", WithoutCost()),
+		}
+		e.write(t, calls...)
+		got := e.walkSessions(t, sessionWin, 10)
+		if want := refSessions(calls, sessionWin); !reflect.DeepEqual(got, want) {
+			t.Fatalf("sessions\n got %+v\nwant %+v", got, want)
+		}
+		byKey := map[string]core.SessionSummary{}
+		for _, s := range got {
+			byKey[s.SessionKey] = s
+		}
+		if s := byKey["mixed"]; s.UnpricedCalls != 2 || s.Cost == nil || *s.Cost != 3500 {
+			t.Errorf("mixed = %+v, want 2 unpriced calls and a cost of the priced calls only", s)
+		}
+		if s := byKey["priced"]; s.UnpricedCalls != 0 || s.Cost == nil || *s.Cost != 1000 {
+			t.Errorf("priced = %+v, want 0 unpriced calls and cost 1000", s)
+		}
+		if s := byKey["none"]; s.UnpricedCalls != 1 || s.Cost != nil {
+			t.Errorf("none = %+v, want 1 unpriced call and no cost", s)
+		}
+		d, err := e.GetSession(context.Background(), "mixed")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.UnpricedCalls != 2 || d.Cost == nil || *d.Cost != 3500 {
+			t.Errorf("detail summary = %+v, want 2 unpriced calls and cost 3500", d.SessionSummary)
+		}
+	}},
 	{"sessions_count_only_calls_in_a_half_open_range", func(t *testing.T, e *env) {
 		g := e.gen
 		at := func(d time.Duration) core.CallRecord { return g.Call(g.At(Base.Add(d)), WithSession("s")) }
@@ -412,6 +449,8 @@ func refSessions(calls []core.CallRecord, f core.SessionFilter) []core.SessionSu
 			s.Usage.Reasoning += c.Usage.Reasoning
 			if c.Cost != nil {
 				total, known = total+*c.Cost, true
+			} else {
+				s.UnpricedCalls++
 			}
 		}
 		s.AgentCount, s.PromptCount, s.ToolCallCount = len(agents), len(prompts), len(tools)

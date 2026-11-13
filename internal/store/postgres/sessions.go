@@ -30,14 +30,14 @@ const sessionColumns = `c.session_key,
 	count(*) FILTER (WHERE c.error_class IS NOT NULL),
 	count(DISTINCT (c.agent_id, coalesce(c.parent_agent_id, ''), coalesce(c.agent_type, ''))) FILTER (WHERE c.agent_id IS NOT NULL),
 	array_agg(DISTINCT c.model ORDER BY c.model) FILTER (WHERE c.model IS NOT NULL),
-	` + usageSums + `, ` + costSum + `, array_agg(c.id)`
+	` + usageSums + `, ` + costSum + `, count(*) FILTER (WHERE c.cost_usd IS NULL), array_agg(c.id)`
 
 const sessionFields = `s(session_key, key_name, client, first_ts, last_ts, last_id, ended_at, calls, prompts,
-	errors, agents, models, input_uncached, cache_read, cache_write_5m, cache_write_1h, output, reasoning, cost, call_ids)`
+	errors, agents, models, input_uncached, cache_read, cache_write_5m, cache_write_1h, output, reasoning, cost, unpriced, call_ids)`
 
 const sessionSelect = `s.session_key, s.key_name, s.client, s.first_ts, s.last_ts, s.last_id, s.ended_at, s.calls, s.prompts,
 	(SELECT count(DISTINCT t.tool_call_id) FROM tool_events t WHERE t.call_id = ANY(s.call_ids)),
-	s.errors, s.agents, s.models, s.input_uncached, s.cache_read, s.cache_write_5m, s.cache_write_1h, s.output, s.reasoning, s.cost`
+	s.errors, s.agents, s.models, s.input_uncached, s.cache_read, s.cache_write_5m, s.cache_write_1h, s.output, s.reasoning, s.cost, s.unpriced`
 
 // usageSums and costSum add the usage columns and the known costs of a group.
 const usageSums = `sum(c.input_uncached)::bigint, sum(c.cache_read)::bigint, sum(c.cache_write_5m)::bigint,
@@ -61,12 +61,12 @@ func scanSession(r pgx.CollectableRow) (session, error) {
 		first, last, end                 time.Time
 		lastID                           pgtype.UUID
 		calls, prompts, tools, errs      int
-		agents                           int
+		agents, unpriced                 int
 		models                           []string
 		in, cr, cw5, cw1, out, rs, costM = new(int64), new(int64), new(int64), new(int64), new(int64), new(int64), (*int64)(nil)
 	)
 	if err := r.Scan(&key, &name, &client, &first, &last, &lastID, &end, &calls, &prompts, &tools, &errs, &agents, &models,
-		in, cr, cw5, cw1, out, rs, &costM); err != nil {
+		in, cr, cw5, cw1, out, rs, &costM, &unpriced); err != nil {
 		return s, err
 	}
 	s.SessionSummary = core.SessionSummary{
@@ -76,7 +76,7 @@ func scanSession(r pgx.CollectableRow) (session, error) {
 			InputUncached: int(*in), CacheRead: int(*cr), CacheWrite5m: int(*cw5), CacheWrite1h: int(*cw1),
 			Output: int(*out), Reasoning: int(*rs),
 		},
-		Cost: micro(costM),
+		Cost: micro(costM), UnpricedCalls: unpriced,
 	}
 	s.lastID = core.ID(lastID.Bytes)
 	return s, nil

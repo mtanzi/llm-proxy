@@ -67,6 +67,7 @@ type SessionSummary struct {
 	Models        []string
 	Usage         Usage
 	Cost          *MicroUSD // nil when no call in the session has a known cost
+	UnpricedCalls int       // calls whose cost is nil
 }
 
 // AgentNode is one distinct (agent_id, parent_agent_id, agent_type) of a session.

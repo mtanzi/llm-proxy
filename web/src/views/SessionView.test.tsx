@@ -64,6 +64,7 @@ function summary(key: string, over: Partial<SessionSummary> = {}): SessionSummar
     models: ['m'],
     usage: { input_uncached: 25, cache_read: 75, cache_write_5m: 0, cache_write_1h: 0, output: 5, reasoning: 0 },
     cost_micro_usd: 2_500_000,
+    unpriced_calls: 0,
     ...over,
   }
 }

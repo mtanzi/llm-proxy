@@ -428,6 +428,8 @@ export interface components {
             usage: components["schemas"]["Usage"];
             /** @description Sum of the known costs. Null when no call of the session has a known cost. */
             cost_micro_usd: number | null;
+            /** @description Calls of the session whose cost is null. 0 when every call is priced. */
+            unpriced_calls: number;
         };
         SessionList: {
             sessions: components["schemas"]["SessionSummary"][];

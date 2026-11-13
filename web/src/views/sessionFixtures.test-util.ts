@@ -75,6 +75,7 @@ export function detail(calls: CallSummary[], agents: AgentTuple[] = [], over: Pa
       models: ['m'],
       usage: { input_uncached: 10, cache_read: 30, cache_write_5m: 0, cache_write_1h: 0, output: 5, reasoning: 0 },
       cost_micro_usd: 1_000,
+      unpriced_calls: 0,
       ...over,
     },
     agents: agents.length > 0 ? agents : [{ agent_id: 'main', parent_agent_id: '', agent_type: '', calls: calls.length }],

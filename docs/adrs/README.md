@@ -107,7 +107,7 @@ An ADR changes status when a decision is made. Record the outcome in the ADR and
 | [0053](0053-spyglass-brand-palettes-and-theme-switching.md) | Spyglass brand, palettes and theme switching | Accepted | 0029, 0033, 0052 |
 | [0054](0054-rename-to-spyglass.md) | Rename llm-proxy to Spyglass | Accepted | 0053 |
 | [0055](0055-agent-facing-cli-axi-toon-output.md) | Agent-facing CLI with AXI (TOON) output | Proposed | 0009, 0019, 0021, 0023, 0024, 0052, 0054, 0056 |
-| [0056](0056-session-unpriced-calls.md) | Unpriced calls per session | Proposed | 0020, 0021, 0024, 0052 |
+| [0056](0056-session-unpriced-calls.md) | Unpriced calls per session | Completed | 0020, 0021, 0024, 0052 |
 
 ## Suggested implementation order
 
